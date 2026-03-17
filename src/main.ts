@@ -12,7 +12,7 @@ async function bootstrap() {
   expressApp.get('/', (_req: any, res: any) => res.redirect('/index.html'));
 
   // Global prefix
-  app.setGlobalPrefix('api/v1');
+  // No global prefix — endpoints at root: /auth, /users, /homestays, etc.
 
   // CORS
   app.enableCors({
@@ -37,10 +37,24 @@ async function bootstrap() {
     .setDescription('API quản lý homestay – đăng nhập, homestay, phòng, giá, đặt phòng, partner')
     .setVersion('1.0')
     .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', in: 'header' },
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        in: 'header',
+        description: 'Dành cho App Mobile — Gọi POST /auth/login để lấy accessToken, sau đó paste token vào đây',
+      },
       'access-token',
     )
-    .addApiKey({ type: 'apiKey', in: 'header', name: 'X-Partner-Key' }, 'partner-key')
+    .addApiKey(
+      {
+        type: 'apiKey',
+        in: 'header',
+        name: 'X-Partner-Key',
+        description: 'Chỉ dành cho đối tác bên ngoài — Dev app mobile KHÔNG cần quan tâm mục này',
+      },
+      'partner-key',
+    )
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('index.html', app, document);

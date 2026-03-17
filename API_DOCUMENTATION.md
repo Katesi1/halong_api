@@ -1,6 +1,6 @@
 # Homestay API Documentation
 
-> Base URL: `http://<server>:3000/api/v1`
+> Base URL: `http://<server>:3000`
 > Swagger UI: `http://<server>:3000/index.html`
 > Version: 1.0 | Cập nhật: 2026-03-17
 
@@ -48,7 +48,7 @@
   "statusCode": 400,
   "message": "Mô tả lỗi",
   "errors": null,
-  "path": "/api/v1/...",
+  "path": "/auth/login",
   "timestamp": "2026-03-17T00:00:00.000Z"
 }
 ```
