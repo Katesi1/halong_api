@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  OWNER
+  SALE
+}
+
+enum BookingStatus {
+  HOLD
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  name         String
+  phone        String    @unique
+  email        String?   @unique
+  password     String
+  role         Role      @default(SALE)
+  isActive     Boolean   @default(true)
+  refreshToken String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  homestays Homestay[]
+  bookings  Booking[]
+
+  @@map("users")
+}
+
+model Homestay {
+  id        String   @id @default(uuid())
+  ownerId   String
+  name      String
+  address   String
+  latitude  Float?
+  longitude Float?
+  mapLink   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  rooms Room[]
+
+  @@map("homestays")
+}
+
+model Room {
+  id          String   @id @default(uuid())
+  homestayId  String
+  name        String
+  code        String   @unique
+  bedrooms    Int      @default(1)
+  maxGuests   Int      @default(2)
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  homestay Homestay    @relation(fields: [homestayId], references: [id], onDelete: Cascade)
+  images   RoomImage[]
+  price    RoomPrice?
+  bookings Booking[]
+
+  @@map("rooms")
+}
+
+model RoomImage {
+  id         String   @id @default(uuid())
+  roomId     String
+  imageUrl   String
+  publicId   String   // Cloudinary public_id để xoá ảnh
+  isCover    Boolean  @default(false)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("room_images")
+}
+
+model RoomPrice {
+  id             String   @id @default(uuid())
+  roomId         String   @unique
+  weekdayPrice   Float    @default(0)
+  fridayPrice    Float    @default(0)
+  saturdayPrice  Float    @default(0)
+  holidayPrice   Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("room_prices")
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  roomId         String
+  saleId         String
+  checkinDate    DateTime
+  checkoutDate   DateTime
+  status         BookingStatus @default(HOLD)
+  holdExpireAt   DateTime?
+  customerName   String?
+  customerPhone  String?
+  depositAmount  Float?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  room Room @relation(fields: [roomId], references: [id])
+  sale User @relation(fields: [saleId], references: [id])
+
+  @@map("bookings")
+}
+
+model PartnerKey {
+  id          String   @id @default(uuid())
+  partnerName String
+  apiKey      String   @unique
+  isActive    Boolean  @default(true)
+  rateLimit   Int      @default(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("partner_keys")
+}

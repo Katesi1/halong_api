@@ -1,0 +1,101 @@
+export const vi = {
+  // ─── Auth ───────────────────────────────────────────────────────────────────
+  auth: {
+    invalidCredentials: 'Số điện thoại hoặc mật khẩu không đúng',
+    invalidToken: 'Token không hợp lệ',
+    invalidRefreshToken: 'Refresh token không hợp lệ',
+    expiredRefreshToken: 'Refresh token không hợp lệ hoặc đã hết hạn',
+    accountDisabled: 'Tài khoản không tồn tại hoặc đã bị vô hiệu hóa',
+    loginSuccess: 'Đăng nhập thành công',
+    refreshSuccess: 'Refresh token thành công',
+    logoutSuccess: 'Đăng xuất thành công',
+    profileSuccess: 'Lấy thông tin thành công',
+  },
+
+  // ─── API Key ─────────────────────────────────────────────────────────────────
+  apiKey: {
+    missing: 'API key bị thiếu',
+    invalid: 'API key không hợp lệ',
+  },
+
+  // ─── Users ───────────────────────────────────────────────────────────────────
+  users: {
+    notFound: 'Người dùng không tồn tại',
+    phoneDuplicate: 'Số điện thoại đã được sử dụng',
+    cannotDeleteSelf: 'Không thể xoá tài khoản của chính mình',
+    adminNotFound: 'Không tìm thấy admin',
+    listSuccess: 'Lấy danh sách người dùng thành công',
+    getSuccess: 'Lấy thông tin người dùng thành công',
+    createSuccess: 'Tạo người dùng thành công',
+    updateSuccess: 'Cập nhật người dùng thành công',
+    disableSuccess: 'Vô hiệu hóa người dùng thành công',
+  },
+
+  // ─── Homestays ───────────────────────────────────────────────────────────────
+  homestays: {
+    notFound: 'Homestay không tồn tại',
+    ownerNotFound: 'Owner không tồn tại',
+    forbidden: 'Bạn không có quyền truy cập homestay này',
+    listSuccess: 'Lấy danh sách homestay thành công',
+    getSuccess: 'Lấy thông tin homestay thành công',
+    createSuccess: 'Tạo homestay thành công',
+    updateSuccess: 'Cập nhật homestay thành công',
+    deleteSuccess: 'Xoá homestay thành công',
+  },
+
+  // ─── Rooms ───────────────────────────────────────────────────────────────────
+  rooms: {
+    notFound: 'Phòng không tồn tại',
+    codeDuplicate: 'Mã phòng đã tồn tại',
+    imageNotFound: 'Ảnh không tồn tại',
+    maxImages: (max: number) => `Tối đa ${max} ảnh mỗi phòng`,
+    uploadSuccess: (count: number) => `Upload ${count} ảnh thành công`,
+    forbiddenAdd: 'Bạn không có quyền thêm phòng vào homestay này',
+    forbidden: 'Bạn không có quyền thao tác phòng này',
+    listSuccess: 'Lấy danh sách phòng thành công',
+    getSuccess: 'Lấy thông tin phòng thành công',
+    createSuccess: 'Tạo phòng thành công',
+    updateSuccess: 'Cập nhật phòng thành công',
+    deleteSuccess: 'Xoá phòng thành công',
+    deleteImageSuccess: 'Xoá ảnh thành công',
+    setCoverSuccess: 'Đặt ảnh cover thành công',
+    calendarSuccess: 'Lấy lịch phòng thành công',
+  },
+
+  // ─── Prices ──────────────────────────────────────────────────────────────────
+  prices: {
+    notFound: 'Chưa có giá cho phòng này',
+    forbidden: 'Bạn không có quyền cập nhật giá phòng này',
+    getSuccess: 'Lấy giá phòng thành công',
+    upsertSuccess: 'Cập nhật giá phòng thành công',
+  },
+
+  // ─── Bookings ────────────────────────────────────────────────────────────────
+  bookings: {
+    notFound: 'Booking không tồn tại',
+    checkoutBeforeCheckin: 'Ngày check-out phải sau ngày check-in',
+    checkinInPast: 'Ngày check-in không thể trong quá khứ',
+    roomAlreadyBooked: 'Phòng đã được đặt trong khoảng thời gian này',
+    roomOnHold: (minutes: number) => `Phòng đang được giữ, còn ${minutes} phút nữa sẽ tự động huỷ`,
+    onlyConfirmHold: 'Chỉ có thể xác nhận booking đang ở trạng thái HOLD',
+    alreadyCancelled: 'Booking đã bị huỷ trước đó',
+    forbiddenConfirm: 'Bạn không có quyền xác nhận booking này',
+    forbiddenAccess: 'Bạn không có quyền truy cập booking này',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    listSuccess: 'Lấy danh sách booking thành công',
+    getSuccess: 'Lấy thông tin booking thành công',
+    holdSuccess: 'Giữ phòng thành công (30 phút)',
+    confirmSuccess: 'Xác nhận booking thành công',
+    cancelSuccess: 'Huỷ booking thành công',
+    updateSuccess: 'Cập nhật booking thành công',
+  },
+
+  // ─── Partner ─────────────────────────────────────────────────────────────────
+  partner: {
+    listSuccess: 'Lấy danh sách phòng thành công',
+    getSuccess: 'Lấy thông tin phòng thành công',
+    availabilitySuccess: 'Lấy lịch trống thành công',
+    bookingSuccess: 'Tạo booking thành công, chờ xác nhận',
+    cancelSuccess: 'Huỷ booking thành công',
+  },
+};

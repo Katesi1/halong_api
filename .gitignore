@@ -1,0 +1,27 @@
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables (không commit thông tin thật)
+.env
+.env.*.local
+
+# Build output
+dist
+coverage
+
+# Prisma
+/generated/prisma
+prisma/*.db
+
+# IDE / Editor
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+Thumbs.db
