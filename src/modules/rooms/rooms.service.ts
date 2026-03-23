@@ -9,7 +9,7 @@ import { CloudinaryService } from '../../config/cloudinary.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { Messages } from '../../i18n';
-import { Role } from '@prisma/client';
+import { BookingStatus, Role } from '@prisma/client';
 
 @Injectable()
 export class RoomsService {
@@ -18,11 +18,66 @@ export class RoomsService {
     private cloudinary: CloudinaryService,
   ) {}
 
+  async findPublic(
+    msg: Messages,
+    checkinDate?: string,
+    checkoutDate?: string,
+    guests?: number,
+    minPrice?: number,
+    maxPrice?: number,
+  ) {
+    const where: any = { isActive: true };
+
+    // Filter by guest capacity
+    if (guests) {
+      where.maxGuests = { gte: guests };
+    }
+
+    // Filter by price range (weekdayPrice)
+    if (minPrice || maxPrice) {
+      where.price = {};
+      if (minPrice) where.price.weekdayPrice = { ...where.price.weekdayPrice, gte: minPrice };
+      if (maxPrice) where.price.weekdayPrice = { ...where.price.weekdayPrice, lte: maxPrice };
+    }
+
+    let rooms = await this.prisma.room.findMany({
+      where,
+      include: {
+        homestay: {
+          select: { id: true, name: true, address: true, latitude: true, longitude: true, mapLink: true },
+        },
+        images: { orderBy: { order: 'asc' } },
+        price: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Filter by date availability (exclude rooms with conflicting bookings)
+    if (checkinDate && checkoutDate) {
+      const checkin = new Date(checkinDate);
+      const checkout = new Date(checkoutDate);
+
+      const conflictingBookings = await this.prisma.booking.findMany({
+        where: {
+          status: { in: [BookingStatus.HOLD, BookingStatus.CONFIRMED] },
+          checkinDate: { lt: checkout },
+          checkoutDate: { gt: checkin },
+        },
+        select: { roomId: true },
+      });
+
+      const bookedRoomIds = new Set(conflictingBookings.map(b => b.roomId));
+      rooms = rooms.filter(room => !bookedRoomIds.has(room.id));
+    }
+
+    return { message: msg.rooms.publicListSuccess, data: rooms };
+  }
+
   async findAll(user: { id: string; role: Role }, msg: Messages, homestayId?: string) {
     const where: any = { isActive: true };
     if (homestayId) where.homestayId = homestayId;
 
-    if (user.role === Role.OWNER) {
+    if (user.role === Role.STAFF) {
       where.homestay = { ownerId: user.id };
     }
 
@@ -65,7 +120,7 @@ export class RoomsService {
       where: { id: dto.homestayId },
     });
     if (!homestay) throw new NotFoundException(msg.homestays.notFound);
-    if (user.role === Role.OWNER && homestay.ownerId !== user.id) {
+    if (user.role === Role.STAFF && homestay.ownerId !== user.id) {
       throw new ForbiddenException(msg.rooms.forbiddenAdd);
     }
 
@@ -193,7 +248,7 @@ export class RoomsService {
       include: { homestay: { select: { ownerId: true } } },
     });
     if (!room || !room.isActive) throw new NotFoundException(msg.rooms.notFound);
-    if (user.role === Role.OWNER && room.homestay.ownerId !== user.id) {
+    if (user.role === Role.STAFF && room.homestay.ownerId !== user.id) {
       throw new ForbiddenException(msg.rooms.forbidden);
     }
     return room;

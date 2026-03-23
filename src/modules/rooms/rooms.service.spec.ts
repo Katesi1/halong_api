@@ -22,7 +22,7 @@ describe('RoomsService', () => {
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
-    homestay: { ownerId: 'owner-1' },
+    homestay: { ownerId: 'staff-1' },
   };
 
   beforeEach(async () => {
@@ -68,25 +68,25 @@ describe('RoomsService', () => {
 
   describe('create', () => {
     it('should throw ConflictException on duplicate code', async () => {
-      (prisma.homestay.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'owner-1' });
+      (prisma.homestay.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'staff-1' });
       (prisma.room.findUnique as jest.Mock).mockResolvedValue(mockRoom);
 
       await expect(
         service.create(
           { homestayId: 'hs-1', name: 'New', code: 'HS-A-101' },
-          { id: 'owner-1', role: 'OWNER' as any },
+          { id: 'staff-1', role: 'STAFF' as any },
           msg,
         ),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should throw ForbiddenException when OWNER adds room to another homestay', async () => {
-      (prisma.homestay.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'other-owner' });
+    it('should throw ForbiddenException when STAFF adds room to another homestay', async () => {
+      (prisma.homestay.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'other-staff' });
 
       await expect(
         service.create(
           { homestayId: 'hs-1', name: 'New', code: 'NEW-01' },
-          { id: 'owner-1', role: 'OWNER' as any },
+          { id: 'staff-1', role: 'STAFF' as any },
           msg,
         ),
       ).rejects.toThrow(ForbiddenException);
@@ -101,7 +101,7 @@ describe('RoomsService', () => {
       const files = Array(5).fill({ buffer: Buffer.from(''), mimetype: 'image/jpeg' }) as Express.Multer.File[];
 
       await expect(
-        service.uploadImages('room-1', files, { id: 'owner-1', role: 'OWNER' as any }, msg),
+        service.uploadImages('room-1', files, { id: 'staff-1', role: 'STAFF' as any }, msg),
       ).rejects.toThrow(ConflictException);
     });
   });
@@ -115,7 +115,7 @@ describe('RoomsService', () => {
       (prisma.roomImage.delete as jest.Mock).mockResolvedValue({});
       (prisma.roomImage.update as jest.Mock).mockResolvedValue({});
 
-      await service.deleteImage('room-1', 'img-1', { id: 'owner-1', role: 'OWNER' as any }, msg);
+      await service.deleteImage('room-1', 'img-1', { id: 'staff-1', role: 'STAFF' as any }, msg);
 
       expect(prisma.roomImage.update).toHaveBeenCalledWith({
         where: { id: 'img-2' },
@@ -130,7 +130,7 @@ describe('RoomsService', () => {
       (prisma.roomImage.updateMany as jest.Mock).mockResolvedValue({ count: 3 });
       (prisma.roomImage.update as jest.Mock).mockResolvedValue({ id: 'img-2', isCover: true });
 
-      await service.setCoverImage('room-1', 'img-2', { id: 'owner-1', role: 'OWNER' as any }, msg);
+      await service.setCoverImage('room-1', 'img-2', { id: 'staff-1', role: 'STAFF' as any }, msg);
 
       expect(prisma.roomImage.updateMany).toHaveBeenCalledWith({
         where: { roomId: 'room-1' },

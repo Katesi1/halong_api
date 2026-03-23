@@ -16,7 +16,7 @@ describe('UsersService', () => {
     phone: '0900000001',
     email: null,
     password: '$2a$10$hashedpassword',
-    role: 'SALE' as const,
+    role: 'STAFF' as const,
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -46,7 +46,7 @@ describe('UsersService', () => {
 
   describe('findAll', () => {
     it('should return user list without password', async () => {
-      const users = [{ id: 'u1', name: 'A', phone: '09001', email: null, role: 'SALE', isActive: true, createdAt: new Date() }];
+      const users = [{ id: 'u1', name: 'A', phone: '09001', email: null, role: 'STAFF', isActive: true, createdAt: new Date() }];
       (prisma.user.findMany as jest.Mock).mockResolvedValue(users);
 
       const result = await service.findAll(msg);
@@ -61,7 +61,7 @@ describe('UsersService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
 
       await expect(
-        service.create({ name: 'New', phone: '0900000001', password: 'Test@123', role: 'SALE' as any }, msg),
+        service.create({ name: 'New', phone: '0900000001', password: 'Test@123', role: 'STAFF' as any }, msg),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -73,7 +73,7 @@ describe('UsersService', () => {
         return Promise.resolve({ id: 'new-id', ...data });
       });
 
-      await service.create({ name: 'New', phone: '0900000002', password: 'Test@123', role: 'SALE' as any }, msg);
+      await service.create({ name: 'New', phone: '0900000002', password: 'Test@123', role: 'STAFF' as any }, msg);
 
       expect(prisma.user.create).toHaveBeenCalled();
     });

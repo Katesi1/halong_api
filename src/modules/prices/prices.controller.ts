@@ -25,7 +25,7 @@ export class PricesController {
   }
 
   @Put()
-  @Roles(Role.ADMIN, Role.OWNER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'Cập nhật/ tạo giá phòng (Admin/Owner)' })
   upsertPrice(
     @Param('roomId') roomId: string,

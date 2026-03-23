@@ -1,0 +1,3 @@
+-- Step 1: Add new enum values first
+ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'STAFF';
+ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'CUSTOMER';

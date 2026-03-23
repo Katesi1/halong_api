@@ -65,17 +65,18 @@ mobile/lib/
 
 ## 2. PHÂN QUYỀN (ROLES)
 
-| Role  | Quyền hạn |
-|-------|-----------|
-| ADMIN | Full quyền: quản lý users, homestay, phòng, giá, booking |
-| OWNER | CRUD homestay của mình, phòng, giá, xác nhận booking |
-| SALE  | Xem phòng, giữ phòng 30 phút, quản lý booking của mình |
+| Role     | Quyền hạn |
+|----------|-----------|
+| ADMIN    | Full quyền: quản lý users, homestay, phòng, giá, booking |
+| STAFF    | CRUD homestay/phòng, giữ phòng 30 phút, quản lý booking |
+| CUSTOMER | Xem phòng public, đặt phòng (hold 24h), xem/huỷ booking của mình |
 
 ### Quy tắc Guard
 - Mọi endpoint đều yêu cầu JWT (global `JwtAuthGuard`)
-- Dùng `@Public()` decorator cho các route không cần auth (login, refresh)
-- Dùng `@Roles(Role.ADMIN, Role.OWNER)` để giới hạn endpoint theo role
-- Owner chỉ được thao tác với dữ liệu của mình (kiểm tra `ownerId` trong service)
+- Dùng `@Public()` decorator cho các route không cần auth (login, register, refresh)
+- Dùng `@Roles(Role.ADMIN, Role.STAFF)` để giới hạn endpoint theo role
+- Staff chỉ được thao tác với dữ liệu của mình (kiểm tra `ownerId` trong service)
+- ADMIN/STAFF có thể gọi endpoint Customer khi toggle "Xem như khách"
 
 ---
 

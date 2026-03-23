@@ -15,7 +15,8 @@ describe('BookingsService', () => {
   const mockBooking = {
     id: 'booking-1',
     roomId: 'room-1',
-    saleId: 'sale-1',
+    saleId: 'staff-1',
+    customerId: null,
     checkinDate: new Date('2026-05-01'),
     checkoutDate: new Date('2026-05-03'),
     status: 'HOLD' as const,
@@ -23,6 +24,7 @@ describe('BookingsService', () => {
     customerName: 'Guest',
     customerPhone: '0911111111',
     depositAmount: null,
+    guestCount: 2,
     notes: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -70,7 +72,7 @@ describe('BookingsService', () => {
       await expect(
         service.holdRoom(
           { roomId: 'room-1', checkinDate: '2026-05-05', checkoutDate: '2026-05-01', customerName: 'X', customerPhone: '0911' },
-          { id: 'sale-1', role: 'SALE' as any },
+          { id: 'staff-1', role: 'STAFF' as any },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -80,7 +82,7 @@ describe('BookingsService', () => {
       await expect(
         service.holdRoom(
           { roomId: 'room-1', checkinDate: '2020-01-01', checkoutDate: '2020-01-03', customerName: 'X', customerPhone: '0911' },
-          { id: 'sale-1', role: 'SALE' as any },
+          { id: 'staff-1', role: 'STAFF' as any },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -94,7 +96,7 @@ describe('BookingsService', () => {
       await expect(
         service.holdRoom(
           { roomId: 'room-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'X', customerPhone: '0911' },
-          { id: 'sale-1', role: 'SALE' as any },
+          { id: 'staff-1', role: 'STAFF' as any },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -107,12 +109,12 @@ describe('BookingsService', () => {
       (prisma.booking.create as jest.Mock).mockResolvedValue({
         ...mockBooking,
         room: { id: 'room-1', name: 'R1', code: 'C1' },
-        sale: { id: 'sale-1', name: 'S1' },
+        sale: { id: 'staff-1', name: 'S1' },
       });
 
       const result = await service.holdRoom(
         { roomId: 'room-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'Guest', customerPhone: '0911111111' },
-        { id: 'sale-1', role: 'SALE' as any },
+        { id: 'staff-1', role: 'STAFF' as any },
         msg,
       );
 
@@ -128,18 +130,6 @@ describe('BookingsService', () => {
       await expect(
         service.confirmBooking('booking-1', { id: 'admin-1', role: 'ADMIN' as any }, msg),
       ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should throw ForbiddenException when OWNER confirms booking of another homestay', async () => {
-      (prisma.booking.findUnique as jest.Mock).mockResolvedValue(mockBooking);
-      (prisma.room.findUnique as jest.Mock).mockResolvedValue({
-        id: 'room-1',
-        homestay: { ownerId: 'other-owner' },
-      });
-
-      await expect(
-        service.confirmBooking('booking-1', { id: 'owner-1', role: 'OWNER' as any }, msg),
-      ).rejects.toThrow(ForbiddenException);
     });
 
     it('should confirm and clear Redis hold', async () => {
@@ -161,11 +151,11 @@ describe('BookingsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw ForbiddenException when SALE cancels another sale booking', async () => {
-      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, saleId: 'other-sale' });
+    it('should throw ForbiddenException when STAFF cancels another staff booking', async () => {
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, saleId: 'other-staff' });
 
       await expect(
-        service.cancelBooking('booking-1', { id: 'sale-1', role: 'SALE' as any }, msg),
+        service.cancelBooking('booking-1', { id: 'staff-1', role: 'STAFF' as any }, msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });

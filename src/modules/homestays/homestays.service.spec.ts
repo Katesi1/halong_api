@@ -12,7 +12,7 @@ describe('HomestaysService', () => {
 
   const mockHomestay = {
     id: 'hs-1',
-    ownerId: 'owner-1',
+    ownerId: 'staff-1',
     name: 'Homestay A',
     address: '123 Beach',
     latitude: null,
@@ -49,14 +49,14 @@ describe('HomestaysService', () => {
   });
 
   describe('findAll', () => {
-    it('should filter by ownerId when user is OWNER', async () => {
+    it('should filter by ownerId when user is STAFF', async () => {
       (prisma.homestay.findMany as jest.Mock).mockResolvedValue([mockHomestay]);
 
-      await service.findAll({ id: 'owner-1', role: 'OWNER' as any }, msg);
+      await service.findAll({ id: 'staff-1', role: 'STAFF' as any }, msg);
 
       expect(prisma.homestay.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { ownerId: 'owner-1', isActive: true },
+          where: { ownerId: 'staff-1', isActive: true },
         }),
       );
     });
@@ -89,11 +89,11 @@ describe('HomestaysService', () => {
   });
 
   describe('update', () => {
-    it('should throw ForbiddenException when OWNER updates another owner homestay', async () => {
+    it('should throw ForbiddenException when STAFF updates another owner homestay', async () => {
       (prisma.homestay.findUnique as jest.Mock).mockResolvedValue(mockHomestay);
 
       await expect(
-        service.update('hs-1', { name: 'X' }, { id: 'other-owner', role: 'OWNER' as any }, msg),
+        service.update('hs-1', { name: 'X' }, { id: 'other-staff', role: 'STAFF' as any }, msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -103,7 +103,7 @@ describe('HomestaysService', () => {
       (prisma.homestay.findUnique as jest.Mock).mockResolvedValue(mockHomestay);
       (prisma.homestay.update as jest.Mock).mockResolvedValue({ ...mockHomestay, isActive: false });
 
-      await service.remove('hs-1', { id: 'owner-1', role: 'OWNER' as any }, msg);
+      await service.remove('hs-1', { id: 'staff-1', role: 'STAFF' as any }, msg);
 
       expect(prisma.homestay.update).toHaveBeenCalledWith({
         where: { id: 'hs-1' },
@@ -115,7 +115,7 @@ describe('HomestaysService', () => {
       (prisma.homestay.findUnique as jest.Mock).mockResolvedValue({ ...mockHomestay, isActive: false });
 
       await expect(
-        service.remove('hs-1', { id: 'owner-1', role: 'OWNER' as any }, msg),
+        service.remove('hs-1', { id: 'staff-1', role: 'STAFF' as any }, msg),
       ).rejects.toThrow(NotFoundException);
     });
   });

@@ -35,21 +35,21 @@ export class HomestaysController {
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.OWNER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'Tạo homestay (Admin/Owner)' })
   create(@Body() dto: CreateHomestayDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.homestaysService.create(dto, user, msg);
   }
 
   @Put(':id')
-  @Roles(Role.ADMIN, Role.OWNER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'Cập nhật homestay' })
   update(@Param('id') id: string, @Body() dto: UpdateHomestayDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.homestaysService.update(id, dto, user, msg);
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN, Role.OWNER)
+  @Roles(Role.ADMIN, Role.STAFF)
   @ApiOperation({ summary: 'Xóa homestay' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.homestaysService.remove(id, user, msg);

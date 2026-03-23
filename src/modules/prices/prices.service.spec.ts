@@ -60,14 +60,14 @@ describe('PricesService', () => {
   });
 
   describe('upsertPrice', () => {
-    it('should throw ForbiddenException when OWNER updates another owner room', async () => {
+    it('should throw ForbiddenException when STAFF updates another owner room', async () => {
       (prisma.room.findUnique as jest.Mock).mockResolvedValue({
         id: 'room-1',
-        homestay: { ownerId: 'other-owner' },
+        homestay: { ownerId: 'other-staff' },
       });
 
       await expect(
-        service.upsertPrice('room-1', { weekdayPrice: 100 }, { id: 'owner-1', role: 'OWNER' as any }, msg),
+        service.upsertPrice('room-1', { weekdayPrice: 100 }, { id: 'staff-1', role: 'STAFF' as any }, msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });

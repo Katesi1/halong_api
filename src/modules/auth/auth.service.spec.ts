@@ -22,7 +22,7 @@ describe('AuthService', () => {
     phone: '0900000001',
     email: null,
     password: hashedPassword,
-    role: 'SALE' as const,
+    role: 'STAFF' as const,
     isActive: true,
     refreshToken: bcrypt.hashSync('valid-refresh-token', 10),
     createdAt: new Date(),
@@ -149,7 +149,7 @@ describe('AuthService', () => {
         name: 'Test',
         phone: '0900000001',
         email: null,
-        role: 'SALE',
+        role: 'STAFF',
         createdAt: new Date(),
       });
 

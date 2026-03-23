@@ -25,7 +25,7 @@ export class PricesService {
       include: { homestay: { select: { ownerId: true } } },
     });
     if (!room) throw new NotFoundException(msg.rooms.notFound);
-    if (user.role === Role.OWNER && room.homestay.ownerId !== user.id) {
+    if (user.role === Role.STAFF && room.homestay.ownerId !== user.id) {
       throw new ForbiddenException(msg.prices.forbidden);
     }
 

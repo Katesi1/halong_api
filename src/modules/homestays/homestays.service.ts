@@ -15,7 +15,7 @@ export class HomestaysService {
 
   async findAll(user: { id: string; role: Role }, msg: Messages) {
     const where =
-      user.role === Role.OWNER
+      user.role === Role.STAFF
         ? { ownerId: user.id, isActive: true }
         : { isActive: true };
 
@@ -105,7 +105,7 @@ export class HomestaysService {
   }
 
   private checkOwnerAccess(homestay: any, user: { id: string; role: Role }, msg: Messages) {
-    if (user.role === Role.OWNER && homestay.ownerId !== user.id) {
+    if (user.role === Role.STAFF && homestay.ownerId !== user.id) {
       throw new ForbiddenException(msg.homestays.forbidden);
     }
   }

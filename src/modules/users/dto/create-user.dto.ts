@@ -26,6 +26,6 @@ export class CreateUserDto {
   password: string;
 
   @ApiProperty({ enum: Role })
-  @IsEnum(Role, { message: 'Role không hợp lệ (ADMIN, OWNER, SALE)' })
+  @IsEnum(Role, { message: 'Role không hợp lệ (ADMIN, STAFF, CUSTOMER)' })
   role: Role;
 }

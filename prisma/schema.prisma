@@ -9,8 +9,8 @@ datasource db {
 
 enum Role {
   ADMIN
-  OWNER
-  SALE
+  STAFF
+  CUSTOMER
 }
 
 enum BookingStatus {
@@ -26,14 +26,15 @@ model User {
   phone        String    @unique
   email        String?   @unique
   password     String
-  role         Role      @default(SALE)
+  role         Role      @default(STAFF)
   isActive     Boolean   @default(true)
   refreshToken String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  homestays Homestay[]
-  bookings  Booking[]
+  homestays        Homestay[]
+  saleBookings     Booking[]  @relation("SaleBookings")
+  customerBookings Booking[]  @relation("CustomerBookings")
 
   @@map("users")
 }
@@ -108,7 +109,8 @@ model RoomPrice {
 model Booking {
   id             String        @id @default(uuid())
   roomId         String
-  saleId         String
+  saleId         String?
+  customerId     String?
   checkinDate    DateTime
   checkoutDate   DateTime
   status         BookingStatus @default(HOLD)
@@ -116,12 +118,14 @@ model Booking {
   customerName   String?
   customerPhone  String?
   depositAmount  Float?
+  guestCount     Int           @default(2)
   notes          String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  room Room @relation(fields: [roomId], references: [id])
-  sale User @relation(fields: [saleId], references: [id])
+  room     Room  @relation(fields: [roomId], references: [id])
+  sale     User? @relation("SaleBookings", fields: [saleId], references: [id])
+  customer User? @relation("CustomerBookings", fields: [customerId], references: [id])
 
   @@map("bookings")
 }
