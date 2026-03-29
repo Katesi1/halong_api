@@ -12,7 +12,7 @@ async function bootstrap() {
   expressApp.get('/', (_req: any, res: any) => res.redirect('/index.html'));
 
   // Global prefix
-  // No global prefix — endpoints at root: /auth, /users, /homestays, etc.
+  // No global prefix — endpoints at root: /auth, /users, /properties, etc.
 
   // CORS
   app.enableCors({
@@ -33,8 +33,8 @@ async function bootstrap() {
 
   // Swagger
   const config = new DocumentBuilder()
-    .setTitle('Homestay API')
-    .setDescription('API quản lý homestay – đăng nhập, homestay, phòng, giá, đặt phòng, partner')
+    .setTitle('Halong24h API')
+    .setDescription('API quản lý property – đăng nhập, property, phòng, giá, đặt phòng, partner')
     .setVersion('1.0')
     .addBearerAuth(
       {

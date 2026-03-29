@@ -2,10 +2,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class CreateHomestayDto {
+export class CreatePropertyDto {
   @ApiProperty()
   @IsString()
-  @IsNotEmpty({ message: 'Tên homestay không được để trống' })
+  @IsNotEmpty({ message: 'Tên cơ sở không được để trống' })
   name: string;
 
   @ApiProperty()

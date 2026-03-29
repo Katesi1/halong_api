@@ -1,4 +1,10 @@
 export const en = {
+  // ─── Common ─────────────────────────────────────────────────────────────────
+  common: {
+    serverError: 'Internal server error',
+    forbidden: 'You do not have permission to perform this action',
+  },
+
   // ─── Auth ───────────────────────────────────────────────────────────────────
   auth: {
     invalidCredentials: 'Phone number or password is incorrect',
@@ -19,6 +25,8 @@ export const en = {
     refreshSuccess: 'Token refreshed successfully',
     logoutSuccess: 'Logout successful',
     profileSuccess: 'Profile retrieved successfully',
+    changePasswordSuccess: 'Password changed successfully',
+    currentPasswordIncorrect: 'Current password is incorrect',
   },
 
   // ─── API Key ─────────────────────────────────────────────────────────────────
@@ -40,16 +48,16 @@ export const en = {
     disableSuccess: 'User disabled successfully',
   },
 
-  // ─── Homestays ───────────────────────────────────────────────────────────────
-  homestays: {
-    notFound: 'Homestay not found',
+  // ─── Propertys ───────────────────────────────────────────────────────────────
+  properties: {
+    notFound: 'Property not found',
     ownerNotFound: 'Owner not found',
-    forbidden: 'You do not have access to this homestay',
-    listSuccess: 'Homestay list retrieved successfully',
-    getSuccess: 'Homestay retrieved successfully',
-    createSuccess: 'Homestay created successfully',
-    updateSuccess: 'Homestay updated successfully',
-    deleteSuccess: 'Homestay deleted successfully',
+    forbidden: 'You do not have access to this property',
+    listSuccess: 'Property list retrieved successfully',
+    getSuccess: 'Property retrieved successfully',
+    createSuccess: 'Property created successfully',
+    updateSuccess: 'Property updated successfully',
+    deleteSuccess: 'Property deleted successfully',
   },
 
   // ─── Rooms ───────────────────────────────────────────────────────────────────
@@ -59,7 +67,7 @@ export const en = {
     imageNotFound: 'Image not found',
     maxImages: (max: number) => `Maximum ${max} images per room`,
     uploadSuccess: (count: number) => `${count} image(s) uploaded successfully`,
-    forbiddenAdd: 'You do not have permission to add rooms to this homestay',
+    forbiddenAdd: 'You do not have permission to add rooms to this property',
     forbidden: 'You do not have permission to manage this room',
     listSuccess: 'Room list retrieved successfully',
     publicListSuccess: 'Public room list retrieved successfully',
@@ -114,5 +122,32 @@ export const en = {
     availabilitySuccess: 'Availability retrieved successfully',
     bookingSuccess: 'Booking created successfully, awaiting confirmation',
     cancelSuccess: 'Booking cancelled successfully',
+  },
+
+  // ─── Calendar ───────────────────────────────────────────────────────────────
+  calendar: {
+    propertyGroupsSuccess: 'Property groups retrieved successfully',
+    gridSuccess: 'Calendar grid retrieved successfully',
+    lockSuccess: 'Room locked successfully',
+    unlockSuccess: 'Room unlocked successfully',
+    adminContactSuccess: 'Admin contact retrieved successfully',
+    cannotUnlockBooked: 'Cannot unlock a booked date, only held dates can be unlocked',
+    dateAlreadyBooked: 'This date is already booked or held',
+    roomNotFound: 'Room not found',
+  },
+
+  // ─── Notifications ──────────────────────────────────────────────────────────
+  notifications: {
+    listSuccess: 'Notifications retrieved successfully',
+    unreadCountSuccess: 'Unread count retrieved successfully',
+    markReadSuccess: 'Notification marked as read',
+    markAllReadSuccess: 'All notifications marked as read',
+    notFound: 'Notification not found',
+  },
+
+  // ─── Dashboard ──────────────────────────────────────────────────────────────
+  dashboard: {
+    statsSuccess: 'Dashboard stats retrieved successfully',
+    reportsSuccess: 'Report data retrieved successfully',
   },
 };

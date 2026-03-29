@@ -13,7 +13,7 @@ describe('RoomsService', () => {
 
   const mockRoom = {
     id: 'room-1',
-    homestayId: 'hs-1',
+    propertyId: 'hs-1',
     name: 'Room 101',
     code: 'HS-A-101',
     bedrooms: 2,
@@ -22,7 +22,7 @@ describe('RoomsService', () => {
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
-    homestay: { ownerId: 'staff-1' },
+    property: { ownerId: 'staff-1' },
   };
 
   beforeEach(async () => {
@@ -38,7 +38,7 @@ describe('RoomsService', () => {
               create: jest.fn(),
               update: jest.fn(),
             },
-            homestay: {
+            property: {
               findUnique: jest.fn(),
             },
             roomImage: {
@@ -68,24 +68,24 @@ describe('RoomsService', () => {
 
   describe('create', () => {
     it('should throw ConflictException on duplicate code', async () => {
-      (prisma.homestay.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'staff-1' });
+      (prisma.property.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'staff-1' });
       (prisma.room.findUnique as jest.Mock).mockResolvedValue(mockRoom);
 
       await expect(
         service.create(
-          { homestayId: 'hs-1', name: 'New', code: 'HS-A-101' },
+          { propertyId: 'hs-1', name: 'New', code: 'HS-A-101' },
           { id: 'staff-1', role: 'STAFF' as any },
           msg,
         ),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('should throw ForbiddenException when STAFF adds room to another homestay', async () => {
-      (prisma.homestay.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'other-staff' });
+    it('should throw ForbiddenException when STAFF adds room to another property', async () => {
+      (prisma.property.findUnique as jest.Mock).mockResolvedValue({ id: 'hs-1', ownerId: 'other-staff' });
 
       await expect(
         service.create(
-          { homestayId: 'hs-1', name: 'New', code: 'NEW-01' },
+          { propertyId: 'hs-1', name: 'New', code: 'NEW-01' },
           { id: 'staff-1', role: 'STAFF' as any },
           msg,
         ),

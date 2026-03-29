@@ -7,6 +7,7 @@ import { GoogleAuthDto } from './dto/google-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
@@ -75,5 +76,17 @@ export class AuthController {
   @ApiOperation({ summary: 'Lấy thông tin user đăng nhập' })
   getProfile(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
     return this.authService.getProfile(userId, msg);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Đổi mật khẩu', description: 'Đổi mật khẩu khi đang đăng nhập' })
+  changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.changePassword(userId, dto, msg);
   }
 }

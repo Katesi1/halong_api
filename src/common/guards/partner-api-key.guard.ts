@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getMessages } from '../../i18n';
 
 @Injectable()
 export class PartnerApiKeyGuard implements CanActivate {
@@ -10,10 +11,11 @@ export class PartnerApiKeyGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
+    const msg = getMessages(request.headers?.['accept-language']);
     const apiKey = request.headers['x-partner-key'];
 
     if (!apiKey) {
-      throw new UnauthorizedException('API key is missing');
+      throw new UnauthorizedException(msg.apiKey.missing);
     }
 
     const partner = await this.prisma.partnerKey.findUnique({
@@ -21,7 +23,7 @@ export class PartnerApiKeyGuard implements CanActivate {
     });
 
     if (!partner || !partner.isActive) {
-      throw new UnauthorizedException('Invalid API key');
+      throw new UnauthorizedException(msg.apiKey.invalid);
     }
 
     request.partner = partner;

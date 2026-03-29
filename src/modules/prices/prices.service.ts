@@ -22,10 +22,10 @@ export class PricesService {
   ) {
     const room = await this.prisma.room.findUnique({
       where: { id: roomId },
-      include: { homestay: { select: { ownerId: true } } },
+      include: { property: { select: { ownerId: true } } },
     });
     if (!room) throw new NotFoundException(msg.rooms.notFound);
-    if (user.role === Role.STAFF && room.homestay.ownerId !== user.id) {
+    if (user.role === Role.STAFF && room.property.ownerId !== user.id) {
       throw new ForbiddenException(msg.prices.forbidden);
     }
 

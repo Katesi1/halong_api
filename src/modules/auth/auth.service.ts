@@ -13,6 +13,7 @@ import { RegisterDto } from './dto/register.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Messages } from '../../i18n';
 import * as bcrypt from 'bcryptjs';
 
@@ -226,7 +227,7 @@ export class AuthService {
         where: { id: payload.sub },
       });
 
-      if (!user || !user.refreshToken) {
+      if (!user || !user.refreshToken || !user.isActive) {
         throw new ForbiddenException(msg.auth.invalidRefreshToken);
       }
 
@@ -261,9 +262,30 @@ export class AuthService {
   async getProfile(userId: string, msg: Messages) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, phone: true, email: true, role: true, isActive: true, createdAt: true },
+      select: {
+        id: true, name: true, phone: true, email: true,
+        role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
+      },
     });
     return { message: msg.auth.profileSuccess, data: user };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto, msg: Messages) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException(msg.auth.accountDisabled);
+
+    const isPasswordValid = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!isPasswordValid) {
+      throw new BadRequestException(msg.auth.currentPasswordIncorrect);
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    return { message: msg.auth.changePasswordSuccess, data: null };
   }
 
   private async generateTokens(userId: string, phone: string, role: string) {

@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class UpdateHomestayDto {
+export class UpdatePropertyDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -29,6 +29,16 @@ export class UpdateHomestayDto {
   @IsOptional()
   @IsString()
   mapLink?: string;
+
+  @ApiPropertyOptional({ description: 'Nội quy cơ sở' })
+  @IsOptional()
+  @IsString()
+  rules?: string;
+
+  @ApiPropertyOptional({ description: 'Dịch vụ cơ sở' })
+  @IsOptional()
+  @IsString()
+  services?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

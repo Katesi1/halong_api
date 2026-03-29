@@ -63,7 +63,7 @@ describe('PricesService', () => {
     it('should throw ForbiddenException when STAFF updates another owner room', async () => {
       (prisma.room.findUnique as jest.Mock).mockResolvedValue({
         id: 'room-1',
-        homestay: { ownerId: 'other-staff' },
+        property: { ownerId: 'other-staff' },
       });
 
       await expect(

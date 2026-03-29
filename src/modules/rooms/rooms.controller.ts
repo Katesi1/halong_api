@@ -54,9 +54,10 @@ export class RoomsController {
 
   @Get()
   @Roles(Role.ADMIN, Role.STAFF)
-  @ApiOperation({ summary: 'Danh sách phòng (nội bộ)', description: 'Có thể lọc theo homestayId' })
-  findAll(@CurrentUser() user: any, @Query('homestayId') homestayId: string, @Lang() msg: Messages) {
-    return this.roomsService.findAll(user, msg, homestayId);
+  @ApiOperation({ summary: 'Danh sách phòng (nội bộ)', description: 'Có thể lọc theo propertyId' })
+  @ApiQuery({ name: 'propertyId', required: false, description: 'Lọc theo property' })
+  findAll(@CurrentUser() user: any, @Query('propertyId') propertyId: string, @Lang() msg: Messages) {
+    return this.roomsService.findAll(user, msg, propertyId);
   }
 
   @Get(':id')

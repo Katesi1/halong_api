@@ -20,6 +20,25 @@ enum BookingStatus {
   COMPLETED
 }
 
+enum RoomType {
+  VILLA
+  HOMESTAY
+  APARTMENT
+  HOTEL
+}
+
+enum CancellationPolicy {
+  FLEXIBLE
+  MODERATE
+  STRICT
+}
+
+enum NotificationType {
+  BOOKING
+  PAYMENT
+  SYSTEM
+}
+
 model User {
   id           String    @id @default(uuid())
   name         String
@@ -28,18 +47,21 @@ model User {
   password     String
   role         Role      @default(STAFF)
   isActive     Boolean   @default(true)
+  gender       String?
+  dateOfBirth  DateTime?
   refreshToken String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  homestays        Homestay[]
+  properties       Property[]
+  notifications    Notification[]
   saleBookings     Booking[]  @relation("SaleBookings")
   customerBookings Booking[]  @relation("CustomerBookings")
 
   @@map("users")
 }
 
-model Homestay {
+model Property {
   id        String   @id @default(uuid())
   ownerId   String
   name      String
@@ -47,6 +69,8 @@ model Homestay {
   latitude  Float?
   longitude Float?
   mapLink   String?
+  rules     String?
+  services  String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -54,22 +78,31 @@ model Homestay {
   owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   rooms Room[]
 
-  @@map("homestays")
+  @@map("properties")
 }
 
 model Room {
-  id          String   @id @default(uuid())
-  homestayId  String
-  name        String
-  code        String   @unique
-  bedrooms    Int      @default(1)
-  maxGuests   Int      @default(2)
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                 String              @id @default(uuid())
+  propertyId         String
+  name               String
+  code               String              @unique
+  type               RoomType?
+  bedrooms           Int                 @default(1)
+  bathrooms          Int                 @default(1)
+  standardGuests     Int                 @default(2)
+  maxGuests          Int                 @default(2)
+  description        String?
+  address            String?
+  mapLink            String?
+  amenities          String[]            @default([])
+  cancellationPolicy CancellationPolicy?
+  adultSurcharge     Float?
+  childSurcharge     Float?
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
-  homestay Homestay    @relation(fields: [homestayId], references: [id], onDelete: Cascade)
+  property Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   images   RoomImage[]
   price    RoomPrice?
   bookings Booking[]
@@ -140,4 +173,21 @@ model PartnerKey {
   updatedAt   DateTime @updatedAt
 
   @@map("partner_keys")
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  userId     String
+  title      String
+  subtitle   String?
+  type       NotificationType @default(SYSTEM)
+  isRead     Boolean          @default(false)
+  targetId   String?
+  targetType String?
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
 }

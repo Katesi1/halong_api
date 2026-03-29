@@ -42,7 +42,7 @@ export class BookingsService {
         room: {
           select: {
             id: true, name: true, code: true,
-            homestay: { select: { id: true, name: true } },
+            property: { select: { id: true, name: true } },
           },
         },
         sale: { select: { id: true, name: true, phone: true } },
@@ -67,7 +67,7 @@ export class BookingsService {
       include: {
         room: {
           include: {
-            homestay: true,
+            property: true,
             images: { orderBy: { order: 'asc' }, take: 5 },
             price: true,
           },
@@ -169,6 +169,8 @@ export class BookingsService {
     const booking = await this.prisma.booking.findUnique({ where: { id } });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
+    await this.checkBookingAccess(booking, user, msg);
+
     if (booking.status !== BookingStatus.HOLD) {
       throw new BadRequestException(msg.bookings.onlyConfirmHold);
     }
@@ -208,9 +210,19 @@ export class BookingsService {
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
     await this.checkBookingAccess(booking, user, msg);
 
+    const data: any = { ...dto };
+    if (dto.checkinDate) data.checkinDate = new Date(dto.checkinDate);
+    if (dto.checkoutDate) data.checkoutDate = new Date(dto.checkoutDate);
+
+    // Nếu chuyển sang CONFIRMED/CANCELLED → xoá hold
+    if (dto.status === BookingStatus.CONFIRMED || dto.status === BookingStatus.CANCELLED) {
+      data.holdExpireAt = null;
+      await this.redis.delHold(booking.roomId);
+    }
+
     const updated = await this.prisma.booking.update({
       where: { id },
-      data: dto,
+      data,
     });
 
     return { message: msg.bookings.updateSuccess, data: updated };
@@ -263,7 +275,7 @@ export class BookingsService {
     // Check room exists and is active
     const room = await this.prisma.room.findUnique({
       where: { id: roomId },
-      include: { homestay: { select: { name: true } } },
+      include: { property: { select: { name: true } } },
     });
     if (!room || !room.isActive) throw new NotFoundException(msg.rooms.notFound);
 
@@ -298,7 +310,7 @@ export class BookingsService {
         room: {
           select: {
             name: true,
-            homestay: { select: { name: true } },
+            property: { select: { name: true } },
           },
         },
       },
@@ -322,7 +334,7 @@ export class BookingsService {
         room: {
           select: {
             id: true, name: true, code: true,
-            homestay: { select: { id: true, name: true } },
+            property: { select: { id: true, name: true } },
           },
         },
       },

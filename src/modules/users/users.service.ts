@@ -20,7 +20,7 @@ export class UsersService {
       where: role ? { role } : undefined,
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, isActive: true, createdAt: true,
+        role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -32,8 +32,8 @@ export class UsersService {
       where: { id },
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, isActive: true, createdAt: true,
-        homestays: {
+        role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
+        properties: {
           select: { id: true, name: true, address: true },
           where: { isActive: true },
         },
@@ -52,7 +52,8 @@ export class UsersService {
     const user = await this.prisma.user.create({
       data: { ...dto, password: hashedPassword },
       select: {
-        id: true, name: true, phone: true, email: true, role: true, createdAt: true,
+        id: true, name: true, phone: true, email: true, role: true,
+        gender: true, dateOfBirth: true, createdAt: true,
       },
     });
 
@@ -68,17 +69,19 @@ export class UsersService {
       if (existing) throw new ConflictException(msg.users.phoneDuplicate);
     }
 
-    const { password, ...rest } = dto;
-    const data = {
+    const { password, dateOfBirth, ...rest } = dto;
+    const data: any = {
       ...rest,
       ...(password ? { password: await bcrypt.hash(password, 10) } : {}),
+      ...(dateOfBirth ? { dateOfBirth: new Date(dateOfBirth) } : {}),
     };
 
     const updated = await this.prisma.user.update({
       where: { id },
       data,
       select: {
-        id: true, name: true, phone: true, email: true, role: true, isActive: true, updatedAt: true,
+        id: true, name: true, phone: true, email: true, role: true,
+        isActive: true, gender: true, dateOfBirth: true, updatedAt: true,
       },
     });
 

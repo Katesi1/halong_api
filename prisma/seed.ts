@@ -17,7 +17,7 @@ async function main() {
   await prisma.roomPrice.deleteMany();
   await prisma.roomImage.deleteMany();
   await prisma.room.deleteMany();
-  await prisma.homestay.deleteMany();
+  await prisma.property.deleteMany();
 
   const commonPassword = await bcrypt.hash('Abcd@1234', 10);
   const adminPhone = process.env.ADMIN_PHONE || 'Admin';
@@ -69,21 +69,21 @@ async function main() {
   console.log('   STAFF    — email: stafftest@gmail.com / password: Abcd@1234');
   console.log('   CUSTOMER — email: usertest@gmail.com / password: Abcd@1234');
 
-  // 2. Homestays (5 records)
-  const homestays = await Promise.all([
-    prisma.homestay.create({ data: { ownerId: staffUsers[0].id, name: 'Halong Bay Resort', address: 'Bãi Cháy, Hạ Long', latitude: 20.9545, longitude: 107.0509 } }),
-    prisma.homestay.create({ data: { ownerId: staffUsers[0].id, name: 'Sunshine House', address: '45 Sun Rd, Vung Tau' } }),
-    prisma.homestay.create({ data: { ownerId: staffUsers[0].id, name: 'Ocean Villa', address: '88 Beachside, Nha Trang' } }),
-    prisma.homestay.create({ data: { ownerId: staffUsers[0].id, name: 'Mountain Retreat', address: '12 Pine Hill, Sapa' } }),
-    prisma.homestay.create({ data: { ownerId: staffUsers[0].id, name: 'City Center Condo', address: '99 District 1, HCMC' } }),
+  // 2. Properties (5 records)
+  const properties = await Promise.all([
+    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Halong Bay Resort', address: 'Bãi Cháy, Hạ Long', latitude: 20.9545, longitude: 107.0509 } }),
+    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Sunshine House', address: '45 Sun Rd, Vung Tau' } }),
+    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Ocean Villa', address: '88 Beachside, Nha Trang' } }),
+    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Mountain Retreat', address: '12 Pine Hill, Sapa' } }),
+    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'City Center Condo', address: '99 District 1, HCMC' } }),
   ]);
-  console.log('✅ Homestays seeded (5 records)');
+  console.log('✅ Properties seeded (5 records)');
 
-  // 3. Rooms (5 records - 1 per homestay)
-  const rooms = await Promise.all(homestays.map((hs, i) =>
+  // 3. Rooms (5 records - 1 per property)
+  const rooms = await Promise.all(properties.map((hs, i) =>
     prisma.room.create({
       data: {
-        homestayId: hs.id,
+        propertyId: hs.id,
         name: `Room Type ${i + 1}`,
         code: `P.${(i + 1) * 101}`,
         bedrooms: Math.ceil((i + 1) / 2),

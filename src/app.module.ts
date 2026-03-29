@@ -10,11 +10,14 @@ import { CloudinaryModule } from './config/cloudinary.module';
 
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
-import { HomestaysModule } from './modules/homestays/homestays.module';
+import { PropertiesModule } from './modules/properties/properties.module';
 import { RoomsModule } from './modules/rooms/rooms.module';
 import { PricesModule } from './modules/prices/prices.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { PartnerModule } from './modules/partner/partner.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -31,11 +34,14 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     CloudinaryModule,
     AuthModule,
     UsersModule,
-    HomestaysModule,
+    PropertiesModule,
     RoomsModule,
     PricesModule,
     BookingsModule,
     PartnerModule,
+    CalendarModule,
+    NotificationsModule,
+    DashboardModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

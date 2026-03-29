@@ -21,13 +21,13 @@ export class PartnerController {
   @Get('rooms')
   @ApiOperation({ summary: 'Danh sách phòng (header: X-Partner-Key)' })
   getRooms(
-    @Query('homestayId') homestayId: string,
+    @Query('propertyId') propertyId: string,
     @Query('page') page: string,
     @Query('limit') limit: string,
     @Lang() msg: Messages,
   ) {
     return this.partnerService.getRooms({
-      homestayId,
+      propertyId,
       page: parseInt(page ?? '1'),
       limit: parseInt(limit ?? '20'),
     }, msg);

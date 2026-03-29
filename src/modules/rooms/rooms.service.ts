@@ -43,7 +43,7 @@ export class RoomsService {
     let rooms = await this.prisma.room.findMany({
       where,
       include: {
-        homestay: {
+        property: {
           select: { id: true, name: true, address: true, latitude: true, longitude: true, mapLink: true },
         },
         images: { orderBy: { order: 'asc' } },
@@ -73,18 +73,18 @@ export class RoomsService {
     return { message: msg.rooms.publicListSuccess, data: rooms };
   }
 
-  async findAll(user: { id: string; role: Role }, msg: Messages, homestayId?: string) {
+  async findAll(user: { id: string; role: Role }, msg: Messages, propertyId?: string) {
     const where: any = { isActive: true };
-    if (homestayId) where.homestayId = homestayId;
+    if (propertyId) where.propertyId = propertyId;
 
     if (user.role === Role.STAFF) {
-      where.homestay = { ownerId: user.id };
+      where.property = { ownerId: user.id };
     }
 
     const rooms = await this.prisma.room.findMany({
       where,
       include: {
-        homestay: { select: { id: true, name: true, address: true } },
+        property: { select: { id: true, name: true, address: true } },
         images: { orderBy: { order: 'asc' }, take: 1 },
         price: true,
         _count: { select: { bookings: true } },
@@ -99,7 +99,7 @@ export class RoomsService {
     const room = await this.prisma.room.findUnique({
       where: { id },
       include: {
-        homestay: {
+        property: {
           select: {
             id: true, name: true, address: true,
             latitude: true, longitude: true, mapLink: true,
@@ -116,20 +116,21 @@ export class RoomsService {
   }
 
   async create(dto: CreateRoomDto, user: { id: string; role: Role }, msg: Messages) {
-    const homestay = await this.prisma.homestay.findUnique({
-      where: { id: dto.homestayId },
+    const property = await this.prisma.property.findUnique({
+      where: { id: dto.propertyId },
     });
-    if (!homestay) throw new NotFoundException(msg.homestays.notFound);
-    if (user.role === Role.STAFF && homestay.ownerId !== user.id) {
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+    if (user.role === Role.STAFF && property.ownerId !== user.id) {
       throw new ForbiddenException(msg.rooms.forbiddenAdd);
     }
 
     const existing = await this.prisma.room.findUnique({ where: { code: dto.code } });
     if (existing) throw new ConflictException(msg.rooms.codeDuplicate);
 
+    const { isActive, ...createData } = dto as any;
     const room = await this.prisma.room.create({
-      data: dto,
-      include: { homestay: { select: { id: true, name: true } } },
+      data: { ...createData, ...(isActive !== undefined ? { isActive } : {}) },
+      include: { property: { select: { id: true, name: true } } },
     });
 
     return { message: msg.rooms.createSuccess, data: room };
@@ -145,7 +146,7 @@ export class RoomsService {
 
     const updated = await this.prisma.room.update({
       where: { id },
-      data: dto,
+      data: dto as any,
     });
 
     return { message: msg.rooms.updateSuccess, data: updated };
@@ -180,7 +181,7 @@ export class RoomsService {
       files.map(async (file, index) => {
         const result = await this.cloudinary.uploadImage(
           file,
-          `homestay/rooms/${roomId}`,
+          `property/rooms/${roomId}`,
         );
         return {
           roomId,
@@ -245,10 +246,10 @@ export class RoomsService {
   private async getRoomWithAccess(id: string, user: { id: string; role: Role }, msg: Messages) {
     const room = await this.prisma.room.findUnique({
       where: { id },
-      include: { homestay: { select: { ownerId: true } } },
+      include: { property: { select: { ownerId: true } } },
     });
     if (!room || !room.isActive) throw new NotFoundException(msg.rooms.notFound);
-    if (user.role === Role.STAFF && room.homestay.ownerId !== user.id) {
+    if (user.role === Role.STAFF && room.property.ownerId !== user.id) {
       throw new ForbiddenException(msg.rooms.forbidden);
     }
     return room;

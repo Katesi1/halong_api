@@ -8,18 +8,18 @@ import { BookingStatus } from '@prisma/client';
 export class PartnerService {
   constructor(private prisma: PrismaService) {}
 
-  async getRooms(query: { homestayId?: string; page?: number; limit?: number }, msg: Messages) {
-    const { homestayId, page = 1, limit = 20 } = query;
+  async getRooms(query: { propertyId?: string; page?: number; limit?: number }, msg: Messages) {
+    const { propertyId, page = 1, limit = 20 } = query;
     const skip = (page - 1) * limit;
 
     const where: any = { isActive: true };
-    if (homestayId) where.homestayId = homestayId;
+    if (propertyId) where.propertyId = propertyId;
 
     const [rooms, total] = await Promise.all([
       this.prisma.room.findMany({
         where,
         include: {
-          homestay: { select: { id: true, name: true, address: true } },
+          property: { select: { id: true, name: true, address: true } },
           images: { where: { isCover: true }, take: 1 },
           price: true,
         },
@@ -41,7 +41,7 @@ export class PartnerService {
     const room = await this.prisma.room.findUnique({
       where: { id, isActive: true },
       include: {
-        homestay: { select: { id: true, name: true, address: true, latitude: true, longitude: true, mapLink: true } },
+        property: { select: { id: true, name: true, address: true, latitude: true, longitude: true, mapLink: true } },
         images: { orderBy: { order: 'asc' } },
         price: true,
       },
@@ -57,8 +57,9 @@ export class PartnerService {
     const bookings = await this.prisma.booking.findMany({
       where: {
         roomId,
-        status: { in: [BookingStatus.CONFIRMED] },
-        OR: [{ checkinDate: { lte: endDate }, checkoutDate: { gte: startDate } }],
+        status: { in: [BookingStatus.HOLD, BookingStatus.CONFIRMED] },
+        checkinDate: { lte: endDate },
+        checkoutDate: { gte: startDate },
       },
       select: { checkinDate: true, checkoutDate: true, status: true },
     });
@@ -83,8 +84,9 @@ export class PartnerService {
     const conflict = await this.prisma.booking.findFirst({
       where: {
         roomId: data.roomId,
-        status: { in: [BookingStatus.CONFIRMED] },
-        OR: [{ checkinDate: { lte: checkout }, checkoutDate: { gte: checkin } }],
+        status: { in: [BookingStatus.HOLD, BookingStatus.CONFIRMED] },
+        checkinDate: { lt: checkout },
+        checkoutDate: { gt: checkin },
       },
     });
     if (conflict) throw new BadRequestException(msg.bookings.roomAlreadyBooked);
