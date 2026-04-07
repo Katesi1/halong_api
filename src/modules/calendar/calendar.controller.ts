@@ -55,7 +55,7 @@ export class CalendarController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Khoá phòng theo ngày (chủ nhà)' })
   lockRoom(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
-    return this.calendarService.lockRoom(dto.roomId, dto.date, user, msg);
+    return this.calendarService.lockRoom(dto.roomId, dto.date, dto.status, user, msg);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

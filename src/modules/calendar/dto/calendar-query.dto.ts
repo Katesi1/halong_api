@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsDateString, IsEnum } from 'class-validator';
 
 export class CalendarGridQueryDto {
   @ApiProperty({ description: 'ID nhóm property' })
@@ -37,4 +37,13 @@ export class CalendarLockDto {
   @ApiProperty({ description: 'Ngày cần lock (YYYY-MM-DD)', example: '2026-04-20' })
   @IsDateString()
   date: string;
+
+  @ApiPropertyOptional({
+    description: 'Trạng thái cần lưu: HOLD (khoá tạm) hoặc BOOKED (đã bán). Mặc định: HOLD',
+    enum: ['HOLD', 'BOOKED'],
+    default: 'HOLD',
+  })
+  @IsOptional()
+  @IsEnum(['HOLD', 'BOOKED'])
+  status?: 'HOLD' | 'BOOKED';
 }

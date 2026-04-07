@@ -158,6 +158,7 @@ export class CalendarService {
   async lockRoom(
     roomId: string,
     date: string,
+    statusInput: 'HOLD' | 'BOOKED' | undefined,
     user: { id: string; role: Role },
     msg: Messages,
   ) {
@@ -190,14 +191,18 @@ export class CalendarService {
       throw new BadRequestException(msg.calendar.dateAlreadyBooked);
     }
 
-    // Create a HOLD booking for this date (no expiry — owner lock)
+    // Map statusInput → BookingStatus (BOOKED → CONFIRMED, anything else → HOLD)
+    const bookingStatus =
+      statusInput === 'BOOKED' ? BookingStatus.CONFIRMED : BookingStatus.HOLD;
+
+    // Create booking for this date (no expiry — owner lock)
     const booking = await this.prisma.booking.create({
       data: {
         roomId,
         saleId: user.id,
         checkinDate: lockDate,
         checkoutDate: nextDay,
-        status: BookingStatus.HOLD,
+        status: bookingStatus,
         notes: 'Owner lock',
       },
     });
@@ -237,10 +242,7 @@ export class CalendarService {
 
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
-    if (booking.status === BookingStatus.CONFIRMED) {
-      throw new BadRequestException(msg.calendar.cannotUnlockBooked);
-    }
-
+    // Allow unlocking both HOLD and BOOKED (CONFIRMED) back to AVAILABLE
     await this.prisma.booking.update({
       where: { id: booking.id },
       data: { status: BookingStatus.CANCELLED },
