@@ -9,15 +9,14 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Messages } from '../../i18n';
 import * as bcrypt from 'bcryptjs';
-import { Role } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(msg: Messages, role?: Role) {
+  async findAll(msg: Messages, role?: number) {
     const users = await this.prisma.user.findMany({
-      where: role ? { role } : undefined,
+      where: role !== undefined ? { role } : undefined,
       select: {
         id: true, name: true, phone: true, email: true,
         role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
@@ -34,7 +33,7 @@ export class UsersService {
         id: true, name: true, phone: true, email: true,
         role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
         properties: {
-          select: { id: true, name: true, address: true },
+          select: { id: true, name: true, code: true },
           where: { isActive: true },
         },
       },

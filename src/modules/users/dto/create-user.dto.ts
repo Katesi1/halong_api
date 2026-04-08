@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, MinLength, IsEnum, IsOptional, IsEmail, Matches } from 'class-validator';
-import { Role } from '@prisma/client';
+import { IsString, IsNotEmpty, MinLength, IsOptional, IsEmail, Matches, IsInt, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateUserDto {
   @ApiProperty()
@@ -25,7 +25,9 @@ export class CreateUserDto {
   @MinLength(6, { message: 'Mật khẩu tối thiểu 6 ký tự' })
   password: string;
 
-  @ApiProperty({ enum: Role })
-  @IsEnum(Role, { message: 'Role không hợp lệ (ADMIN, STAFF, CUSTOMER)' })
-  role: Role;
+  @ApiProperty({ example: 1, description: '0=ADMIN, 1=STAFF, 2=CUSTOMER' })
+  @IsInt()
+  @IsIn([0, 1, 2], { message: 'Role không hợp lệ (0=ADMIN, 1=STAFF, 2=CUSTOMER)' })
+  @Type(() => Number)
+  role: number;
 }

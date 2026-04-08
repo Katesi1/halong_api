@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Messages } from '../../i18n';
-import { NotificationType } from '@prisma/client';
+import { NOTIFICATION_TYPE } from '../../common/constants';
 
 @Injectable()
 export class NotificationsService {
@@ -52,7 +52,7 @@ export class NotificationsService {
     userId: string;
     title: string;
     subtitle?: string;
-    type: NotificationType;
+    type: number;
     targetId?: string;
     targetType?: string;
   }) {

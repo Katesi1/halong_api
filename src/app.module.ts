@@ -11,8 +11,6 @@ import { CloudinaryModule } from './config/cloudinary.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { PropertiesModule } from './modules/properties/properties.module';
-import { RoomsModule } from './modules/rooms/rooms.module';
-import { PricesModule } from './modules/prices/prices.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { PartnerModule } from './modules/partner/partner.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
@@ -35,8 +33,6 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     AuthModule,
     UsersModule,
     PropertiesModule,
-    RoomsModule,
-    PricesModule,
     BookingsModule,
     PartnerModule,
     CalendarModule,

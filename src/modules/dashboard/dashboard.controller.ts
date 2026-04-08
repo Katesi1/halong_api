@@ -6,7 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { Role } from '@prisma/client';
+import { ROLE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Dashboard')
@@ -17,14 +17,14 @@ import type { Messages } from '../../i18n';
 export class DashboardController {
   constructor(private dashboardService: DashboardService) {}
 
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @Get('dashboard/stats')
   @ApiOperation({ summary: 'KPI Dashboard' })
   getStats(@CurrentUser() user: any, @Lang() msg: Messages) {
     return this.dashboardService.getStats(user, msg);
   }
 
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @Get('reports')
   @ApiOperation({ summary: 'Báo cáo theo tháng' })
   @ApiQuery({ name: 'month', required: false, type: Number })

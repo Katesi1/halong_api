@@ -7,48 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  ADMIN
-  STAFF
-  CUSTOMER
-}
-
-enum BookingStatus {
-  HOLD
-  CONFIRMED
-  CANCELLED
-  COMPLETED
-}
-
-enum RoomType {
-  VILLA
-  HOMESTAY
-  APARTMENT
-  HOTEL
-}
-
-enum CancellationPolicy {
-  FLEXIBLE
-  MODERATE
-  STRICT
-}
-
-enum NotificationType {
-  BOOKING
-  PAYMENT
-  SYSTEM
-}
-
 model User {
   id           String    @id @default(uuid())
   name         String
   phone        String    @unique
   email        String?   @unique
   password     String
-  role         Role      @default(STAFF)
-  isActive     Boolean   @default(true)
-  gender       String?
+  role         Int       @default(1) // 0=ADMIN, 1=STAFF, 2=CUSTOMER
+  gender       Int?      // 0=MALE, 1=FEMALE, 2=OTHER
   dateOfBirth  DateTime?
+  isActive     Boolean   @default(true)
   refreshToken String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -62,105 +30,102 @@ model User {
 }
 
 model Property {
-  id        String   @id @default(uuid())
-  ownerId   String
-  name      String
-  address   String
-  latitude  Float?
-  longitude Float?
-  mapLink   String?
-  rules     String?
-  services  String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  ownerId            String
+  name               String
+  type               Int      @default(1) // 0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL
+  code               String   @unique
+  isActive           Boolean  @default(true)
 
-  owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  rooms Room[]
+  // Location
+  address            String?
+  latitude           Float?
+  longitude          Float?
+  mapLink            String?
+
+  // Specs
+  bedrooms           Int      @default(1)
+  bathrooms          Int      @default(1)
+  standardGuests     Int      @default(2)
+  maxGuests          Int      @default(2)
+
+  // Pricing
+  weekdayPrice       Float?
+  weekendPrice       Float?
+  holidayPrice       Float?
+  adultSurcharge     Float?
+  childSurcharge     Float?
+
+  // Content
+  amenities          String[] @default([])
+  cancellationPolicy Int      @default(0) // 0=FLEXIBLE, 1=MODERATE, 2=STRICT
+  rules              String?
+  services           String[] @default([])
+  description        String?
+
+  // Check in/out
+  checkInTime        String?  @default("14:00")
+  checkOutTime       String?  @default("12:00")
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  owner         User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  images        PropertyImage[]
+  bookings      Booking[]
+  calendarLocks CalendarLock[]
 
   @@map("properties")
 }
 
-model Room {
-  id                 String              @id @default(uuid())
-  propertyId         String
-  name               String
-  code               String              @unique
-  type               RoomType?
-  bedrooms           Int                 @default(1)
-  bathrooms          Int                 @default(1)
-  standardGuests     Int                 @default(2)
-  maxGuests          Int                 @default(2)
-  description        String?
-  address            String?
-  mapLink            String?
-  amenities          String[]            @default([])
-  cancellationPolicy CancellationPolicy?
-  adultSurcharge     Float?
-  childSurcharge     Float?
-  isActive           Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-
-  property Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  images   RoomImage[]
-  price    RoomPrice?
-  bookings Booking[]
-
-  @@map("rooms")
-}
-
-model RoomImage {
+model PropertyImage {
   id         String   @id @default(uuid())
-  roomId     String
+  propertyId String
   imageUrl   String
-  publicId   String   // Cloudinary public_id để xoá ảnh
+  publicId   String
   isCover    Boolean  @default(false)
   order      Int      @default(0)
   createdAt  DateTime @default(now())
 
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  @@map("room_images")
-}
-
-model RoomPrice {
-  id             String   @id @default(uuid())
-  roomId         String   @unique
-  weekdayPrice   Float    @default(0)
-  fridayPrice    Float    @default(0)
-  saturdayPrice  Float    @default(0)
-  holidayPrice   Float    @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
-
-  @@map("room_prices")
+  @@map("property_images")
 }
 
 model Booking {
-  id             String        @id @default(uuid())
-  roomId         String
+  id             String    @id @default(uuid())
+  propertyId     String
   saleId         String?
   customerId     String?
-  checkinDate    DateTime
-  checkoutDate   DateTime
-  status         BookingStatus @default(HOLD)
-  holdExpireAt   DateTime?
   customerName   String?
   customerPhone  String?
+  checkinDate    DateTime
+  checkoutDate   DateTime
+  status         Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED
+  holdExpireAt   DateTime?
   depositAmount  Float?
-  guestCount     Int           @default(2)
+  guestCount     Int       @default(2)
   notes          String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  room     Room  @relation(fields: [roomId], references: [id])
-  sale     User? @relation("SaleBookings", fields: [saleId], references: [id])
-  customer User? @relation("CustomerBookings", fields: [customerId], references: [id])
+  property Property @relation(fields: [propertyId], references: [id])
+  sale     User?    @relation("SaleBookings", fields: [saleId], references: [id])
+  customer User?    @relation("CustomerBookings", fields: [customerId], references: [id])
 
   @@map("bookings")
+}
+
+model CalendarLock {
+  id         String   @id @default(uuid())
+  propertyId String
+  date       DateTime
+  status     Int      @default(0) // 0=LOCKED, 1=BOOKED
+  createdAt  DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("calendar_locks")
 }
 
 model PartnerKey {
@@ -176,15 +141,15 @@ model PartnerKey {
 }
 
 model Notification {
-  id         String           @id @default(uuid())
+  id         String   @id @default(uuid())
   userId     String
   title      String
   subtitle   String?
-  type       NotificationType @default(SYSTEM)
-  isRead     Boolean          @default(false)
+  type       Int      @default(2) // 0=BOOKING, 1=PAYMENT, 2=SYSTEM
+  isRead     Boolean  @default(false)
   targetId   String?
   targetType String?
-  createdAt  DateTime         @default(now())
+  createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

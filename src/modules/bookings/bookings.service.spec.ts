@@ -4,6 +4,7 @@ import { BookingsService } from './bookings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../config/redis.service';
 import { en } from '../../i18n';
+import { BOOKING_STATUS, ROLE } from '../../common/constants';
 
 const msg = en;
 
@@ -14,12 +15,12 @@ describe('BookingsService', () => {
 
   const mockBooking = {
     id: 'booking-1',
-    roomId: 'room-1',
+    propertyId: 'property-1',
     saleId: 'staff-1',
     customerId: null,
     checkinDate: new Date('2026-05-01'),
     checkoutDate: new Date('2026-05-03'),
-    status: 'HOLD' as const,
+    status: BOOKING_STATUS.HOLD,
     holdExpireAt: new Date(Date.now() + 1800000),
     customerName: 'Guest',
     customerPhone: '0911111111',
@@ -45,7 +46,7 @@ describe('BookingsService', () => {
               update: jest.fn(),
               updateMany: jest.fn(),
             },
-            room: {
+            property: {
               findUnique: jest.fn(),
             },
           },
@@ -67,12 +68,12 @@ describe('BookingsService', () => {
     redis = module.get<RedisService>(RedisService);
   });
 
-  describe('holdRoom', () => {
+  describe('holdProperty', () => {
     it('should throw BadRequestException when checkin >= checkout', async () => {
       await expect(
-        service.holdRoom(
-          { roomId: 'room-1', checkinDate: '2026-05-05', checkoutDate: '2026-05-01', customerName: 'X', customerPhone: '0911' },
-          { id: 'staff-1', role: 'STAFF' as any },
+        service.holdProperty(
+          { propertyId: 'property-1', checkinDate: '2026-05-05', checkoutDate: '2026-05-01', customerName: 'X', customerPhone: '0911' },
+          { id: 'staff-1', role: ROLE.STAFF },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -80,41 +81,41 @@ describe('BookingsService', () => {
 
     it('should throw BadRequestException when checkin in past', async () => {
       await expect(
-        service.holdRoom(
-          { roomId: 'room-1', checkinDate: '2020-01-01', checkoutDate: '2020-01-03', customerName: 'X', customerPhone: '0911' },
-          { id: 'staff-1', role: 'STAFF' as any },
+        service.holdProperty(
+          { propertyId: 'property-1', checkinDate: '2020-01-01', checkoutDate: '2020-01-03', customerName: 'X', customerPhone: '0911' },
+          { id: 'staff-1', role: ROLE.STAFF },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw BadRequestException when room has confirmed booking in range', async () => {
-      (prisma.room.findUnique as jest.Mock).mockResolvedValue({ id: 'room-1', isActive: true });
+    it('should throw BadRequestException when property has confirmed booking in range', async () => {
+      (prisma.property.findUnique as jest.Mock).mockResolvedValue({ id: 'property-1', isActive: true });
       (prisma.booking.findFirst as jest.Mock).mockResolvedValue({ id: 'conflict-1' });
       (prisma.booking.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await expect(
-        service.holdRoom(
-          { roomId: 'room-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'X', customerPhone: '0911' },
-          { id: 'staff-1', role: 'STAFF' as any },
+        service.holdProperty(
+          { propertyId: 'property-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'X', customerPhone: '0911' },
+          { id: 'staff-1', role: ROLE.STAFF },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should create HOLD booking and set Redis on success', async () => {
-      (prisma.room.findUnique as jest.Mock).mockResolvedValue({ id: 'room-1', isActive: true });
+      (prisma.property.findUnique as jest.Mock).mockResolvedValue({ id: 'property-1', isActive: true });
       (prisma.booking.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.booking.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
       (prisma.booking.create as jest.Mock).mockResolvedValue({
         ...mockBooking,
-        room: { id: 'room-1', name: 'R1', code: 'C1' },
+        property: { id: 'property-1', name: 'P1', code: 'C1' },
         sale: { id: 'staff-1', name: 'S1' },
       });
 
-      const result = await service.holdRoom(
-        { roomId: 'room-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'Guest', customerPhone: '0911111111' },
-        { id: 'staff-1', role: 'STAFF' as any },
+      const result = await service.holdProperty(
+        { propertyId: 'property-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'Guest', customerPhone: '0911111111' },
+        { id: 'staff-1', role: ROLE.STAFF },
         msg,
       );
 
@@ -125,29 +126,29 @@ describe('BookingsService', () => {
 
   describe('confirmBooking', () => {
     it('should throw BadRequestException when status is not HOLD', async () => {
-      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, status: 'CONFIRMED' });
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, status: BOOKING_STATUS.CONFIRMED });
 
       await expect(
-        service.confirmBooking('booking-1', { id: 'admin-1', role: 'ADMIN' as any }, msg),
+        service.confirmBooking('booking-1', { id: 'admin-1', role: ROLE.ADMIN }, msg),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('should confirm and clear Redis hold', async () => {
       (prisma.booking.findUnique as jest.Mock).mockResolvedValue(mockBooking);
-      (prisma.booking.update as jest.Mock).mockResolvedValue({ ...mockBooking, status: 'CONFIRMED' });
+      (prisma.booking.update as jest.Mock).mockResolvedValue({ ...mockBooking, status: BOOKING_STATUS.CONFIRMED });
 
-      await service.confirmBooking('booking-1', { id: 'admin-1', role: 'ADMIN' as any }, msg);
+      await service.confirmBooking('booking-1', { id: 'admin-1', role: ROLE.ADMIN }, msg);
 
-      expect(redis.delHold).toHaveBeenCalledWith('room-1');
+      expect(redis.delHold).toHaveBeenCalledWith('property-1');
     });
   });
 
   describe('cancelBooking', () => {
     it('should throw BadRequestException when already cancelled', async () => {
-      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, status: 'CANCELLED' });
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, status: BOOKING_STATUS.CANCELLED });
 
       await expect(
-        service.cancelBooking('booking-1', { id: 'admin-1', role: 'ADMIN' as any }, msg),
+        service.cancelBooking('booking-1', { id: 'admin-1', role: ROLE.ADMIN }, msg),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -155,7 +156,7 @@ describe('BookingsService', () => {
       (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, saleId: 'other-staff' });
 
       await expect(
-        service.cancelBooking('booking-1', { id: 'staff-1', role: 'STAFF' as any }, msg),
+        service.cancelBooking('booking-1', { id: 'staff-1', role: ROLE.STAFF }, msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -163,8 +164,8 @@ describe('BookingsService', () => {
   describe('expireHoldBookings', () => {
     it('should cancel expired HOLD bookings and clear Redis', async () => {
       const expired = [
-        { id: 'b1', roomId: 'r1' },
-        { id: 'b2', roomId: 'r2' },
+        { id: 'b1', propertyId: 'p1' },
+        { id: 'b2', propertyId: 'p2' },
       ];
       (prisma.booking.findMany as jest.Mock).mockResolvedValue(expired);
       (prisma.booking.updateMany as jest.Mock).mockResolvedValue({ count: 2 });

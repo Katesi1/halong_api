@@ -48,44 +48,23 @@ export const en = {
     disableSuccess: 'User disabled successfully',
   },
 
-  // ─── Propertys ───────────────────────────────────────────────────────────────
+  // ─── Properties ──────────────────────────────────────────────────────────────
   properties: {
     notFound: 'Property not found',
     ownerNotFound: 'Owner not found',
+    codeDuplicate: 'Property code already exists',
     forbidden: 'You do not have access to this property',
+    imageNotFound: 'Image not found',
+    maxImages: (max: number) => `Maximum ${max} images per property`,
+    uploadSuccess: (count: number) => `${count} image(s) uploaded successfully`,
     listSuccess: 'Property list retrieved successfully',
+    publicListSuccess: 'Public property list retrieved successfully',
     getSuccess: 'Property retrieved successfully',
     createSuccess: 'Property created successfully',
     updateSuccess: 'Property updated successfully',
     deleteSuccess: 'Property deleted successfully',
-  },
-
-  // ─── Rooms ───────────────────────────────────────────────────────────────────
-  rooms: {
-    notFound: 'Room not found',
-    codeDuplicate: 'Room code already exists',
-    imageNotFound: 'Image not found',
-    maxImages: (max: number) => `Maximum ${max} images per room`,
-    uploadSuccess: (count: number) => `${count} image(s) uploaded successfully`,
-    forbiddenAdd: 'You do not have permission to add rooms to this property',
-    forbidden: 'You do not have permission to manage this room',
-    listSuccess: 'Room list retrieved successfully',
-    publicListSuccess: 'Public room list retrieved successfully',
-    getSuccess: 'Room retrieved successfully',
-    createSuccess: 'Room created successfully',
-    updateSuccess: 'Room updated successfully',
-    deleteSuccess: 'Room deleted successfully',
     deleteImageSuccess: 'Image deleted successfully',
     setCoverSuccess: 'Cover image set successfully',
-    calendarSuccess: 'Room calendar retrieved successfully',
-  },
-
-  // ─── Prices ──────────────────────────────────────────────────────────────────
-  prices: {
-    notFound: 'No price set for this room',
-    forbidden: 'You do not have permission to update the price for this room',
-    getSuccess: 'Room price retrieved successfully',
-    upsertSuccess: 'Room price updated successfully',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -93,8 +72,8 @@ export const en = {
     notFound: 'Booking not found',
     checkoutBeforeCheckin: 'Check-out date must be after check-in date',
     checkinInPast: 'Check-in date cannot be in the past',
-    roomAlreadyBooked: 'Room is already booked for this period',
-    roomOnHold: (minutes: number) => `Room is currently on hold, will be released in ${minutes} minute(s)`,
+    propertyAlreadyBooked: 'Property is already booked for this period',
+    propertyOnHold: (minutes: number) => `Property is currently on hold, will be released in ${minutes} minute(s)`,
     onlyConfirmHold: 'Only bookings with HOLD status can be confirmed',
     alreadyCancelled: 'Booking has already been cancelled',
     forbiddenConfirm: 'You do not have permission to confirm this booking',
@@ -102,14 +81,14 @@ export const en = {
     forbidden: 'You do not have permission to perform this action',
     listSuccess: 'Booking list retrieved successfully',
     getSuccess: 'Booking retrieved successfully',
-    holdSuccess: 'Room held successfully (30 minutes)',
-    customerHoldSuccess: 'Room booked successfully, awaiting confirmation within 24 hours',
+    holdSuccess: 'Property held successfully (30 minutes)',
+    customerHoldSuccess: 'Property booked successfully, awaiting confirmation within 24 hours',
     myListSuccess: 'Your bookings retrieved successfully',
     customerCancelSuccess: 'Booking cancelled successfully',
     cannotCancelConfirmed: 'Cannot cancel a confirmed booking, please contact staff',
     notYourBooking: 'This booking does not belong to you',
     onlyCancelHold: 'Only bookings with HOLD status can be cancelled',
-    roomNotAvailable: 'Room is not available for the selected dates',
+    propertyNotAvailable: 'Property is not available for the selected dates',
     confirmSuccess: 'Booking confirmed successfully',
     cancelSuccess: 'Booking cancelled successfully',
     updateSuccess: 'Booking updated successfully',
@@ -117,8 +96,8 @@ export const en = {
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
   partner: {
-    listSuccess: 'Room list retrieved successfully',
-    getSuccess: 'Room retrieved successfully',
+    listSuccess: 'Property list retrieved successfully',
+    getSuccess: 'Property retrieved successfully',
     availabilitySuccess: 'Availability retrieved successfully',
     bookingSuccess: 'Booking created successfully, awaiting confirmation',
     cancelSuccess: 'Booking cancelled successfully',
@@ -126,14 +105,14 @@ export const en = {
 
   // ─── Calendar ───────────────────────────────────────────────────────────────
   calendar: {
-    propertyGroupsSuccess: 'Property groups retrieved successfully',
+    propertyListSuccess: 'Calendar properties retrieved successfully',
     gridSuccess: 'Calendar grid retrieved successfully',
-    lockSuccess: 'Room locked successfully',
-    unlockSuccess: 'Room unlocked successfully',
+    lockSuccess: 'Date locked successfully',
+    unlockSuccess: 'Date unlocked successfully',
     adminContactSuccess: 'Admin contact retrieved successfully',
-    cannotUnlockBooked: 'Cannot unlock a booked date, only held dates can be unlocked',
-    dateAlreadyBooked: 'This date is already booked or held',
-    roomNotFound: 'Room not found',
+    dateAlreadyLocked: 'This date is already locked or booked',
+    lockNotFound: 'Lock not found for this date',
+    propertyNotFound: 'Property not found',
   },
 
   // ─── Notifications ──────────────────────────────────────────────────────────

@@ -1,36 +1,111 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsNumber } from 'class-validator';
+import {
+  IsString, IsNotEmpty, IsOptional, IsNumber, IsInt,
+  IsArray, Min, Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreatePropertyDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'Villa B1716' })
   @IsString()
-  @IsNotEmpty({ message: 'Tên cơ sở không được để trống' })
+  @IsNotEmpty({ message: 'Tên không được để trống' })
   name: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: 0, description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
+  @IsInt()
+  @Min(0)
+  @Max(3)
+  @Type(() => Number)
+  type: number;
+
+  @ApiProperty({ example: 'B1716' })
   @IsString()
-  @IsNotEmpty({ message: 'Địa chỉ không được để trống' })
-  address: string;
+  @IsNotEmpty({ message: 'Mã không được để trống' })
+  code: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  latitude?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  longitude?: number;
-
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: 'https://maps.google.com/...' })
   @IsOptional()
   @IsString()
   mapLink?: string;
 
-  @ApiPropertyOptional({ description: 'Admin chỉ định owner; Owner để trống' })
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  bedrooms?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  bathrooms?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  standardGuests?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  maxGuests?: number;
+
+  @ApiPropertyOptional({ example: ['Wifi', 'Điều hòa', 'Bể bơi'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  amenities?: string[];
+
+  @ApiPropertyOptional({ example: 0, description: '0=FLEXIBLE, 1=MODERATE, 2=STRICT' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(2)
+  @Type(() => Number)
+  cancellationPolicy?: number;
+
+  @ApiPropertyOptional({ example: 1500000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  weekdayPrice?: number;
+
+  @ApiPropertyOptional({ example: 2000000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  weekendPrice?: number;
+
+  @ApiPropertyOptional({ example: 2500000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  holidayPrice?: number;
+
+  @ApiPropertyOptional({ example: 200000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  adultSurcharge?: number;
+
+  @ApiPropertyOptional({ example: 100000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  childSurcharge?: number;
+
+  @ApiPropertyOptional({ description: 'Admin chỉ định owner; Staff để trống' })
   @IsOptional()
   @IsString()
   ownerId?: string;

@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, MinLength, IsEnum, IsBoolean, IsEmail, Matches, IsDateString } from 'class-validator';
-import { Role } from '@prisma/client';
+import { IsString, IsOptional, MinLength, IsBoolean, IsEmail, Matches, IsDateString, IsInt, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateUserDto {
   @ApiPropertyOptional()
@@ -25,20 +25,24 @@ export class UpdateUserDto {
   @MinLength(6, { message: 'Mật khẩu tối thiểu 6 ký tự' })
   password?: string;
 
-  @ApiPropertyOptional({ enum: Role })
+  @ApiPropertyOptional({ example: 1, description: '0=ADMIN, 1=STAFF, 2=CUSTOMER' })
   @IsOptional()
-  @IsEnum(Role, { message: 'Role không hợp lệ' })
-  role?: Role;
+  @IsInt()
+  @IsIn([0, 1, 2], { message: 'Role không hợp lệ' })
+  @Type(() => Number)
+  role?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
-  @ApiPropertyOptional({ description: 'Giới tính: male, female, other' })
+  @ApiPropertyOptional({ description: '0=MALE, 1=FEMALE, 2=OTHER' })
   @IsOptional()
-  @IsString()
-  gender?: string;
+  @IsInt()
+  @IsIn([0, 1, 2], { message: 'Giới tính không hợp lệ' })
+  @Type(() => Number)
+  gender?: number;
 
   @ApiPropertyOptional({ description: 'Ngày sinh (YYYY-MM-DD)', example: '1990-01-15' })
   @IsOptional()

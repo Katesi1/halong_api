@@ -1,14 +1,14 @@
 import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
-import { CalendarGridQueryDto, PropertyGroupQueryDto, CalendarLockDto } from './dto/calendar-query.dto';
+import { CalendarGridQueryDto, CalendarPropertyQueryDto, CalendarLockDto, CalendarUnlockDto } from './dto/calendar-query.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { Role } from '@prisma/client';
+import { ROLE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Calendar')
@@ -18,30 +18,30 @@ export class CalendarController {
   constructor(private calendarService: CalendarService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.STAFF)
-  @Get('property-groups')
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Get('properties')
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Danh sách nhóm property cho calendar' })
-  getPropertyGroups(
+  @ApiOperation({ summary: 'Danh sách property cho calendar' })
+  getProperties(
     @CurrentUser() user: any,
-    @Query() query: PropertyGroupQueryDto,
+    @Query() query: CalendarPropertyQueryDto,
     @Lang() msg: Messages,
   ) {
-    return this.calendarService.getPropertyGroups(user, msg, query.category, query.ownerId);
+    return this.calendarService.getProperties(user, msg, query.type, query.ownerId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @Get('grid')
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Lấy dữ liệu lịch grid (rooms × dates)' })
+  @ApiOperation({ summary: 'Lấy dữ liệu lịch grid (property × dates)' })
   getCalendarGrid(
     @CurrentUser() user: any,
     @Query() query: CalendarGridQueryDto,
     @Lang() msg: Messages,
   ) {
     return this.calendarService.getCalendarGrid(
-      query.propertyGroupId,
+      query.propertyId,
       query.startDate,
       query.endDate,
       user,
@@ -50,21 +50,21 @@ export class CalendarController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @Post('lock')
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Khoá phòng theo ngày (chủ nhà)' })
-  lockRoom(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
-    return this.calendarService.lockRoom(dto.roomId, dto.date, dto.status, user, msg);
+  @ApiOperation({ summary: 'Khoá ngày (chủ nhà)' })
+  lockDate(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
+    return this.calendarService.lockDate(dto.propertyId, dto.date, dto.status, user, msg);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @Post('unlock')
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Mở khoá phòng theo ngày (chủ nhà)' })
-  unlockRoom(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
-    return this.calendarService.unlockRoom(dto.roomId, dto.date, user, msg);
+  @ApiOperation({ summary: 'Mở khoá ngày (chủ nhà)' })
+  unlockDate(@Body() dto: CalendarUnlockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
+    return this.calendarService.unlockDate(dto.propertyId, dto.date, user, msg);
   }
 
   @Public()

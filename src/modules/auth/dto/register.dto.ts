@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, MinLength, MaxLength, Matches, IsOptional, IsEmail, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, MinLength, MaxLength, Matches, IsOptional, IsEmail, IsInt, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class RegisterDto {
   @ApiProperty({ example: 'Nguyễn Văn A', description: 'Họ tên (2-100 ký tự)' })
@@ -21,11 +22,11 @@ export class RegisterDto {
   @MinLength(6, { message: 'Mật khẩu tối thiểu 6 ký tự' })
   password: string;
 
-  @ApiProperty({ example: 'CUSTOMER', description: 'Role: STAFF hoặc CUSTOMER', enum: ['STAFF', 'CUSTOMER'] })
-  @IsString()
-  @IsNotEmpty({ message: 'Role không được để trống' })
-  @IsIn(['STAFF', 'CUSTOMER'], { message: 'Role chỉ chấp nhận STAFF hoặc CUSTOMER' })
-  role: 'STAFF' | 'CUSTOMER';
+  @ApiProperty({ example: 2, description: 'Role: 1=STAFF, 2=CUSTOMER' })
+  @IsInt()
+  @IsIn([1, 2], { message: 'Role chỉ chấp nhận 1 (STAFF) hoặc 2 (CUSTOMER)' })
+  @Type(() => Number)
+  role: number;
 
   @ApiPropertyOptional({ example: 'a@example.com', description: 'Email (optional)' })
   @IsOptional()

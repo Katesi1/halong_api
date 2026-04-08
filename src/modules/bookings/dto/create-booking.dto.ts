@@ -1,18 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsDateString, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsDateString, IsOptional, IsNumber, IsInt, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateBookingDto {
-  @ApiProperty()
+  @ApiProperty({ description: 'ID property cần đặt' })
   @IsString()
-  @IsNotEmpty({ message: 'roomId không được để trống' })
-  roomId: string;
+  @IsNotEmpty({ message: 'propertyId không được để trống' })
+  propertyId: string;
 
-  @ApiProperty({ example: '2025-03-20' })
+  @ApiProperty({ example: '2026-04-20' })
   @IsDateString({}, { message: 'Ngày check-in không hợp lệ' })
   checkinDate: string;
 
-  @ApiProperty({ example: '2025-03-22' })
+  @ApiProperty({ example: '2026-04-22' })
   @IsDateString({}, { message: 'Ngày check-out không hợp lệ' })
   checkoutDate: string;
 
@@ -32,6 +32,13 @@ export class CreateBookingDto {
   @Min(0)
   @Type(() => Number)
   depositAmount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  guestCount?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

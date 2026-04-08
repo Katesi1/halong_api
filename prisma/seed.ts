@@ -1,68 +1,61 @@
-import { PrismaClient, BookingStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-// Use string literals since Prisma Client may not have STAFF/CUSTOMER yet
-const RoleStaff = 'STAFF' as any;
-const RoleCustomer = 'CUSTOMER' as any;
-const RoleAdmin = 'ADMIN' as any;
+// Integer constants matching src/common/constants.ts
+const ROLE = { ADMIN: 0, STAFF: 1, CUSTOMER: 2 };
+const BOOKING_STATUS = { HOLD: 0, CONFIRMED: 1, CANCELLED: 2, COMPLETED: 3 };
 
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Reset existing data to avoid duplication logic complexity
+  // Reset existing data
   await prisma.partnerKey.deleteMany();
   await prisma.booking.deleteMany();
-  await prisma.roomPrice.deleteMany();
-  await prisma.roomImage.deleteMany();
-  await prisma.room.deleteMany();
+  await prisma.calendarLock.deleteMany();
+  await prisma.propertyImage.deleteMany();
   await prisma.property.deleteMany();
 
   const commonPassword = await bcrypt.hash('Abcd@1234', 10);
   const adminPhone = process.env.ADMIN_PHONE || 'Admin';
 
-  // Xoá user test cũ nếu tồn tại (tránh conflict phone/email)
+  // Delete non-admin test users
   await prisma.user.deleteMany({
     where: {
       AND: [
         { phone: { not: adminPhone } },
-        { role: { not: RoleAdmin } },
+        { role: { not: ROLE.ADMIN } },
       ],
     },
   });
 
-  // 1. Admin — giữ nguyên nếu đã có, tạo mới nếu chưa
+  // 1. Users
   const admin = await prisma.user.upsert({
     where: { phone: adminPhone },
-    update: { role: RoleAdmin },
-    create: { name: 'Super Admin', phone: adminPhone, password: commonPassword, role: RoleAdmin },
+    update: { role: ROLE.ADMIN },
+    create: { name: 'Super Admin', phone: adminPhone, password: commonPassword, role: ROLE.ADMIN },
   });
 
-  // 2. Staff test account — stafftest@gmail.com / Abcd@1234
   const staffTest = await prisma.user.create({
     data: {
       name: 'Staff Test',
       phone: '0900000001',
       email: 'stafftest@gmail.com',
       password: commonPassword,
-      role: RoleStaff,
+      role: ROLE.STAFF,
     },
   });
 
-  // 3. Customer test account — usertest@gmail.com / Abcd@1234
   const customerTest = await prisma.user.create({
     data: {
       name: 'User Test',
       phone: '0900000002',
       email: 'usertest@gmail.com',
       password: commonPassword,
-      role: RoleCustomer,
+      role: ROLE.CUSTOMER,
     },
   });
-
-  const staffUsers = [staffTest];
-  const customers = [customerTest];
 
   console.log('✅ Users seeded (3 accounts):');
   console.log('   ADMIN    — phone: ' + adminPhone + ' / password: Abcd@1234');
@@ -71,74 +64,43 @@ async function main() {
 
   // 2. Properties (5 records)
   const properties = await Promise.all([
-    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Halong Bay Resort', address: 'Bãi Cháy, Hạ Long', latitude: 20.9545, longitude: 107.0509 } }),
-    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Sunshine House', address: '45 Sun Rd, Vung Tau' } }),
-    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Ocean Villa', address: '88 Beachside, Nha Trang' } }),
-    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'Mountain Retreat', address: '12 Pine Hill, Sapa' } }),
-    prisma.property.create({ data: { ownerId: staffUsers[0].id, name: 'City Center Condo', address: '99 District 1, HCMC' } }),
+    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Halong Bay Resort', code: 'HLR01', type: 0, address: 'Bãi Cháy, Hạ Long', latitude: 20.9545, longitude: 107.0509, bedrooms: 3, bathrooms: 2, standardGuests: 4, maxGuests: 6, weekdayPrice: 1500000, weekendPrice: 2000000, holidayPrice: 2500000 } }),
+    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Sunshine House', code: 'SSH01', type: 1, address: '45 Sun Rd, Vung Tau', bedrooms: 2, bathrooms: 1, standardGuests: 2, maxGuests: 4, weekdayPrice: 800000, weekendPrice: 1200000, holidayPrice: 1500000 } }),
+    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Ocean Villa', code: 'OCV01', type: 0, address: '88 Beachside, Nha Trang', bedrooms: 4, bathrooms: 3, standardGuests: 6, maxGuests: 8, weekdayPrice: 2500000, weekendPrice: 3500000, holidayPrice: 4500000 } }),
+    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Mountain Retreat', code: 'MTR01', type: 1, address: '12 Pine Hill, Sapa', bedrooms: 2, bathrooms: 1, standardGuests: 2, maxGuests: 3, weekdayPrice: 600000, weekendPrice: 900000, holidayPrice: 1200000 } }),
+    prisma.property.create({ data: { ownerId: staffTest.id, name: 'City Center Condo', code: 'CCC01', type: 2, address: '99 District 1, HCMC', bedrooms: 1, bathrooms: 1, standardGuests: 2, maxGuests: 2, weekdayPrice: 500000, weekendPrice: 700000, holidayPrice: 900000 } }),
   ]);
   console.log('✅ Properties seeded (5 records)');
 
-  // 3. Rooms (5 records - 1 per property)
-  const rooms = await Promise.all(properties.map((hs, i) =>
-    prisma.room.create({
+  // 3. PropertyImages (5 records - 1 cover per property)
+  await Promise.all(properties.map((p, i) =>
+    prisma.propertyImage.create({
       data: {
-        propertyId: hs.id,
-        name: `Room Type ${i + 1}`,
-        code: `P.${(i + 1) * 101}`,
-        bedrooms: Math.ceil((i + 1) / 2),
-        maxGuests: 2 + i,
-        description: `Beautiful room in ${hs.name}`,
-      }
-    })
-  ));
-  console.log('✅ Rooms seeded (5 records)');
-
-  // 4. RoomImages (5 records - 1 per room)
-  await Promise.all(rooms.map((r, i) =>
-    prisma.roomImage.create({
-      data: {
-        roomId: r.id,
-        imageUrl: `https://picsum.photos/seed/room${i}/800/600`,
-        publicId: `dummy/room${i}`,
+        propertyId: p.id,
+        imageUrl: `https://picsum.photos/seed/prop${i}/800/600`,
+        publicId: `dummy/prop${i}`,
         isCover: true,
-      }
+      },
     })
   ));
-  console.log('✅ RoomImages seeded (5 records)');
+  console.log('✅ PropertyImages seeded (5 records)');
 
-  // 5. RoomPrices (5 records - 1 per room)
-  await Promise.all(rooms.map((r, i) =>
-    prisma.roomPrice.create({
-      data: {
-        roomId: r.id,
-        weekdayPrice: 500000 + i * 100000,
-        fridayPrice: 600000 + i * 100000,
-        saturdayPrice: 800000 + i * 100000,
-        holidayPrice: 1000000 + i * 100000,
-      }
-    })
-  ));
-  console.log('✅ RoomPrices seeded (5 records)');
-
-  // 6. Bookings (5 records: mix of staff-created and customer-created)
+  // 4. Bookings (5 records: mix of staff-created and customer-created)
   const now = new Date();
   const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
   const nextWeek = new Date(now); nextWeek.setDate(now.getDate() + 7);
   const twoWeeks = new Date(now); twoWeeks.setDate(now.getDate() + 14);
 
   await Promise.all([
-    // Staff-created bookings (saleId set)
-    prisma.booking.create({ data: { roomId: rooms[0].id, saleId: staffUsers[0].id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BookingStatus.CONFIRMED, customerName: 'Khách Walk-in 1', customerPhone: '0911111111', depositAmount: 500000 } }),
-    prisma.booking.create({ data: { roomId: rooms[1].id, saleId: staffUsers[0].id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BookingStatus.HOLD, holdExpireAt: new Date(now.getTime() + 1800000), customerName: 'Khách Walk-in 2', customerPhone: '0922222222' } }),
-    prisma.booking.create({ data: { roomId: rooms[2].id, saleId: staffUsers[0].id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BookingStatus.CANCELLED, customerName: 'Khách Walk-in 3' } }),
-    // Customer-created bookings (customerId set)
-    prisma.booking.create({ data: { roomId: rooms[3].id, customerId: customers[0].id, checkinDate: nextWeek, checkoutDate: twoWeeks, status: BookingStatus.HOLD, holdExpireAt: new Date(now.getTime() + 86400000), customerName: customers[0].name, customerPhone: customers[0].phone, guestCount: 3 } }),
-    prisma.booking.create({ data: { roomId: rooms[4].id, customerId: customers[0].id, checkinDate: nextWeek, checkoutDate: twoWeeks, status: BookingStatus.CONFIRMED, customerName: customers[0].name, customerPhone: customers[0].phone, guestCount: 2 } }),
+    prisma.booking.create({ data: { propertyId: properties[0].id, saleId: staffTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.CONFIRMED, customerName: 'Khách Walk-in 1', customerPhone: '0911111111', depositAmount: 500000 } }),
+    prisma.booking.create({ data: { propertyId: properties[1].id, saleId: staffTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.HOLD, holdExpireAt: new Date(now.getTime() + 1800000), customerName: 'Khách Walk-in 2', customerPhone: '0922222222' } }),
+    prisma.booking.create({ data: { propertyId: properties[2].id, saleId: staffTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.CANCELLED, customerName: 'Khách Walk-in 3' } }),
+    prisma.booking.create({ data: { propertyId: properties[3].id, customerId: customerTest.id, checkinDate: nextWeek, checkoutDate: twoWeeks, status: BOOKING_STATUS.HOLD, holdExpireAt: new Date(now.getTime() + 86400000), customerName: customerTest.name, customerPhone: customerTest.phone, guestCount: 3 } }),
+    prisma.booking.create({ data: { propertyId: properties[4].id, customerId: customerTest.id, checkinDate: nextWeek, checkoutDate: twoWeeks, status: BOOKING_STATUS.CONFIRMED, customerName: customerTest.name, customerPhone: customerTest.phone, guestCount: 2 } }),
   ]);
   console.log('✅ Bookings seeded (5 records: 3 staff, 2 customer)');
 
-  // 7. PartnerKeys (5 records)
+  // 5. PartnerKeys (5 records)
   await Promise.all([
     prisma.partnerKey.create({ data: { partnerName: 'Agoda', apiKey: 'KEY-AGODA-123', rateLimit: 100 } }),
     prisma.partnerKey.create({ data: { partnerName: 'Booking.com', apiKey: 'KEY-BOOKING-123', rateLimit: 150 } }),

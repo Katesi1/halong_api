@@ -4,14 +4,14 @@ import { IsString, IsNotEmpty, IsDateString, IsOptional } from 'class-validator'
 export class CreatePartnerBookingDto {
   @ApiProperty()
   @IsString()
-  @IsNotEmpty({ message: 'roomId không được để trống' })
-  roomId: string;
+  @IsNotEmpty({ message: 'propertyId không được để trống' })
+  propertyId: string;
 
-  @ApiProperty({ example: '2025-03-20' })
+  @ApiProperty({ example: '2026-04-20' })
   @IsDateString({}, { message: 'Ngày check-in không hợp lệ' })
   checkinDate: string;
 
-  @ApiProperty({ example: '2025-03-22' })
+  @ApiProperty({ example: '2026-04-22' })
   @IsDateString({}, { message: 'Ngày check-out không hợp lệ' })
   checkoutDate: string;
 

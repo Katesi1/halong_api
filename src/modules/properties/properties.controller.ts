@@ -1,17 +1,21 @@
 import {
-  Controller, Get, Post, Put, Delete,
-  Body, Param, UseGuards,
+  Controller, Get, Post, Patch, Delete,
+  Body, Param, Query, UseGuards, UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { Role } from '@prisma/client';
+import { ROLE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Properties')
@@ -22,38 +26,122 @@ import type { Messages } from '../../i18n';
 export class PropertiesController {
   constructor(private propertiesService: PropertiesService) {}
 
+  @Public()
+  @Get('public')
+  @ApiOperation({ summary: 'Danh sách property công khai', description: 'Property active, có thể lọc theo ngày/khách/giá/type' })
+  @ApiQuery({ name: 'checkinDate', required: false, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'checkoutDate', required: false, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'guests', required: false, type: Number })
+  @ApiQuery({ name: 'minPrice', required: false, type: Number })
+  @ApiQuery({ name: 'maxPrice', required: false, type: Number })
+  @ApiQuery({ name: 'type', required: false, type: Number, description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
+  findPublic(
+    @Query('checkinDate') checkinDate: string,
+    @Query('checkoutDate') checkoutDate: string,
+    @Query('guests') guests: string,
+    @Query('minPrice') minPrice: string,
+    @Query('maxPrice') maxPrice: string,
+    @Query('type') type: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.findPublic(
+      msg,
+      checkinDate,
+      checkoutDate,
+      guests ? parseInt(guests) : undefined,
+      minPrice ? parseFloat(minPrice) : undefined,
+      maxPrice ? parseFloat(maxPrice) : undefined,
+      type !== undefined ? parseInt(type) : undefined,
+    );
+  }
+
   @Get()
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @ApiOperation({ summary: 'Danh sách properties' })
-  findAll(@CurrentUser() user: any, @Lang() msg: Messages) {
-    return this.propertiesService.findAll(user, msg);
+  @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'Admin thấy cả property đang tắt' })
+  findAll(
+    @CurrentUser() user: any,
+    @Query('includeInactive') includeInactive: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.findAll(user, msg, includeInactive === 'true');
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @ApiOperation({ summary: 'Chi tiết property' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.findOne(id, user, msg);
   }
 
   @Post()
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
   @ApiOperation({ summary: 'Tạo property' })
   create(@Body() dto: CreatePropertyDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.create(dto, user, msg);
   }
 
-  @Put(':id')
-  @Roles(Role.ADMIN, Role.STAFF)
-  @ApiOperation({ summary: 'Cập nhật property' })
+  @Patch(':id')
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @ApiOperation({ summary: 'Cập nhật property (partial)' })
   update(@Param('id') id: string, @Body() dto: UpdatePropertyDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.update(id, dto, user, msg);
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN, Role.STAFF)
-  @ApiOperation({ summary: 'Xóa property' })
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @ApiOperation({ summary: 'Xóa property (soft delete)' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.remove(id, user, msg);
+  }
+
+  @Post(':id/images')
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @ApiOperation({ summary: 'Upload ảnh property (multipart, tối đa 10 ảnh JPG/PNG/WEBP)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { images: { type: 'array', items: { type: 'string', format: 'binary' } } } } })
+  @UseInterceptors(
+    FilesInterceptor('images', 10, {
+      storage: memoryStorage(),
+      fileFilter: (req, file, cb) => {
+        if (!file.mimetype.match(/^image\/(jpeg|png|webp)$/)) {
+          return cb(new Error('Chỉ chấp nhận file ảnh JPG, PNG, WEBP'), false);
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  uploadImages(
+    @Param('id') propertyId: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.uploadImages(propertyId, files, user, msg);
+  }
+
+  @Delete(':id/images/:imageId')
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @ApiOperation({ summary: 'Xóa ảnh property' })
+  deleteImage(
+    @Param('id') propertyId: string,
+    @Param('imageId') imageId: string,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.deleteImage(propertyId, imageId, user, msg);
+  }
+
+  @Patch(':id/images/:imageId/cover')
+  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @ApiOperation({ summary: 'Đặt ảnh làm ảnh bìa' })
+  setCoverImage(
+    @Param('id') propertyId: string,
+    @Param('imageId') imageId: string,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.setCoverImage(propertyId, imageId, user, msg);
   }
 }

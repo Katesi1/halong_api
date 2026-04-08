@@ -3,10 +3,10 @@ import { IsString, IsNotEmpty, IsDateString, IsOptional, IsInt, Min } from 'clas
 import { Type } from 'class-transformer';
 
 export class CustomerHoldBookingDto {
-  @ApiProperty({ description: 'ID phòng cần đặt' })
+  @ApiProperty({ description: 'ID property cần đặt' })
   @IsString()
-  @IsNotEmpty({ message: 'roomId không được để trống' })
-  roomId: string;
+  @IsNotEmpty({ message: 'propertyId không được để trống' })
+  propertyId: string;
 
   @ApiProperty({ example: '2026-04-01', description: 'Ngày check-in (YYYY-MM-DD)' })
   @IsDateString({}, { message: 'Ngày check-in không hợp lệ' })
@@ -22,16 +22,6 @@ export class CustomerHoldBookingDto {
   @Min(1)
   @Type(() => Number)
   guestCount?: number;
-
-  @ApiPropertyOptional({ example: 'Nguyễn Văn A', description: 'Tên khách hàng' })
-  @IsOptional()
-  @IsString()
-  customerName?: string;
-
-  @ApiPropertyOptional({ example: '0912345678', description: 'SĐT khách hàng' })
-  @IsOptional()
-  @IsString()
-  customerPhone?: string;
 
   @ApiPropertyOptional({ description: 'Ghi chú' })
   @IsOptional()

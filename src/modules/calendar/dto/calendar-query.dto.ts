@@ -1,26 +1,30 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsDateString, IsEnum } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CalendarGridQueryDto {
-  @ApiProperty({ description: 'ID nhóm property' })
+  @ApiProperty({ description: 'ID property' })
   @IsString()
   @IsNotEmpty()
-  propertyGroupId: string;
+  propertyId: string;
 
-  @ApiProperty({ description: 'Ngày bắt đầu (ISO)', example: '2026-04-01' })
+  @ApiProperty({ description: 'Ngày bắt đầu (YYYY-MM-DD)', example: '2026-04-01' })
   @IsDateString()
   startDate: string;
 
-  @ApiProperty({ description: 'Ngày kết thúc (ISO)', example: '2026-04-30' })
+  @ApiProperty({ description: 'Ngày kết thúc (YYYY-MM-DD)', example: '2026-04-30' })
   @IsDateString()
   endDate: string;
 }
 
-export class PropertyGroupQueryDto {
-  @ApiPropertyOptional({ enum: ['VILLA', 'HOMESTAY', 'HOTEL', 'APARTMENT'] })
+export class CalendarPropertyQueryDto {
+  @ApiPropertyOptional({ description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
   @IsOptional()
-  @IsString()
-  category?: string;
+  @IsInt()
+  @Min(0)
+  @Max(3)
+  @Type(() => Number)
+  type?: number;
 
   @ApiPropertyOptional({ description: 'Filter theo chủ nhà' })
   @IsOptional()
@@ -29,21 +33,34 @@ export class PropertyGroupQueryDto {
 }
 
 export class CalendarLockDto {
-  @ApiProperty({ description: 'ID phòng' })
+  @ApiProperty({ description: 'ID property' })
   @IsString()
   @IsNotEmpty()
-  roomId: string;
+  propertyId: string;
 
   @ApiProperty({ description: 'Ngày cần lock (YYYY-MM-DD)', example: '2026-04-20' })
   @IsDateString()
   date: string;
 
   @ApiPropertyOptional({
-    description: 'Trạng thái cần lưu: HOLD (khoá tạm) hoặc BOOKED (đã bán). Mặc định: HOLD',
-    enum: ['HOLD', 'BOOKED'],
-    default: 'HOLD',
+    description: '0=LOCKED (chủ khoá), 1=BOOKED (đánh dấu đã bán). Mặc định: 0',
+    example: 0,
   })
   @IsOptional()
-  @IsEnum(['HOLD', 'BOOKED'])
-  status?: 'HOLD' | 'BOOKED';
+  @IsInt()
+  @Min(0)
+  @Max(1)
+  @Type(() => Number)
+  status?: number;
+}
+
+export class CalendarUnlockDto {
+  @ApiProperty({ description: 'ID property' })
+  @IsString()
+  @IsNotEmpty()
+  propertyId: string;
+
+  @ApiProperty({ description: 'Ngày cần unlock (YYYY-MM-DD)', example: '2026-04-20' })
+  @IsDateString()
+  date: string;
 }

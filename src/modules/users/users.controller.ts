@@ -2,7 +2,7 @@ import {
   Controller, Get, Post, Put, Delete,
   Body, Param, Query, UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -11,7 +11,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { Role } from '@prisma/client';
+import { ROLE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Users')
@@ -19,14 +19,15 @@ import type { Messages } from '../../i18n';
 @ApiHeader({ name: 'Accept-Language', enum: ['en', 'vi'], required: false, description: 'Ngôn ngữ phản hồi (mặc định: en)' })
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN)
+@Roles(ROLE.ADMIN)
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
   @Get()
   @ApiOperation({ summary: 'Danh sách user (Admin)' })
-  findAll(@Query('role') role: Role, @Lang() msg: Messages) {
-    return this.usersService.findAll(msg, role);
+  @ApiQuery({ name: 'role', required: false, description: '0=ADMIN, 1=STAFF, 2=CUSTOMER' })
+  findAll(@Query('role') role: string, @Lang() msg: Messages) {
+    return this.usersService.findAll(msg, role !== undefined ? parseInt(role) : undefined);
   }
 
   @Get(':id')

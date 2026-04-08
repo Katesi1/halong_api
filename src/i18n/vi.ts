@@ -52,40 +52,19 @@ export const vi = {
   properties: {
     notFound: 'Cơ sở không tồn tại',
     ownerNotFound: 'Chủ cơ sở không tồn tại',
+    codeDuplicate: 'Mã cơ sở đã tồn tại',
     forbidden: 'Bạn không có quyền truy cập cơ sở này',
+    imageNotFound: 'Ảnh không tồn tại',
+    maxImages: (max: number) => `Tối đa ${max} ảnh mỗi cơ sở`,
+    uploadSuccess: (count: number) => `Upload ${count} ảnh thành công`,
     listSuccess: 'Lấy danh sách cơ sở thành công',
+    publicListSuccess: 'Lấy danh sách cơ sở công khai thành công',
     getSuccess: 'Lấy thông tin cơ sở thành công',
     createSuccess: 'Tạo cơ sở thành công',
     updateSuccess: 'Cập nhật cơ sở thành công',
     deleteSuccess: 'Xoá cơ sở thành công',
-  },
-
-  // ─── Rooms ───────────────────────────────────────────────────────────────────
-  rooms: {
-    notFound: 'Phòng không tồn tại',
-    codeDuplicate: 'Mã phòng đã tồn tại',
-    imageNotFound: 'Ảnh không tồn tại',
-    maxImages: (max: number) => `Tối đa ${max} ảnh mỗi phòng`,
-    uploadSuccess: (count: number) => `Upload ${count} ảnh thành công`,
-    forbiddenAdd: 'Bạn không có quyền thêm phòng vào cơ sở này',
-    forbidden: 'Bạn không có quyền thao tác phòng này',
-    listSuccess: 'Lấy danh sách phòng thành công',
-    publicListSuccess: 'Lấy danh sách phòng công khai thành công',
-    getSuccess: 'Lấy thông tin phòng thành công',
-    createSuccess: 'Tạo phòng thành công',
-    updateSuccess: 'Cập nhật phòng thành công',
-    deleteSuccess: 'Xoá phòng thành công',
     deleteImageSuccess: 'Xoá ảnh thành công',
     setCoverSuccess: 'Đặt ảnh cover thành công',
-    calendarSuccess: 'Lấy lịch phòng thành công',
-  },
-
-  // ─── Prices ──────────────────────────────────────────────────────────────────
-  prices: {
-    notFound: 'Chưa có giá cho phòng này',
-    forbidden: 'Bạn không có quyền cập nhật giá phòng này',
-    getSuccess: 'Lấy giá phòng thành công',
-    upsertSuccess: 'Cập nhật giá phòng thành công',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -93,8 +72,8 @@ export const vi = {
     notFound: 'Booking không tồn tại',
     checkoutBeforeCheckin: 'Ngày check-out phải sau ngày check-in',
     checkinInPast: 'Ngày check-in không thể trong quá khứ',
-    roomAlreadyBooked: 'Phòng đã được đặt trong khoảng thời gian này',
-    roomOnHold: (minutes: number) => `Phòng đang được giữ, còn ${minutes} phút nữa sẽ tự động huỷ`,
+    propertyAlreadyBooked: 'Cơ sở đã được đặt trong khoảng thời gian này',
+    propertyOnHold: (minutes: number) => `Cơ sở đang được giữ, còn ${minutes} phút nữa sẽ tự động huỷ`,
     onlyConfirmHold: 'Chỉ có thể xác nhận booking đang ở trạng thái HOLD',
     alreadyCancelled: 'Booking đã bị huỷ trước đó',
     forbiddenConfirm: 'Bạn không có quyền xác nhận booking này',
@@ -102,14 +81,14 @@ export const vi = {
     forbidden: 'Bạn không có quyền thực hiện thao tác này',
     listSuccess: 'Lấy danh sách booking thành công',
     getSuccess: 'Lấy thông tin booking thành công',
-    holdSuccess: 'Giữ phòng thành công (30 phút)',
-    customerHoldSuccess: 'Đặt phòng thành công, chờ xác nhận trong 24 giờ',
+    holdSuccess: 'Giữ chỗ thành công (30 phút)',
+    customerHoldSuccess: 'Đặt chỗ thành công, chờ xác nhận trong 24 giờ',
     myListSuccess: 'Lấy danh sách booking của bạn thành công',
-    customerCancelSuccess: 'Đã huỷ đặt phòng',
+    customerCancelSuccess: 'Đã huỷ đặt chỗ',
     cannotCancelConfirmed: 'Không thể huỷ booking đã xác nhận, vui lòng liên hệ nhân viên',
     notYourBooking: 'Booking này không thuộc về bạn',
     onlyCancelHold: 'Chỉ có thể huỷ booking đang ở trạng thái HOLD',
-    roomNotAvailable: 'Phòng đã được đặt trong khoảng thời gian này',
+    propertyNotAvailable: 'Cơ sở đã được đặt trong khoảng thời gian này',
     confirmSuccess: 'Xác nhận booking thành công',
     cancelSuccess: 'Huỷ booking thành công',
     updateSuccess: 'Cập nhật booking thành công',
@@ -117,8 +96,8 @@ export const vi = {
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
   partner: {
-    listSuccess: 'Lấy danh sách phòng thành công',
-    getSuccess: 'Lấy thông tin phòng thành công',
+    listSuccess: 'Lấy danh sách cơ sở thành công',
+    getSuccess: 'Lấy thông tin cơ sở thành công',
     availabilitySuccess: 'Lấy lịch trống thành công',
     bookingSuccess: 'Tạo booking thành công, chờ xác nhận',
     cancelSuccess: 'Huỷ booking thành công',
@@ -126,14 +105,14 @@ export const vi = {
 
   // ─── Calendar ───────────────────────────────────────────────────────────────
   calendar: {
-    propertyGroupsSuccess: 'Lấy danh sách nhóm property thành công',
+    propertyListSuccess: 'Lấy danh sách property cho calendar thành công',
     gridSuccess: 'Lấy dữ liệu lịch thành công',
-    lockSuccess: 'Khoá phòng thành công',
-    unlockSuccess: 'Mở khoá phòng thành công',
+    lockSuccess: 'Khoá ngày thành công',
+    unlockSuccess: 'Mở khoá ngày thành công',
     adminContactSuccess: 'Lấy thông tin liên hệ admin thành công',
-    cannotUnlockBooked: 'Không thể mở khoá ngày đã được đặt, chỉ có thể mở khoá ngày đang giữ',
-    dateAlreadyBooked: 'Ngày này đã được đặt hoặc đang giữ',
-    roomNotFound: 'Phòng không tồn tại',
+    dateAlreadyLocked: 'Ngày này đã được khoá hoặc đặt',
+    lockNotFound: 'Không tìm thấy ngày bị khoá',
+    propertyNotFound: 'Cơ sở không tồn tại',
   },
 
   // ─── Notifications ──────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Messages } from '../../i18n';
+import { ROLE } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -26,7 +27,6 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto, msg: Messages) {
-    // Check phone uniqueness
     const existingPhone = await this.prisma.user.findUnique({
       where: { phone: dto.phone },
     });
@@ -34,7 +34,6 @@ export class AuthService {
       throw new ConflictException(msg.auth.phoneDuplicate);
     }
 
-    // Check email uniqueness if provided
     if (dto.email) {
       const existingEmail = await this.prisma.user.findUnique({
         where: { email: dto.email },
@@ -51,7 +50,7 @@ export class AuthService {
         name: dto.name,
         phone: dto.phone,
         password: hashedPassword,
-        role: dto.role as any,
+        role: dto.role,
         email: dto.email || null,
       },
     });
@@ -114,11 +113,8 @@ export class AuthService {
   }
 
   async googleAuth(dto: GoogleAuthDto, msg: Messages) {
-    // Verify Google token - in production, use google-auth-library
-    // For now, decode the token payload (JWT)
     let googlePayload: { email: string; name: string; sub: string };
     try {
-      // In production: use OAuth2Client.verifyIdToken()
       const decoded = this.jwtService.decode(dto.idToken) as any;
       if (!decoded || !decoded.email) {
         throw new Error('Invalid token');
@@ -128,19 +124,16 @@ export class AuthService {
       throw new BadRequestException(msg.auth.googleTokenInvalid);
     }
 
-    // Find existing user by email
     let user = await this.prisma.user.findUnique({
       where: { email: googlePayload.email },
     });
 
     if (user) {
-      // Existing user — login, ignore role field
       if (!user.isActive) {
         throw new UnauthorizedException(msg.auth.accountDisabled);
       }
     } else {
-      // New user — role is required
-      if (!dto.role) {
+      if (dto.role === undefined || dto.role === null) {
         throw new BadRequestException(msg.auth.googleRoleRequired);
       }
 
@@ -151,7 +144,7 @@ export class AuthService {
           phone: `google_${googlePayload.sub}`,
           email: googlePayload.email,
           password: randomPassword,
-          role: dto.role as any,
+          role: dto.role,
         },
       });
     }
@@ -177,7 +170,6 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto, msg: Messages) {
-    // Find user by phone or email
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -187,19 +179,14 @@ export class AuthService {
       },
     });
 
-    // Always return success to prevent user enumeration
     if (!user) {
       return { message: msg.auth.forgotPasswordSuccess, data: null };
     }
 
-    // TODO: Send verification code via SMS/email
-    // For now, just return success
     return { message: msg.auth.forgotPasswordSuccess, data: null };
   }
 
   async resetPassword(dto: ResetPasswordDto, msg: Messages) {
-    // TODO: Verify token and find user
-    // For now, basic implementation
     try {
       const payload = this.jwtService.verify(dto.token, {
         secret: this.configService.get<string>('JWT_SECRET'),
@@ -288,7 +275,7 @@ export class AuthService {
     return { message: msg.auth.changePasswordSuccess, data: null };
   }
 
-  private async generateTokens(userId: string, phone: string, role: string) {
+  private async generateTokens(userId: string, phone: string, role: number) {
     const payload = { sub: userId, phone, role };
 
     const [accessToken, refreshToken] = await Promise.all([
