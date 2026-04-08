@@ -73,7 +73,7 @@ describe('BookingsService', () => {
       await expect(
         service.holdProperty(
           { propertyId: 'property-1', checkinDate: '2026-05-05', checkoutDate: '2026-05-01', customerName: 'X', customerPhone: '0911' },
-          { id: 'staff-1', role: ROLE.STAFF },
+          { id: 'staff-1', role: ROLE.SALE },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -83,7 +83,7 @@ describe('BookingsService', () => {
       await expect(
         service.holdProperty(
           { propertyId: 'property-1', checkinDate: '2020-01-01', checkoutDate: '2020-01-03', customerName: 'X', customerPhone: '0911' },
-          { id: 'staff-1', role: ROLE.STAFF },
+          { id: 'staff-1', role: ROLE.SALE },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -97,7 +97,7 @@ describe('BookingsService', () => {
       await expect(
         service.holdProperty(
           { propertyId: 'property-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'X', customerPhone: '0911' },
-          { id: 'staff-1', role: ROLE.STAFF },
+          { id: 'staff-1', role: ROLE.SALE },
           msg,
         ),
       ).rejects.toThrow(BadRequestException);
@@ -115,7 +115,7 @@ describe('BookingsService', () => {
 
       const result = await service.holdProperty(
         { propertyId: 'property-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'Guest', customerPhone: '0911111111' },
-        { id: 'staff-1', role: ROLE.STAFF },
+        { id: 'staff-1', role: ROLE.SALE },
         msg,
       );
 
@@ -156,7 +156,7 @@ describe('BookingsService', () => {
       (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, saleId: 'other-staff' });
 
       await expect(
-        service.cancelBooking('booking-1', { id: 'staff-1', role: ROLE.STAFF }, msg),
+        service.cancelBooking('booking-1', { id: 'staff-1', role: ROLE.SALE }, msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });

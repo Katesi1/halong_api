@@ -4,7 +4,7 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 // Integer constants matching src/common/constants.ts
-const ROLE = { ADMIN: 0, STAFF: 1, CUSTOMER: 2 };
+const ROLE = { ADMIN: 0, OWNER: 1, SALE: 2, CUSTOMER: 3 };
 const BOOKING_STATUS = { HOLD: 0, CONFIRMED: 1, CANCELLED: 2, COMPLETED: 3 };
 
 async function main() {
@@ -37,13 +37,23 @@ async function main() {
     create: { name: 'Super Admin', phone: adminPhone, password: commonPassword, role: ROLE.ADMIN },
   });
 
-  const staffTest = await prisma.user.create({
+  const ownerTest = await prisma.user.create({
     data: {
-      name: 'Staff Test',
+      name: 'Owner Test',
       phone: '0900000001',
-      email: 'stafftest@gmail.com',
+      email: 'ownertest@gmail.com',
       password: commonPassword,
-      role: ROLE.STAFF,
+      role: ROLE.OWNER,
+    },
+  });
+
+  const saleTest = await prisma.user.create({
+    data: {
+      name: 'Sale Test',
+      phone: '0900000003',
+      email: 'saletest@gmail.com',
+      password: commonPassword,
+      role: ROLE.SALE,
     },
   });
 
@@ -57,18 +67,19 @@ async function main() {
     },
   });
 
-  console.log('✅ Users seeded (3 accounts):');
+  console.log('✅ Users seeded (4 accounts):');
   console.log('   ADMIN    — phone: ' + adminPhone + ' / password: Abcd@1234');
-  console.log('   STAFF    — email: stafftest@gmail.com / password: Abcd@1234');
+  console.log('   OWNER    — email: ownertest@gmail.com / password: Abcd@1234');
+  console.log('   SALE     — email: saletest@gmail.com / password: Abcd@1234');
   console.log('   CUSTOMER — email: usertest@gmail.com / password: Abcd@1234');
 
   // 2. Properties (5 records)
   const properties = await Promise.all([
-    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Halong Bay Resort', code: 'HLR01', type: 0, address: 'Bãi Cháy, Hạ Long', latitude: 20.9545, longitude: 107.0509, bedrooms: 3, bathrooms: 2, standardGuests: 4, maxGuests: 6, weekdayPrice: 1500000, weekendPrice: 2000000, holidayPrice: 2500000 } }),
-    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Sunshine House', code: 'SSH01', type: 1, address: '45 Sun Rd, Vung Tau', bedrooms: 2, bathrooms: 1, standardGuests: 2, maxGuests: 4, weekdayPrice: 800000, weekendPrice: 1200000, holidayPrice: 1500000 } }),
-    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Ocean Villa', code: 'OCV01', type: 0, address: '88 Beachside, Nha Trang', bedrooms: 4, bathrooms: 3, standardGuests: 6, maxGuests: 8, weekdayPrice: 2500000, weekendPrice: 3500000, holidayPrice: 4500000 } }),
-    prisma.property.create({ data: { ownerId: staffTest.id, name: 'Mountain Retreat', code: 'MTR01', type: 1, address: '12 Pine Hill, Sapa', bedrooms: 2, bathrooms: 1, standardGuests: 2, maxGuests: 3, weekdayPrice: 600000, weekendPrice: 900000, holidayPrice: 1200000 } }),
-    prisma.property.create({ data: { ownerId: staffTest.id, name: 'City Center Condo', code: 'CCC01', type: 2, address: '99 District 1, HCMC', bedrooms: 1, bathrooms: 1, standardGuests: 2, maxGuests: 2, weekdayPrice: 500000, weekendPrice: 700000, holidayPrice: 900000 } }),
+    prisma.property.create({ data: { ownerId: ownerTest.id, name: 'Halong Bay Resort', code: 'HLR01', type: 0, address: 'Bãi Cháy, Hạ Long', latitude: 20.9545, longitude: 107.0509, bedrooms: 3, bathrooms: 2, standardGuests: 4, maxGuests: 6, weekdayPrice: 1500000, weekendPrice: 2000000, holidayPrice: 2500000 } }),
+    prisma.property.create({ data: { ownerId: ownerTest.id, name: 'Sunshine House', code: 'SSH01', type: 1, address: '45 Sun Rd, Vung Tau', bedrooms: 2, bathrooms: 1, standardGuests: 2, maxGuests: 4, weekdayPrice: 800000, weekendPrice: 1200000, holidayPrice: 1500000 } }),
+    prisma.property.create({ data: { ownerId: ownerTest.id, name: 'Ocean Villa', code: 'OCV01', type: 0, address: '88 Beachside, Nha Trang', bedrooms: 4, bathrooms: 3, standardGuests: 6, maxGuests: 8, weekdayPrice: 2500000, weekendPrice: 3500000, holidayPrice: 4500000 } }),
+    prisma.property.create({ data: { ownerId: ownerTest.id, name: 'Mountain Retreat', code: 'MTR01', type: 1, address: '12 Pine Hill, Sapa', bedrooms: 2, bathrooms: 1, standardGuests: 2, maxGuests: 3, weekdayPrice: 600000, weekendPrice: 900000, holidayPrice: 1200000 } }),
+    prisma.property.create({ data: { ownerId: ownerTest.id, name: 'City Center Condo', code: 'CCC01', type: 2, address: '99 District 1, HCMC', bedrooms: 1, bathrooms: 1, standardGuests: 2, maxGuests: 2, weekdayPrice: 500000, weekendPrice: 700000, holidayPrice: 900000 } }),
   ]);
   console.log('✅ Properties seeded (5 records)');
 
@@ -92,9 +103,9 @@ async function main() {
   const twoWeeks = new Date(now); twoWeeks.setDate(now.getDate() + 14);
 
   await Promise.all([
-    prisma.booking.create({ data: { propertyId: properties[0].id, saleId: staffTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.CONFIRMED, customerName: 'Khách Walk-in 1', customerPhone: '0911111111', depositAmount: 500000 } }),
-    prisma.booking.create({ data: { propertyId: properties[1].id, saleId: staffTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.HOLD, holdExpireAt: new Date(now.getTime() + 1800000), customerName: 'Khách Walk-in 2', customerPhone: '0922222222' } }),
-    prisma.booking.create({ data: { propertyId: properties[2].id, saleId: staffTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.CANCELLED, customerName: 'Khách Walk-in 3' } }),
+    prisma.booking.create({ data: { propertyId: properties[0].id, saleId: saleTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.CONFIRMED, customerName: 'Khách Walk-in 1', customerPhone: '0911111111', depositAmount: 500000 } }),
+    prisma.booking.create({ data: { propertyId: properties[1].id, saleId: saleTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.HOLD, holdExpireAt: new Date(now.getTime() + 1800000), customerName: 'Khách Walk-in 2', customerPhone: '0922222222' } }),
+    prisma.booking.create({ data: { propertyId: properties[2].id, saleId: saleTest.id, checkinDate: tomorrow, checkoutDate: nextWeek, status: BOOKING_STATUS.CANCELLED, customerName: 'Khách Walk-in 3' } }),
     prisma.booking.create({ data: { propertyId: properties[3].id, customerId: customerTest.id, checkinDate: nextWeek, checkoutDate: twoWeeks, status: BOOKING_STATUS.HOLD, holdExpireAt: new Date(now.getTime() + 86400000), customerName: customerTest.name, customerPhone: customerTest.phone, guestCount: 3 } }),
     prisma.booking.create({ data: { propertyId: properties[4].id, customerId: customerTest.id, checkinDate: nextWeek, checkoutDate: twoWeeks, status: BOOKING_STATUS.CONFIRMED, customerName: customerTest.name, customerPhone: customerTest.phone, guestCount: 2 } }),
   ]);

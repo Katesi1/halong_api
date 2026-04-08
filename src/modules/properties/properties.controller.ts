@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete,
+  Controller, Get, Post, Put, Patch, Delete,
   Body, Param, Query, UseGuards, UseInterceptors,
   UploadedFiles,
 } from '@nestjs/common';
@@ -9,6 +9,7 @@ import { memoryStorage } from 'multer';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
+import { UpdatePricesDto } from './dto/update-prices.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -56,7 +57,7 @@ export class PropertiesController {
   }
 
   @Get()
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Danh sách properties' })
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'Admin thấy cả property đang tắt' })
   findAll(
@@ -68,35 +69,47 @@ export class PropertiesController {
   }
 
   @Get(':id')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Chi tiết property' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.findOne(id, user, msg);
   }
 
   @Post()
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Tạo property' })
   create(@Body() dto: CreatePropertyDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.create(dto, user, msg);
   }
 
   @Patch(':id')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Cập nhật property (partial)' })
   update(@Param('id') id: string, @Body() dto: UpdatePropertyDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.update(id, dto, user, msg);
   }
 
   @Delete(':id')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Xóa property (soft delete)' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.remove(id, user, msg);
   }
 
+  @Put(':id/prices')
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @ApiOperation({ summary: 'Cập nhật giá property' })
+  updatePrices(
+    @Param('id') id: string,
+    @Body() dto: UpdatePricesDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.updatePrices(id, dto, user, msg);
+  }
+
   @Post(':id/images')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Upload ảnh property (multipart, tối đa 10 ảnh JPG/PNG/WEBP)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { images: { type: 'array', items: { type: 'string', format: 'binary' } } } } })
@@ -122,7 +135,7 @@ export class PropertiesController {
   }
 
   @Delete(':id/images/:imageId')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Xóa ảnh property' })
   deleteImage(
     @Param('id') propertyId: string,
@@ -134,7 +147,7 @@ export class PropertiesController {
   }
 
   @Patch(':id/images/:imageId/cover')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Đặt ảnh làm ảnh bìa' })
   setCoverImage(
     @Param('id') propertyId: string,

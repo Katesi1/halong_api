@@ -12,7 +12,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS } from '../../common/constants';
+import { ROLE, STAFF_ROLES, BOOKING_STATUS } from '../../common/constants';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
@@ -37,7 +37,7 @@ export class BookingsService {
     if (propertyId) where.propertyId = propertyId;
     if (status !== undefined) where.status = status;
 
-    if (user.role === ROLE.STAFF) {
+    if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
       where.saleId = user.id;
     }
 
@@ -364,7 +364,7 @@ export class BookingsService {
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
   private checkBookingAccess(booking: any, user: { id: string; role: number }, msg: Messages) {
-    if (user.role === ROLE.STAFF && booking.saleId !== user.id) {
+    if ((STAFF_ROLES as readonly number[]).includes(user.role) && booking.saleId !== user.id) {
       throw new ForbiddenException(msg.bookings.forbiddenAccess);
     }
   }

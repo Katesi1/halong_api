@@ -19,37 +19,45 @@ import type { Messages } from '../../i18n';
 @ApiHeader({ name: 'Accept-Language', enum: ['en', 'vi'], required: false, description: 'Ngôn ngữ phản hồi (mặc định: en)' })
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(ROLE.ADMIN)
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Danh sách user (Admin)' })
-  @ApiQuery({ name: 'role', required: false, description: '0=ADMIN, 1=STAFF, 2=CUSTOMER' })
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'Danh sách user (Admin only)' })
+  @ApiQuery({ name: 'role', required: false, description: '0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER' })
   findAll(@Query('role') role: string, @Lang() msg: Messages) {
     return this.usersService.findAll(msg, role !== undefined ? parseInt(role) : undefined);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Chi tiết user' })
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'Chi tiết user (Admin only)' })
   findOne(@Param('id') id: string, @Lang() msg: Messages) {
     return this.usersService.findOne(id, msg);
   }
 
   @Post()
-  @ApiOperation({ summary: 'Tạo user mới' })
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'Tạo user mới (Admin only)' })
   create(@Body() dto: CreateUserDto, @Lang() msg: Messages) {
     return this.usersService.create(dto, msg);
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Cập nhật user' })
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto, @Lang() msg: Messages) {
-    return this.usersService.update(id, dto, msg);
+  @ApiOperation({ summary: 'Cập nhật user — ADMIN sửa ai cũng được, user khác chỉ sửa chính mình' })
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.usersService.update(id, dto, user, msg);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Xóa user' })
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'Xóa user (Admin only)' })
   remove(@Param('id') id: string, @CurrentUser('id') currentUserId: string, @Lang() msg: Messages) {
     return this.usersService.remove(id, currentUserId, msg);
   }

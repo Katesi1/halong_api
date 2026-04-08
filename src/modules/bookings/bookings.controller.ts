@@ -26,7 +26,7 @@ export class BookingsController {
   // ─── Staff/Admin Endpoints ────────────────────────────────────────────────
 
   @Get()
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Danh sách booking (Staff/Admin)' })
   @ApiQuery({ name: 'propertyId', required: false })
   @ApiQuery({ name: 'status', required: false, description: '0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED' })
@@ -42,7 +42,7 @@ export class BookingsController {
     );
   }
 
-  @Get('my')
+  @Get('my-bookings')
   @ApiOperation({ summary: 'Booking của customer hiện tại' })
   @ApiQuery({ name: 'status', required: false, description: '0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED' })
   getMyBookings(@CurrentUser() user: any, @Query('status') status: string, @Lang() msg: Messages) {
@@ -53,35 +53,35 @@ export class BookingsController {
   }
 
   @Get(':id')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Chi tiết booking' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.findOne(id, user, msg);
   }
 
   @Post('hold')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Giữ chỗ (Admin/Staff) — hold 30 phút' })
   holdProperty(@Body() dto: CreateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.holdProperty(dto, user, msg);
   }
 
   @Patch(':id/confirm')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Xác nhận booking (Admin/Staff)' })
   confirmBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.confirmBooking(id, user, msg);
   }
 
   @Patch(':id/cancel')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Hủy booking (Staff)' })
   cancelBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.cancelBooking(id, user, msg);
   }
 
   @Put(':id')
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Cập nhật booking' })
   update(@Param('id') id: string, @Body() dto: UpdateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.update(id, dto, user, msg);

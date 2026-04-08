@@ -9,7 +9,7 @@ import { CloudinaryService } from '../../config/cloudinary.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS } from '../../common/constants';
+import { ROLE, STAFF_ROLES, BOOKING_STATUS } from '../../common/constants';
 
 @Injectable()
 export class PropertiesService {
@@ -24,7 +24,7 @@ export class PropertiesService {
     includeInactive?: boolean,
   ) {
     const where: any =
-      user.role === ROLE.STAFF
+      (STAFF_ROLES as readonly number[]).includes(user.role)
         ? { ownerId: user.id }
         : {};
 
@@ -178,6 +178,31 @@ export class PropertiesService {
     return { message: msg.properties.deleteSuccess, data: null };
   }
 
+  // ─── Prices ───────────────────────────────────────────────────────────────
+
+  async updatePrices(
+    id: string,
+    dto: { weekdayPrice?: number; weekendPrice?: number; holidayPrice?: number; adultSurcharge?: number; childSurcharge?: number },
+    user: { id: string; role: number },
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findUnique({ where: { id } });
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+    this.checkOwnerAccess(property, user, msg);
+
+    const updated = await this.prisma.property.update({
+      where: { id },
+      data: dto,
+      select: {
+        id: true, name: true, code: true,
+        weekdayPrice: true, weekendPrice: true, holidayPrice: true,
+        adultSurcharge: true, childSurcharge: true,
+      },
+    });
+
+    return { message: msg.properties.updatePricesSuccess, data: updated };
+  }
+
   // ─── Image Management ──────────────────────────────────────────────────────
 
   async uploadImages(
@@ -284,7 +309,7 @@ export class PropertiesService {
   }
 
   private checkOwnerAccess(property: any, user: { id: string; role: number }, msg: Messages) {
-    if (user.role === ROLE.STAFF && property.ownerId !== user.id) {
+    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
       throw new ForbiddenException(msg.properties.forbidden);
     }
   }

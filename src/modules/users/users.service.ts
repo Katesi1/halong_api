@@ -3,12 +3,17 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Messages } from '../../i18n';
+import { ROLE } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
+
+// Fields non-admin users can update on their own profile
+const SELF_EDITABLE_FIELDS = ['name', 'phone', 'email', 'gender', 'dateOfBirth'];
 
 @Injectable()
 export class UsersService {
@@ -59,16 +64,37 @@ export class UsersService {
     return { message: msg.users.createSuccess, data: user };
   }
 
-  async update(id: string, dto: UpdateUserDto, msg: Messages) {
+  async update(
+    id: string,
+    dto: UpdateUserDto,
+    currentUser: { id: string; role: number },
+    msg: Messages,
+  ) {
+    // Non-admin can only edit themselves
+    if (currentUser.role !== ROLE.ADMIN && currentUser.id !== id) {
+      throw new ForbiddenException(msg.common.forbidden);
+    }
+
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(msg.users.notFound);
 
-    if (dto.phone && dto.phone !== user.phone) {
-      const existing = await this.prisma.user.findUnique({ where: { phone: dto.phone } });
+    // Non-admin: strip privileged fields (role, isActive, password)
+    let filteredDto = dto;
+    if (currentUser.role !== ROLE.ADMIN) {
+      filteredDto = {} as UpdateUserDto;
+      for (const field of SELF_EDITABLE_FIELDS) {
+        if ((dto as any)[field] !== undefined) {
+          (filteredDto as any)[field] = (dto as any)[field];
+        }
+      }
+    }
+
+    if (filteredDto.phone && filteredDto.phone !== user.phone) {
+      const existing = await this.prisma.user.findUnique({ where: { phone: filteredDto.phone } });
       if (existing) throw new ConflictException(msg.users.phoneDuplicate);
     }
 
-    const { password, dateOfBirth, ...rest } = dto;
+    const { password, dateOfBirth, ...rest } = filteredDto;
     const data: any = {
       ...rest,
       ...(password ? { password: await bcrypt.hash(password, 10) } : {}),

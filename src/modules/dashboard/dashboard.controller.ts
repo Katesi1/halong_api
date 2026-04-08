@@ -17,14 +17,14 @@ import type { Messages } from '../../i18n';
 export class DashboardController {
   constructor(private dashboardService: DashboardService) {}
 
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('dashboard/stats')
   @ApiOperation({ summary: 'KPI Dashboard' })
   getStats(@CurrentUser() user: any, @Lang() msg: Messages) {
     return this.dashboardService.getStats(user, msg);
   }
 
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('reports')
   @ApiOperation({ summary: 'Báo cáo theo tháng' })
   @ApiQuery({ name: 'month', required: false, type: Number })

@@ -14,7 +14,7 @@ export const vi = {
     accountDisabled: 'Tài khoản không tồn tại hoặc đã bị vô hiệu hóa',
     loginSuccess: 'Đăng nhập thành công',
     registerSuccess: 'Đăng ký thành công',
-    invalidRole: 'Role không hợp lệ. Chỉ chấp nhận STAFF hoặc CUSTOMER',
+    invalidRole: 'Role không hợp lệ. Chỉ chấp nhận OWNER, SALE hoặc CUSTOMER',
     phoneDuplicate: 'Số điện thoại đã được đăng ký',
     emailDuplicate: 'Email đã được sử dụng',
     googleTokenInvalid: 'Google token không hợp lệ',
@@ -65,6 +65,7 @@ export const vi = {
     deleteSuccess: 'Xoá cơ sở thành công',
     deleteImageSuccess: 'Xoá ảnh thành công',
     setCoverSuccess: 'Đặt ảnh cover thành công',
+    updatePricesSuccess: 'Cập nhật giá cơ sở thành công',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ export const vi = {
     lockSuccess: 'Khoá ngày thành công',
     unlockSuccess: 'Mở khoá ngày thành công',
     adminContactSuccess: 'Lấy thông tin liên hệ admin thành công',
+    soldSuccess: 'Đánh dấu đã bán thành công',
     dateAlreadyLocked: 'Ngày này đã được khoá hoặc đặt',
     lockNotFound: 'Không tìm thấy ngày bị khoá',
     propertyNotFound: 'Cơ sở không tồn tại',

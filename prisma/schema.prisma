@@ -13,7 +13,7 @@ model User {
   phone        String    @unique
   email        String?   @unique
   password     String
-  role         Int       @default(1) // 0=ADMIN, 1=STAFF, 2=CUSTOMER
+  role         Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
   gender       Int?      // 0=MALE, 1=FEMALE, 2=OTHER
   dateOfBirth  DateTime?
   isActive     Boolean   @default(true)

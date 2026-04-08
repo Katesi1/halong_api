@@ -1,8 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ConflictException, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { en } from '../../i18n';
+import { ROLE } from '../../common/constants';
 
 const msg = en;
 
@@ -16,7 +17,7 @@ describe('UsersService', () => {
     phone: '0900000001',
     email: null,
     password: '$2a$10$hashedpassword',
-    role: 'STAFF' as const,
+    role: ROLE.SALE,
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -46,7 +47,7 @@ describe('UsersService', () => {
 
   describe('findAll', () => {
     it('should return user list without password', async () => {
-      const users = [{ id: 'u1', name: 'A', phone: '09001', email: null, role: 'STAFF', isActive: true, createdAt: new Date() }];
+      const users = [{ id: 'u1', name: 'A', phone: '09001', email: null, role: ROLE.SALE, isActive: true, createdAt: new Date() }];
       (prisma.user.findMany as jest.Mock).mockResolvedValue(users);
 
       const result = await service.findAll(msg);
@@ -61,7 +62,7 @@ describe('UsersService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
 
       await expect(
-        service.create({ name: 'New', phone: '0900000001', password: 'Test@123', role: 'STAFF' as any }, msg),
+        service.create({ name: 'New', phone: '0900000001', password: 'Test@123', role: ROLE.SALE }, msg),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -73,7 +74,7 @@ describe('UsersService', () => {
         return Promise.resolve({ id: 'new-id', ...data });
       });
 
-      await service.create({ name: 'New', phone: '0900000002', password: 'Test@123', role: 'STAFF' as any }, msg);
+      await service.create({ name: 'New', phone: '0900000002', password: 'Test@123', role: ROLE.SALE }, msg);
 
       expect(prisma.user.create).toHaveBeenCalled();
     });
@@ -84,17 +85,36 @@ describe('UsersService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
 
       await expect(
-        service.update('bad-id', { name: 'X' }, msg),
+        service.update('bad-id', { name: 'X' }, { id: 'admin-1', role: ROLE.ADMIN }, msg),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should update user fields correctly', async () => {
+    it('should update user fields correctly (admin)', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
       (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, name: 'Updated' });
 
-      const result = await service.update('user-1', { name: 'Updated' }, msg);
+      const result = await service.update('user-1', { name: 'Updated' }, { id: 'admin-1', role: ROLE.ADMIN }, msg);
 
       expect(result.data.name).toBe('Updated');
+    });
+
+    it('should throw ForbiddenException when non-admin edits another user', async () => {
+      await expect(
+        service.update('other-user', { name: 'X' }, { id: 'user-1', role: ROLE.CUSTOMER }, msg),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should strip privileged fields for non-admin self-edit', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, name: 'NewName' });
+
+      await service.update('user-1', { name: 'NewName', role: ROLE.ADMIN, isActive: false }, { id: 'user-1', role: ROLE.SALE }, msg);
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.not.objectContaining({ role: ROLE.ADMIN, isActive: false }),
+        }),
+      );
     });
   });
 

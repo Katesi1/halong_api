@@ -25,9 +25,9 @@ export class CreateUserDto {
   @MinLength(6, { message: 'Mật khẩu tối thiểu 6 ký tự' })
   password: string;
 
-  @ApiProperty({ example: 1, description: '0=ADMIN, 1=STAFF, 2=CUSTOMER' })
+  @ApiProperty({ example: 1, description: '0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER' })
   @IsInt()
-  @IsIn([0, 1, 2], { message: 'Role không hợp lệ (0=ADMIN, 1=STAFF, 2=CUSTOMER)' })
+  @IsIn([0, 1, 2, 3], { message: 'Role không hợp lệ (0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)' })
   @Type(() => Number)
   role: number;
 }

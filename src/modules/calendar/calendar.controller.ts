@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Patch, Body, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
 import { CalendarGridQueryDto, CalendarPropertyQueryDto, CalendarLockDto, CalendarUnlockDto } from './dto/calendar-query.dto';
@@ -18,7 +18,7 @@ export class CalendarController {
   constructor(private calendarService: CalendarService) {}
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('properties')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Danh sách property cho calendar' })
@@ -31,7 +31,7 @@ export class CalendarController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('grid')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Lấy dữ liệu lịch grid (property × dates)' })
@@ -50,7 +50,7 @@ export class CalendarController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Post('lock')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Khoá ngày (chủ nhà)' })
@@ -59,12 +59,21 @@ export class CalendarController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN, ROLE.STAFF)
-  @Post('unlock')
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Delete('lock')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Mở khoá ngày (chủ nhà)' })
   unlockDate(@Body() dto: CalendarUnlockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.calendarService.unlockDate(dto.propertyId, dto.date, user, msg);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Patch('sold')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Đánh dấu ngày đã bán' })
+  markSold(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
+    return this.calendarService.markSold(dto.propertyId, dto.date, user, msg);
   }
 
   @Public()

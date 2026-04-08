@@ -4,9 +4,13 @@
 
 export const ROLE = {
   ADMIN: 0,
-  STAFF: 1,
-  CUSTOMER: 2,
+  OWNER: 1,
+  SALE: 2,
+  CUSTOMER: 3,
 } as const;
+
+// Helper: roles that can manage properties/bookings (non-customer, non-admin management)
+export const STAFF_ROLES = [ROLE.OWNER, ROLE.SALE] as const;
 
 export const BOOKING_STATUS = {
   HOLD: 0,

@@ -22,9 +22,9 @@ export class RegisterDto {
   @MinLength(6, { message: 'Mật khẩu tối thiểu 6 ký tự' })
   password: string;
 
-  @ApiProperty({ example: 2, description: 'Role: 1=STAFF, 2=CUSTOMER' })
+  @ApiProperty({ example: 3, description: 'Role: 1=OWNER, 2=SALE, 3=CUSTOMER' })
   @IsInt()
-  @IsIn([1, 2], { message: 'Role chỉ chấp nhận 1 (STAFF) hoặc 2 (CUSTOMER)' })
+  @IsIn([1, 2, 3], { message: 'Role chỉ chấp nhận 1 (OWNER), 2 (SALE) hoặc 3 (CUSTOMER)' })
   @Type(() => Number)
   role: number;
 

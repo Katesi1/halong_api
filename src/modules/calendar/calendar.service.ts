@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS } from '../../common/constants';
+import { ROLE, STAFF_ROLES, BOOKING_STATUS, CALENDAR_LOCK_STATUS } from '../../common/constants';
 
 @Injectable()
 export class CalendarService {
@@ -24,7 +24,7 @@ export class CalendarService {
   ) {
     const where: any = { isActive: true };
 
-    if (user.role === ROLE.STAFF) {
+    if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
       where.ownerId = user.id;
     } else if (ownerId) {
       where.ownerId = ownerId;
@@ -63,7 +63,7 @@ export class CalendarService {
       select: { id: true, name: true, type: true, ownerId: true, weekdayPrice: true, weekendPrice: true, holidayPrice: true },
     });
     if (!property) throw new NotFoundException(msg.properties.notFound);
-    if (user.role === ROLE.STAFF && property.ownerId !== user.id) {
+    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
       throw new ForbiddenException(msg.properties.forbidden);
     }
 
@@ -162,7 +162,7 @@ export class CalendarService {
     });
     if (!property || !property.isActive) throw new NotFoundException(msg.calendar.propertyNotFound);
 
-    if (user.role === ROLE.STAFF && property.ownerId !== user.id) {
+    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
       throw new ForbiddenException(msg.properties.forbidden);
     }
 
@@ -214,7 +214,7 @@ export class CalendarService {
     });
     if (!property) throw new NotFoundException(msg.calendar.propertyNotFound);
 
-    if (user.role === ROLE.STAFF && property.ownerId !== user.id) {
+    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
       throw new ForbiddenException(msg.properties.forbidden);
     }
 
@@ -228,6 +228,48 @@ export class CalendarService {
     await this.prisma.calendarLock.delete({ where: { id: lock.id } });
 
     return { message: msg.calendar.unlockSuccess, data: null };
+  }
+
+  async markSold(
+    propertyId: string,
+    date: string,
+    user: { id: string; role: number },
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, ownerId: true, isActive: true },
+    });
+    if (!property || !property.isActive) throw new NotFoundException(msg.calendar.propertyNotFound);
+
+    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
+
+    const lockDate = new Date(date);
+
+    // Upsert: if lock exists, update status to BOOKED; otherwise create
+    const existingLock = await this.prisma.calendarLock.findFirst({
+      where: { propertyId, date: lockDate },
+    });
+
+    if (existingLock) {
+      const updated = await this.prisma.calendarLock.update({
+        where: { id: existingLock.id },
+        data: { status: CALENDAR_LOCK_STATUS.BOOKED },
+      });
+      return { message: msg.calendar.soldSuccess, data: updated };
+    }
+
+    const lock = await this.prisma.calendarLock.create({
+      data: {
+        propertyId,
+        date: lockDate,
+        status: CALENDAR_LOCK_STATUS.BOOKED,
+      },
+    });
+
+    return { message: msg.calendar.soldSuccess, data: lock };
   }
 
   async getAdminContact(msg: Messages) {

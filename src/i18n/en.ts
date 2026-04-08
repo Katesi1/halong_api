@@ -14,7 +14,7 @@ export const en = {
     accountDisabled: 'Account does not exist or has been disabled',
     loginSuccess: 'Login successful',
     registerSuccess: 'Registration successful',
-    invalidRole: 'Invalid role. Only STAFF or CUSTOMER are accepted',
+    invalidRole: 'Invalid role. Only OWNER, SALE or CUSTOMER are accepted',
     phoneDuplicate: 'Phone number is already registered',
     emailDuplicate: 'Email is already in use',
     googleTokenInvalid: 'Invalid Google token',
@@ -65,6 +65,7 @@ export const en = {
     deleteSuccess: 'Property deleted successfully',
     deleteImageSuccess: 'Image deleted successfully',
     setCoverSuccess: 'Cover image set successfully',
+    updatePricesSuccess: 'Property prices updated successfully',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ export const en = {
     lockSuccess: 'Date locked successfully',
     unlockSuccess: 'Date unlocked successfully',
     adminContactSuccess: 'Admin contact retrieved successfully',
+    soldSuccess: 'Date marked as sold successfully',
     dateAlreadyLocked: 'This date is already locked or booked',
     lockNotFound: 'Lock not found for this date',
     propertyNotFound: 'Property not found',

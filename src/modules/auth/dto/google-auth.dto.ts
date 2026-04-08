@@ -8,10 +8,10 @@ export class GoogleAuthDto {
   @IsNotEmpty({ message: 'idToken không được để trống' })
   idToken: string;
 
-  @ApiPropertyOptional({ example: 2, description: 'Role cho user mới: 1=STAFF, 2=CUSTOMER' })
+  @ApiPropertyOptional({ example: 3, description: 'Role cho user mới: 1=OWNER, 2=SALE, 3=CUSTOMER' })
   @IsOptional()
   @IsInt()
-  @IsIn([1, 2], { message: 'Role chỉ chấp nhận 1 (STAFF) hoặc 2 (CUSTOMER)' })
+  @IsIn([1, 2, 3], { message: 'Role chỉ chấp nhận 1 (OWNER), 2 (SALE) hoặc 3 (CUSTOMER)' })
   @Type(() => Number)
   role?: number;
 }
