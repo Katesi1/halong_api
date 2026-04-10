@@ -30,22 +30,39 @@ export class CalendarController {
     return this.calendarService.getProperties(user, msg, query.type, query.ownerId);
   }
 
+  @Public()
+  @Get('public-grid')
+  @ApiOperation({ summary: 'Trang 1 — Lịch tổng tất cả properties (chỉ xem, không cần auth)' })
+  getPublicGrid(
+    @Query() query: CalendarGridQueryDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.calendarService.getPublicGrid(
+      query.startDate,
+      query.endDate,
+      msg,
+      query.propertyId,
+      query.type,
+    );
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('grid')
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Lấy dữ liệu lịch grid (property × dates)' })
+  @ApiOperation({ summary: 'Trang 2 — Lịch quản lý (OWNER/SALE thấy property của mình, ADMIN thấy tất cả)' })
   getCalendarGrid(
     @CurrentUser() user: any,
     @Query() query: CalendarGridQueryDto,
     @Lang() msg: Messages,
   ) {
     return this.calendarService.getCalendarGrid(
-      query.propertyId,
       query.startDate,
       query.endDate,
       user,
       msg,
+      query.propertyId,
+      query.type,
     );
   }
 

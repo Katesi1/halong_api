@@ -11,11 +11,11 @@ export class UpdatePropertyDto {
   @IsString()
   name?: string;
 
-  @ApiPropertyOptional({ description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
+  @ApiPropertyOptional({ description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
   @IsOptional()
   @IsInt()
   @Min(0)
-  @Max(3)
+  @Max(2)
   @Type(() => Number)
   type?: number;
 

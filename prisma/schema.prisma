@@ -33,7 +33,7 @@ model Property {
   id                 String   @id @default(uuid())
   ownerId            String
   name               String
-  type               Int      @default(1) // 0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL
+  type               Int      @default(1) // 0=VILLA, 1=HOMESTAY, 2=HOTEL
   code               String   @unique
   isActive           Boolean  @default(true)
 

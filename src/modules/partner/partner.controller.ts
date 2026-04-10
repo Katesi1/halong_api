@@ -20,7 +20,7 @@ export class PartnerController {
 
   @Get('properties')
   @ApiOperation({ summary: 'Danh sách property (header: X-Partner-Key)' })
-  @ApiQuery({ name: 'type', required: false, description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
+  @ApiQuery({ name: 'type', required: false, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
   getProperties(
     @Query('page') page: string,
     @Query('limit') limit: string,

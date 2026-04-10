@@ -9,12 +9,37 @@ import { ConfigService } from '@nestjs/config';
 import { Messages } from '../../i18n';
 import { ROLE, STAFF_ROLES, BOOKING_STATUS, CALENDAR_LOCK_STATUS } from '../../common/constants';
 
+interface GridProperty {
+  id: string;
+  name: string;
+  type: number;
+  code: string;
+  address?: string | null;
+  weekdayPrice?: number | null;
+  weekendPrice?: number | null;
+  holidayPrice?: number | null;
+}
+
 @Injectable()
 export class CalendarService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
   ) {}
+
+  private readonly propertyGridSelect = {
+    id: true,
+    name: true,
+    type: true,
+    code: true,
+    address: true,
+    ownerId: true,
+    weekdayPrice: true,
+    weekendPrice: true,
+    holidayPrice: true,
+  } as const;
+
+  // ─── Property list for calendar sidebar ────────────────────────────────────
 
   async getProperties(
     user: { id: string; role: number },
@@ -30,124 +55,80 @@ export class CalendarService {
       where.ownerId = ownerId;
     }
 
-    if (type !== undefined) {
-      where.type = type;
-    }
+    if (type !== undefined) where.type = type;
 
     const properties = await this.prisma.property.findMany({
       where,
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        code: true,
-      },
+      select: { id: true, name: true, type: true, code: true, address: true },
       orderBy: { name: 'asc' },
     });
 
     return { message: msg.calendar.propertyListSuccess, data: properties };
   }
 
-  async getCalendarGrid(
-    propertyId: string,
+  // ─── Trang 1: Public grid (xem tất cả, không cần auth) ────────────────────
+
+  async getPublicGrid(
     startDate: string,
     endDate: string,
-    user: { id: string; role: number },
     msg: Messages,
+    propertyId?: string,
+    type?: number,
   ) {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { id: true, name: true, type: true, ownerId: true, weekdayPrice: true, weekendPrice: true, holidayPrice: true },
-    });
-    if (!property) throw new NotFoundException(msg.properties.notFound);
-    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
-      throw new ForbiddenException(msg.properties.forbidden);
-    }
+    const where: any = { isActive: true };
+    if (propertyId) where.id = propertyId;
+    if (type !== undefined) where.type = type;
 
-    // Get bookings for this property in date range
-    const bookings = await this.prisma.booking.findMany({
-      where: {
-        propertyId,
-        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
-        checkinDate: { lte: end },
-        checkoutDate: { gte: start },
-      },
-      select: {
-        checkinDate: true,
-        checkoutDate: true,
-        status: true,
-      },
+    const properties = await this.prisma.property.findMany({
+      where,
+      select: this.propertyGridSelect,
+      orderBy: { name: 'asc' },
     });
 
-    // Get calendar locks for this property in date range
-    const locks = await this.prisma.calendarLock.findMany({
-      where: {
-        propertyId,
-        date: { gte: start, lte: end },
-      },
-      select: {
-        date: true,
-        status: true,
-      },
-    });
+    const grid = await this.buildGrid(properties, start, end, false);
 
-    // Build lock map by date string
-    const lockMap = new Map<string, number>();
-    for (const lock of locks) {
-      lockMap.set(lock.date.toISOString().split('T')[0], lock.status);
-    }
-
-    // Build day-by-day grid
-    const days: { date: string; price: number; status: string }[] = [];
-    const current = new Date(start);
-
-    while (current <= end) {
-      const dateStr = current.toISOString().split('T')[0];
-      const dayOfWeek = current.getDay();
-
-      // Calculate price based on day of week
-      let price = property.weekdayPrice || 0;
-      if (dayOfWeek === 5 || dayOfWeek === 6) price = property.weekendPrice || price;
-
-      // Determine status
-      let status = 'available';
-
-      // Check calendar locks first
-      if (lockMap.has(dateStr)) {
-        const lockStatus = lockMap.get(dateStr)!;
-        status = lockStatus === CALENDAR_LOCK_STATUS.BOOKED ? 'booked' : 'locked';
-      }
-
-      // Check bookings (override if applicable)
-      if (status === 'available') {
-        for (const booking of bookings) {
-          if (current >= booking.checkinDate && current < booking.checkoutDate) {
-            status = booking.status === BOOKING_STATUS.CONFIRMED ? 'booked' : 'hold';
-            break;
-          }
-        }
-      }
-
-      days.push({ date: dateStr, price, status });
-      current.setDate(current.getDate() + 1);
-    }
-
-    return {
-      message: msg.calendar.gridSuccess,
-      data: {
-        property: { id: property.id, name: property.name, type: property.type },
-        properties: [{
-          id: property.id,
-          code: (property as any).code,
-          name: property.name,
-          days,
-        }],
-      },
-    };
+    return { message: msg.calendar.gridSuccess, data: { properties: grid } };
   }
+
+  // ─── Trang 2: Management grid (cần auth, OWNER/SALE chỉ thấy của mình) ────
+
+  async getCalendarGrid(
+    startDate: string,
+    endDate: string,
+    user: { id: string; role: number },
+    msg: Messages,
+    propertyId?: string,
+    type?: number,
+  ) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    const where: any = { isActive: true };
+    if (propertyId) where.id = propertyId;
+    if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
+      where.ownerId = user.id;
+    }
+    if (type !== undefined) where.type = type;
+
+    const properties = await this.prisma.property.findMany({
+      where,
+      select: this.propertyGridSelect,
+      orderBy: { name: 'asc' },
+    });
+
+    if (propertyId && properties.length === 0) {
+      throw new NotFoundException(msg.properties.notFound);
+    }
+
+    const grid = await this.buildGrid(properties, start, end, true);
+
+    return { message: msg.calendar.gridSuccess, data: { properties: grid } };
+  }
+
+  // ─── Lock / Unlock / Sold ──────────────────────────────────────────────────
 
   async lockDate(
     propertyId: string,
@@ -156,19 +137,9 @@ export class CalendarService {
     user: { id: string; role: number },
     msg: Messages,
   ) {
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { id: true, ownerId: true, isActive: true },
-    });
-    if (!property || !property.isActive) throw new NotFoundException(msg.calendar.propertyNotFound);
-
-    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
-      throw new ForbiddenException(msg.properties.forbidden);
-    }
-
+    await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = new Date(date);
 
-    // Check if already locked
     const existingLock = await this.prisma.calendarLock.findFirst({
       where: { propertyId, date: lockDate },
     });
@@ -176,7 +147,6 @@ export class CalendarService {
       throw new BadRequestException(msg.calendar.dateAlreadyLocked);
     }
 
-    // Check if already booked
     const nextDay = new Date(lockDate);
     nextDay.setDate(nextDay.getDate() + 1);
     const existingBooking = await this.prisma.booking.findFirst({
@@ -208,21 +178,12 @@ export class CalendarService {
     user: { id: string; role: number },
     msg: Messages,
   ) {
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { id: true, ownerId: true },
-    });
-    if (!property) throw new NotFoundException(msg.calendar.propertyNotFound);
-
-    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
-      throw new ForbiddenException(msg.properties.forbidden);
-    }
-
+    await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = new Date(date);
+
     const lock = await this.prisma.calendarLock.findFirst({
       where: { propertyId, date: lockDate },
     });
-
     if (!lock) throw new NotFoundException(msg.calendar.lockNotFound);
 
     await this.prisma.calendarLock.delete({ where: { id: lock.id } });
@@ -236,19 +197,9 @@ export class CalendarService {
     user: { id: string; role: number },
     msg: Messages,
   ) {
-    const property = await this.prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { id: true, ownerId: true, isActive: true },
-    });
-    if (!property || !property.isActive) throw new NotFoundException(msg.calendar.propertyNotFound);
-
-    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
-      throw new ForbiddenException(msg.properties.forbidden);
-    }
-
+    await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = new Date(date);
 
-    // Upsert: if lock exists, update status to BOOKED; otherwise create
     const existingLock = await this.prisma.calendarLock.findFirst({
       where: { propertyId, date: lockDate },
     });
@@ -272,6 +223,8 @@ export class CalendarService {
     return { message: msg.calendar.soldSuccess, data: lock };
   }
 
+  // ─── Admin Contact ─────────────────────────────────────────────────────────
+
   async getAdminContact(msg: Messages) {
     const admin = await this.prisma.user.findFirst({
       where: { role: ROLE.ADMIN, isActive: true },
@@ -285,5 +238,126 @@ export class CalendarService {
     };
 
     return { message: msg.calendar.adminContactSuccess, data };
+  }
+
+  // ─── Private Helpers ───────────────────────────────────────────────────────
+
+  private async buildGrid(
+    properties: GridProperty[],
+    start: Date,
+    end: Date,
+    includeNote: boolean,
+  ) {
+    const propertyIds = properties.map(p => p.id);
+
+    if (propertyIds.length === 0) return [];
+
+    const [bookings, locks] = await Promise.all([
+      this.prisma.booking.findMany({
+        where: {
+          propertyId: { in: propertyIds },
+          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          checkinDate: { lte: end },
+          checkoutDate: { gte: start },
+        },
+        select: {
+          propertyId: true,
+          checkinDate: true,
+          checkoutDate: true,
+          status: true,
+          customerName: true,
+        },
+      }),
+      this.prisma.calendarLock.findMany({
+        where: {
+          propertyId: { in: propertyIds },
+          date: { gte: start, lte: end },
+        },
+        select: { propertyId: true, date: true, status: true },
+      }),
+    ]);
+
+    // Group by propertyId
+    const bookingsByProp = new Map<string, typeof bookings>();
+    for (const b of bookings) {
+      const list = bookingsByProp.get(b.propertyId) || [];
+      list.push(b);
+      bookingsByProp.set(b.propertyId, list);
+    }
+
+    const locksByProp = new Map<string, Map<string, number>>();
+    for (const lock of locks) {
+      if (!locksByProp.has(lock.propertyId)) {
+        locksByProp.set(lock.propertyId, new Map());
+      }
+      locksByProp.get(lock.propertyId)!.set(
+        lock.date.toISOString().split('T')[0],
+        lock.status,
+      );
+    }
+
+    return properties.map(property => {
+      const propBookings = bookingsByProp.get(property.id) || [];
+      const propLocks = locksByProp.get(property.id) || new Map<string, number>();
+
+      const days: { date: string; price: number; status: string; note?: string }[] = [];
+      const current = new Date(start);
+
+      while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0];
+        const dayOfWeek = current.getDay();
+
+        let price = property.weekdayPrice || 0;
+        if (dayOfWeek === 5 || dayOfWeek === 6) price = property.weekendPrice || price;
+
+        let status = 'available';
+        let note: string | undefined;
+
+        if (propLocks.has(dateStr)) {
+          const lockStatus = propLocks.get(dateStr)!;
+          status = lockStatus === CALENDAR_LOCK_STATUS.BOOKED ? 'booked' : 'locked';
+        }
+
+        if (status === 'available') {
+          for (const booking of propBookings) {
+            if (current >= booking.checkinDate && current < booking.checkoutDate) {
+              status = booking.status === BOOKING_STATUS.CONFIRMED ? 'booked' : 'hold';
+              if (includeNote) note = booking.customerName || undefined;
+              break;
+            }
+          }
+        }
+
+        days.push({ date: dateStr, price, status, ...(note ? { note } : {}) });
+        current.setDate(current.getDate() + 1);
+      }
+
+      return {
+        id: property.id,
+        code: property.code,
+        name: property.name,
+        type: property.type,
+        address: property.address,
+        days,
+      };
+    });
+  }
+
+  private async getPropertyWithAccess(
+    propertyId: string,
+    user: { id: string; role: number },
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, ownerId: true, isActive: true },
+    });
+    if (!property || !property.isActive) throw new NotFoundException(msg.calendar.propertyNotFound);
+
+    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
+
+    return property;
   }
 }

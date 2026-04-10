@@ -3,10 +3,10 @@ import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, Max } from 
 import { Type } from 'class-transformer';
 
 export class CalendarGridQueryDto {
-  @ApiProperty({ description: 'ID property' })
+  @ApiPropertyOptional({ description: 'ID property (nếu không truyền → lấy tất cả properties của user)' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  propertyId: string;
+  propertyId?: string;
 
   @ApiProperty({ description: 'Ngày bắt đầu (YYYY-MM-DD)', example: '2026-04-01' })
   @IsDateString()
@@ -15,14 +15,22 @@ export class CalendarGridQueryDto {
   @ApiProperty({ description: 'Ngày kết thúc (YYYY-MM-DD)', example: '2026-04-30' })
   @IsDateString()
   endDate: string;
-}
 
-export class CalendarPropertyQueryDto {
-  @ApiPropertyOptional({ description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
+  @ApiPropertyOptional({ description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
   @IsOptional()
   @IsInt()
   @Min(0)
-  @Max(3)
+  @Max(2)
+  @Type(() => Number)
+  type?: number;
+}
+
+export class CalendarPropertyQueryDto {
+  @ApiPropertyOptional({ description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(2)
   @Type(() => Number)
   type?: number;
 

@@ -35,7 +35,7 @@ export class PropertiesController {
   @ApiQuery({ name: 'guests', required: false, type: Number })
   @ApiQuery({ name: 'minPrice', required: false, type: Number })
   @ApiQuery({ name: 'maxPrice', required: false, type: Number })
-  @ApiQuery({ name: 'type', required: false, type: Number, description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
+  @ApiQuery({ name: 'type', required: false, type: Number, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
   findPublic(
     @Query('checkinDate') checkinDate: string,
     @Query('checkoutDate') checkoutDate: string,

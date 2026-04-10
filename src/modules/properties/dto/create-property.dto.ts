@@ -11,10 +11,10 @@ export class CreatePropertyDto {
   @IsNotEmpty({ message: 'Tên không được để trống' })
   name: string;
 
-  @ApiProperty({ example: 0, description: '0=VILLA, 1=HOMESTAY, 2=APARTMENT, 3=HOTEL' })
+  @ApiProperty({ example: 0, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
   @IsInt()
   @Min(0)
-  @Max(3)
+  @Max(2)
   @Type(() => Number)
   type: number;
 

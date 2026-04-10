@@ -22,8 +22,7 @@ export const BOOKING_STATUS = {
 export const PROPERTY_TYPE = {
   VILLA: 0,
   HOMESTAY: 1,
-  APARTMENT: 2,
-  HOTEL: 3,
+  HOTEL: 2,
 } as const;
 
 export const CANCELLATION_POLICY = {
