@@ -37,6 +37,9 @@ model Property {
   code               String   @unique
   isActive           Boolean  @default(true)
 
+  // View
+  view               String?  // "sea", "city", null
+
   // Location
   address            String?
   latitude           Float?

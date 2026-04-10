@@ -14,6 +14,7 @@ interface GridProperty {
   name: string;
   type: number;
   code: string;
+  view?: string | null;
   address?: string | null;
   weekdayPrice?: number | null;
   weekendPrice?: number | null;
@@ -32,6 +33,7 @@ export class CalendarService {
     name: true,
     type: true,
     code: true,
+    view: true,
     address: true,
     ownerId: true,
     weekdayPrice: true,
@@ -59,7 +61,7 @@ export class CalendarService {
 
     const properties = await this.prisma.property.findMany({
       where,
-      select: { id: true, name: true, type: true, code: true, address: true },
+      select: { id: true, name: true, type: true, code: true, view: true, address: true },
       orderBy: { name: 'asc' },
     });
 
@@ -337,6 +339,7 @@ export class CalendarService {
         code: property.code,
         name: property.name,
         type: property.type,
+        view: property.view,
         address: property.address,
         days,
       };

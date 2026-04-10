@@ -23,5 +23,8 @@ prisma/*.db
 *.swp
 *.swo
 
+# Logs
+server.log
+
 # OS
 Thumbs.db

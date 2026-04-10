@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString, IsNotEmpty, IsOptional, IsNumber, IsInt,
-  IsArray, Min, Max,
+  IsArray, IsIn, Min, Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -22,6 +22,11 @@ export class CreatePropertyDto {
   @IsString()
   @IsNotEmpty({ message: 'Mã không được để trống' })
   code: string;
+
+  @ApiPropertyOptional({ example: 'sea', description: '"sea" (view biển), "city" (view thành phố), null' })
+  @IsOptional()
+  @IsIn(['sea', 'city'])
+  view?: string;
 
   @ApiPropertyOptional({ example: 'https://maps.google.com/...' })
   @IsOptional()

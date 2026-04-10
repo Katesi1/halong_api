@@ -22,6 +22,7 @@ export class PropertiesService {
     user: { id: string; role: number },
     msg: Messages,
     includeInactive?: boolean,
+    view?: string,
   ) {
     const where: any =
       (STAFF_ROLES as readonly number[]).includes(user.role)
@@ -30,6 +31,10 @@ export class PropertiesService {
 
     if (!includeInactive) {
       where.isActive = true;
+    }
+
+    if (view) {
+      where.view = view;
     }
 
     const properties = await this.prisma.property.findMany({
@@ -53,11 +58,16 @@ export class PropertiesService {
     minPrice?: number,
     maxPrice?: number,
     type?: number,
+    view?: string,
   ) {
     const where: any = { isActive: true };
 
     if (type !== undefined) {
       where.type = type;
+    }
+
+    if (view) {
+      where.view = view;
     }
 
     if (guests) {

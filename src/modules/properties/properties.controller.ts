@@ -36,6 +36,7 @@ export class PropertiesController {
   @ApiQuery({ name: 'minPrice', required: false, type: Number })
   @ApiQuery({ name: 'maxPrice', required: false, type: Number })
   @ApiQuery({ name: 'type', required: false, type: Number, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
+  @ApiQuery({ name: 'view', required: false, description: '"sea" hoặc "city"' })
   findPublic(
     @Query('checkinDate') checkinDate: string,
     @Query('checkoutDate') checkoutDate: string,
@@ -43,6 +44,7 @@ export class PropertiesController {
     @Query('minPrice') minPrice: string,
     @Query('maxPrice') maxPrice: string,
     @Query('type') type: string,
+    @Query('view') view: string,
     @Lang() msg: Messages,
   ) {
     return this.propertiesService.findPublic(
@@ -53,6 +55,7 @@ export class PropertiesController {
       minPrice ? parseFloat(minPrice) : undefined,
       maxPrice ? parseFloat(maxPrice) : undefined,
       type !== undefined ? parseInt(type) : undefined,
+      view || undefined,
     );
   }
 
@@ -60,12 +63,14 @@ export class PropertiesController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Danh sách properties' })
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'Admin thấy cả property đang tắt' })
+  @ApiQuery({ name: 'view', required: false, description: '"sea" hoặc "city"' })
   findAll(
     @CurrentUser() user: any,
     @Query('includeInactive') includeInactive: string,
+    @Query('view') view: string,
     @Lang() msg: Messages,
   ) {
-    return this.propertiesService.findAll(user, msg, includeInactive === 'true');
+    return this.propertiesService.findAll(user, msg, includeInactive === 'true', view || undefined);
   }
 
   @Get(':id')
