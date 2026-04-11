@@ -21,7 +21,7 @@ export class UsersService {
 
   async findAll(msg: Messages, role?: number) {
     const users = await this.prisma.user.findMany({
-      where: role !== undefined ? { role } : undefined,
+      where: { deletedAt: null, ...(role !== undefined ? { role } : {}) },
       select: {
         id: true, name: true, phone: true, email: true,
         role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
@@ -32,14 +32,14 @@ export class UsersService {
   }
 
   async findOne(id: string, msg: Messages) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
       select: {
         id: true, name: true, phone: true, email: true,
         role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
         properties: {
           select: { id: true, name: true, code: true },
-          where: { isActive: true },
+          where: { isActive: true, deletedAt: null },
         },
       },
     });
@@ -75,7 +75,7 @@ export class UsersService {
       throw new ForbiddenException(msg.common.forbidden);
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
     if (!user) throw new NotFoundException(msg.users.notFound);
 
     // Non-admin: strip privileged fields (role, isActive, password)
@@ -117,12 +117,12 @@ export class UsersService {
     if (id === currentUserId) {
       throw new BadRequestException(msg.users.cannotDeleteSelf);
     }
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
     if (!user) throw new NotFoundException(msg.users.notFound);
 
     await this.prisma.user.update({
       where: { id },
-      data: { isActive: false },
+      data: { deletedAt: new Date() },
     });
 
     return { message: msg.users.disableSuccess, data: null };

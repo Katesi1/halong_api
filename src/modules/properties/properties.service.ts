@@ -28,8 +28,8 @@ export class PropertiesService {
   ) {
     const where: any =
       (STAFF_ROLES as readonly number[]).includes(user.role)
-        ? { ownerId: user.id }
-        : {};
+        ? { ownerId: user.id, deletedAt: null }
+        : { deletedAt: null };
 
     if (!includeInactive) {
       where.isActive = true;
@@ -62,7 +62,7 @@ export class PropertiesService {
     type?: number,
     view?: string,
   ) {
-    const where: any = { isActive: true };
+    const where: any = { isActive: true, deletedAt: null };
 
     if (type !== undefined) {
       where.type = type;
@@ -123,7 +123,7 @@ export class PropertiesService {
       },
     });
 
-    if (!property) throw new NotFoundException(msg.properties.notFound);
+    if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
 
     return { message: msg.properties.getSuccess, data: property };
@@ -164,7 +164,7 @@ export class PropertiesService {
 
   async update(id: string, dto: UpdatePropertyDto, user: { id: string; role: number }, msg: Messages) {
     const property = await this.prisma.property.findUnique({ where: { id } });
-    if (!property) throw new NotFoundException(msg.properties.notFound);
+    if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
 
     if (dto.code && dto.code !== property.code) {
@@ -196,12 +196,12 @@ export class PropertiesService {
 
   async remove(id: string, user: { id: string; role: number }, msg: Messages) {
     const property = await this.prisma.property.findUnique({ where: { id } });
-    if (!property) throw new NotFoundException(msg.properties.notFound);
+    if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
 
     await this.prisma.property.update({
       where: { id },
-      data: { isActive: false },
+      data: { deletedAt: new Date() },
     });
 
     await this.notifications.notifyAdmins(
@@ -224,7 +224,7 @@ export class PropertiesService {
     msg: Messages,
   ) {
     const property = await this.prisma.property.findUnique({ where: { id } });
-    if (!property) throw new NotFoundException(msg.properties.notFound);
+    if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
 
     const updated = await this.prisma.property.update({
@@ -368,7 +368,7 @@ export class PropertiesService {
     msg: Messages,
   ) {
     const property = await this.prisma.property.findUnique({ where: { id } });
-    if (!property) throw new NotFoundException(msg.properties.notFound);
+    if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
     return property;
   }

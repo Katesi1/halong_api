@@ -12,7 +12,7 @@ export class PartnerService {
     const { page = 1, limit = 20, type } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = { isActive: true };
+    const where: any = { isActive: true, deletedAt: null };
     if (type !== undefined) where.type = type;
 
     const [properties, total] = await Promise.all([
@@ -37,7 +37,7 @@ export class PartnerService {
 
   async getPropertyDetail(id: string, msg: Messages) {
     const property = await this.prisma.property.findUnique({
-      where: { id, isActive: true },
+      where: { id, isActive: true, deletedAt: null },
       include: {
         images: { orderBy: { order: 'asc' } },
       },
@@ -64,7 +64,7 @@ export class PartnerService {
   }
 
   async createBooking(data: CreatePartnerBookingDto, msg: Messages) {
-    const property = await this.prisma.property.findUnique({ where: { id: data.propertyId } });
+    const property = await this.prisma.property.findUnique({ where: { id: data.propertyId, deletedAt: null } });
     if (!property) throw new NotFoundException(msg.properties.notFound);
 
     const checkin = new Date(data.checkinDate);
@@ -74,7 +74,7 @@ export class PartnerService {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
 
-    const admin = await this.prisma.user.findFirst({ where: { role: ROLE.ADMIN } });
+    const admin = await this.prisma.user.findFirst({ where: { role: ROLE.ADMIN, deletedAt: null } });
     if (!admin) throw new BadRequestException(msg.users.adminNotFound);
 
     const conflict = await this.prisma.booking.findFirst({

@@ -33,6 +33,7 @@ describe('UsersService', () => {
             user: {
               findMany: jest.fn(),
               findUnique: jest.fn(),
+              findFirst: jest.fn(),
               create: jest.fn(),
               update: jest.fn(),
             },
@@ -82,7 +83,7 @@ describe('UsersService', () => {
 
   describe('update', () => {
     it('should throw NotFoundException when user not found', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(null);
 
       await expect(
         service.update('bad-id', { name: 'X' }, { id: 'admin-1', role: ROLE.ADMIN }, msg),
@@ -90,7 +91,7 @@ describe('UsersService', () => {
     });
 
     it('should update user fields correctly (admin)', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
       (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, name: 'Updated' });
 
       const result = await service.update('user-1', { name: 'Updated' }, { id: 'admin-1', role: ROLE.ADMIN }, msg);
@@ -105,7 +106,7 @@ describe('UsersService', () => {
     });
 
     it('should strip privileged fields for non-admin self-edit', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
       (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, name: 'NewName' });
 
       await service.update('user-1', { name: 'NewName', role: ROLE.ADMIN, isActive: false }, { id: 'user-1', role: ROLE.SALE }, msg);
@@ -125,15 +126,15 @@ describe('UsersService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should soft delete (isActive=false)', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-      (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, isActive: false });
+    it('should soft delete (set deletedAt)', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser, deletedAt: new Date() });
 
       await service.remove('user-1', 'admin-id', msg);
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { isActive: false },
+        data: { deletedAt: expect.any(Date) },
       });
     });
   });

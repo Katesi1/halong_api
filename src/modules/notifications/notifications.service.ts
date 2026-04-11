@@ -105,7 +105,7 @@ export class NotificationsService {
     targetType?: string,
   ) {
     const admins = await this.prisma.user.findMany({
-      where: { role: ROLE.ADMIN, isActive: true },
+      where: { role: ROLE.ADMIN, isActive: true, deletedAt: null },
       select: { id: true },
     });
 

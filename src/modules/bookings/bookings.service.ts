@@ -109,7 +109,7 @@ export class BookingsService {
     }
 
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
-    if (!property || !property.isActive) throw new NotFoundException(msg.properties.notFound);
+    if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
     // Check Redis hold
     const existingHold = await this.redis.getHold(propertyId);
@@ -287,7 +287,7 @@ export class BookingsService {
     }
 
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
-    if (!property || !property.isActive) throw new NotFoundException(msg.properties.notFound);
+    if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
     // Check date conflicts (HOLD + CONFIRMED)
     const conflict = await this.prisma.booking.findFirst({

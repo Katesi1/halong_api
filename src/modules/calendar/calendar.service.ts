@@ -51,7 +51,7 @@ export class CalendarService {
     type?: number,
     ownerId?: string,
   ) {
-    const where: any = { isActive: true };
+    const where: any = { isActive: true, deletedAt: null };
 
     if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
       where.ownerId = user.id;
@@ -82,7 +82,7 @@ export class CalendarService {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
-    const where: any = { isActive: true };
+    const where: any = { isActive: true, deletedAt: null };
     if (propertyId) where.id = propertyId;
     if (type !== undefined) where.type = type;
 
@@ -110,7 +110,7 @@ export class CalendarService {
     const start = new Date(startDate);
     const end = new Date(endDate);
 
-    const where: any = { isActive: true };
+    const where: any = { isActive: true, deletedAt: null };
     if (propertyId) where.id = propertyId;
     if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
       where.ownerId = user.id;
@@ -266,7 +266,7 @@ export class CalendarService {
 
   async getAdminContact(msg: Messages) {
     const admin = await this.prisma.user.findFirst({
-      where: { role: ROLE.ADMIN, isActive: true },
+      where: { role: ROLE.ADMIN, isActive: true, deletedAt: null },
       select: { name: true, phone: true },
     });
 

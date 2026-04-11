@@ -20,6 +20,7 @@ model User {
   refreshToken String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
   properties       Property[]
   notifications    Notification[]
@@ -72,6 +73,7 @@ model Property {
 
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
 
   owner         User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   images        PropertyImage[]

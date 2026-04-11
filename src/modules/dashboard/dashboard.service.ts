@@ -11,7 +11,7 @@ export class DashboardService {
     if (user.role === ROLE.ADMIN) return null;
 
     const properties = await this.prisma.property.findMany({
-      where: { ownerId: user.id },
+      where: { ownerId: user.id, deletedAt: null },
       select: { id: true },
     });
     return properties.map((p) => p.id);
@@ -31,8 +31,8 @@ export class DashboardService {
     const bookingWhere: any = scopedPropertyIds ? { propertyId: { in: scopedPropertyIds } } : {};
 
     const [totalProperties, activeProperties] = await Promise.all([
-      this.prisma.property.count({ where: propertyWhere }),
-      this.prisma.property.count({ where: { ...propertyWhere, isActive: true } }),
+      this.prisma.property.count({ where: { ...propertyWhere, deletedAt: null } }),
+      this.prisma.property.count({ where: { ...propertyWhere, isActive: true, deletedAt: null } }),
     ]);
 
     const [occupiedBookings, checkoutTodayBookings] = await Promise.all([
@@ -112,17 +112,19 @@ export class DashboardService {
     const bookingWhere: any = scopedPropertyIds ? { propertyId: { in: scopedPropertyIds } } : {};
 
     const [totalProperties, activeProperties, roomsWithCover, roomsWithPrice] = await Promise.all([
-      this.prisma.property.count({ where: propertyWhere }),
-      this.prisma.property.count({ where: { ...propertyWhere, isActive: true } }),
+      this.prisma.property.count({ where: { ...propertyWhere, deletedAt: null } }),
+      this.prisma.property.count({ where: { ...propertyWhere, isActive: true, deletedAt: null } }),
       this.prisma.property.count({
         where: {
           ...propertyWhere,
+          deletedAt: null,
           images: { some: { isCover: true } },
         },
       }),
       this.prisma.property.count({
         where: {
           ...propertyWhere,
+          deletedAt: null,
           weekdayPrice: { not: null },
         },
       }),

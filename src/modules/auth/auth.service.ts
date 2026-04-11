@@ -83,7 +83,7 @@ export class AuthService {
       ? await this.prisma.user.findUnique({ where: { email: identifier } })
       : await this.prisma.user.findUnique({ where: { phone: identifier } });
 
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || user.deletedAt) {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
     }
 
