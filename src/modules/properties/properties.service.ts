@@ -9,13 +9,15 @@ import { CloudinaryService } from '../../config/cloudinary.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
-import { ROLE, STAFF_ROLES, BOOKING_STATUS } from '../../common/constants';
+import { ROLE, STAFF_ROLES, BOOKING_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PropertiesService {
   constructor(
     private prisma: PrismaService,
     private cloudinary: CloudinaryService,
+    private notifications: NotificationsService,
   ) {}
 
   async findAll(
@@ -149,6 +151,14 @@ export class PropertiesService {
       },
     });
 
+    await this.notifications.notifyAdmins(
+      'Phòng mới được tạo',
+      `${property.name} (${property.code}) được tạo bởi ${property.owner.name}`,
+      NOTIFICATION_TYPE.SYSTEM,
+      property.id,
+      'property',
+    );
+
     return { message: msg.properties.createSuccess, data: property };
   }
 
@@ -172,6 +182,15 @@ export class PropertiesService {
       },
     });
 
+    await this.notifications.notifyPropertyOwner(
+      id,
+      'Phòng được cập nhật',
+      `${updated.name} (${(updated as any).code}) đã được cập nhật`,
+      NOTIFICATION_TYPE.SYSTEM,
+      id,
+      'property',
+    );
+
     return { message: msg.properties.updateSuccess, data: updated };
   }
 
@@ -184,6 +203,14 @@ export class PropertiesService {
       where: { id },
       data: { isActive: false },
     });
+
+    await this.notifications.notifyAdmins(
+      'Phòng đã bị xóa',
+      `${property.name} (${property.code}) đã bị vô hiệu hóa`,
+      NOTIFICATION_TYPE.SYSTEM,
+      id,
+      'property',
+    );
 
     return { message: msg.properties.deleteSuccess, data: null };
   }
@@ -209,6 +236,15 @@ export class PropertiesService {
         adultSurcharge: true, childSurcharge: true,
       },
     });
+
+    await this.notifications.notifyPropertyOwner(
+      id,
+      'Bảng giá được cập nhật',
+      `${updated.name} (${updated.code}) đã cập nhật bảng giá`,
+      NOTIFICATION_TYPE.SYSTEM,
+      id,
+      'property',
+    );
 
     return { message: msg.properties.updatePricesSuccess, data: updated };
   }
@@ -249,6 +285,16 @@ export class PropertiesService {
       uploadedImages.map((img) => this.prisma.propertyImage.create({ data: img })),
     );
 
+    const prop = await this.prisma.property.findUnique({ where: { id: propertyId }, select: { name: true, code: true } });
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Ảnh mới được tải lên',
+      `${prop?.name} (${prop?.code}) — ${images.length} ảnh mới`,
+      NOTIFICATION_TYPE.SYSTEM,
+      propertyId,
+      'property',
+    );
+
     return { message: msg.properties.uploadSuccess(images.length), data: images };
   }
 
@@ -280,6 +326,15 @@ export class PropertiesService {
         });
       }
     }
+
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Ảnh đã bị xóa',
+      `Một ảnh của phòng đã bị xóa`,
+      NOTIFICATION_TYPE.SYSTEM,
+      propertyId,
+      'property',
+    );
 
     return { message: msg.properties.deleteImageSuccess, data: null };
   }

@@ -2,7 +2,8 @@ import {
   Controller, Get, Post, Put, Delete,
   Body, Param, Query, UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { UserListResponse, UserResponse, MessageResponse } from '../../common/dto/api-response.dto';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -26,6 +27,7 @@ export class UsersController {
   @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Danh sách user (Admin only)' })
   @ApiQuery({ name: 'role', required: false, description: '0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER' })
+  @ApiResponse({ status: 200, type: UserListResponse })
   findAll(@Query('role') role: string, @Lang() msg: Messages) {
     return this.usersService.findAll(msg, role !== undefined ? parseInt(role) : undefined);
   }
@@ -33,6 +35,7 @@ export class UsersController {
   @Get(':id')
   @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Chi tiết user (Admin only)' })
+  @ApiResponse({ status: 200, type: UserResponse })
   findOne(@Param('id') id: string, @Lang() msg: Messages) {
     return this.usersService.findOne(id, msg);
   }
@@ -40,12 +43,14 @@ export class UsersController {
   @Post()
   @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Tạo user mới (Admin only)' })
+  @ApiResponse({ status: 201, type: UserResponse })
   create(@Body() dto: CreateUserDto, @Lang() msg: Messages) {
     return this.usersService.create(dto, msg);
   }
 
   @Put(':id')
   @ApiOperation({ summary: 'Cập nhật user — ADMIN sửa ai cũng được, user khác chỉ sửa chính mình' })
+  @ApiResponse({ status: 200, type: UserResponse })
   update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
@@ -58,6 +63,7 @@ export class UsersController {
   @Delete(':id')
   @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Xóa user (Admin only)' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   remove(@Param('id') id: string, @CurrentUser('id') currentUserId: string, @Lang() msg: Messages) {
     return this.usersService.remove(id, currentUserId, msg);
   }

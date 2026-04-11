@@ -12,7 +12,8 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
-import { ROLE, STAFF_ROLES, BOOKING_STATUS } from '../../common/constants';
+import { ROLE, STAFF_ROLES, BOOKING_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
@@ -22,6 +23,7 @@ export class BookingsService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private notifications: NotificationsService,
   ) {}
 
   // ─── Staff/Admin Methods ──────────────────────────────────────────────────
@@ -164,6 +166,16 @@ export class BookingsService {
 
     await this.redis.setHold(propertyId, booking.id, STAFF_HOLD_DURATION_SECONDS);
 
+    // Notify owner
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Booking mới — Giữ chỗ',
+      `${booking.property.name} (${booking.property.code}) được giữ chỗ bởi ${booking.sale?.name || 'Staff'}`,
+      NOTIFICATION_TYPE.BOOKING,
+      booking.id,
+      'booking',
+    );
+
     return {
       message: msg.bookings.holdSuccess,
       data: { ...booking, holdRemainingSeconds: STAFF_HOLD_DURATION_SECONDS },
@@ -190,6 +202,26 @@ export class BookingsService {
 
     await this.redis.delHold(booking.propertyId);
 
+    // Notify owner + customer
+    await this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Booking được xác nhận',
+      `${confirmed.property.name} (${confirmed.property.code}) — booking đã xác nhận`,
+      NOTIFICATION_TYPE.BOOKING,
+      id,
+      'booking',
+    );
+    if (booking.customerId) {
+      await this.notifications.notifyUser(
+        booking.customerId,
+        'Đặt phòng được xác nhận',
+        `Phòng ${confirmed.property.name} đã được xác nhận`,
+        NOTIFICATION_TYPE.BOOKING,
+        id,
+        'booking',
+      );
+    }
+
     return { message: msg.bookings.confirmSuccess, data: confirmed };
   }
 
@@ -203,12 +235,23 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.alreadyCancelled);
     }
 
-    await this.prisma.booking.update({
+    const cancelled = await this.prisma.booking.update({
       where: { id },
       data: { status: BOOKING_STATUS.CANCELLED },
+      include: { property: { select: { name: true, code: true } } },
     });
 
     await this.redis.delHold(booking.propertyId);
+
+    // Notify owner
+    await this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Booking đã bị hủy',
+      `${cancelled.property.name} (${cancelled.property.code}) — booking đã hủy`,
+      NOTIFICATION_TYPE.BOOKING,
+      id,
+      'booking',
+    );
 
     return { message: msg.bookings.cancelSuccess, data: null };
   }
@@ -276,6 +319,17 @@ export class BookingsService {
       },
     });
 
+    // Notify owner
+    const customer = await this.prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Khách đặt phòng mới',
+      `${booking.property.name} (${booking.property.code}) — khách ${customer?.name || 'Ẩn danh'} giữ chỗ`,
+      NOTIFICATION_TYPE.BOOKING,
+      booking.id,
+      'booking',
+    );
+
     return {
       message: msg.bookings.customerHoldSuccess,
       data: { ...booking, holdRemainingSeconds: CUSTOMER_HOLD_DURATION_SECONDS },
@@ -327,12 +381,23 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.onlyCancelHold);
     }
 
-    await this.prisma.booking.update({
+    const cancelled = await this.prisma.booking.update({
       where: { id },
       data: { status: BOOKING_STATUS.CANCELLED },
+      include: { property: { select: { name: true, code: true } } },
     });
 
     await this.redis.delHold(booking.propertyId);
+
+    // Notify owner
+    await this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Khách hủy đặt phòng',
+      `${cancelled.property.name} (${cancelled.property.code}) — khách đã hủy giữ chỗ`,
+      NOTIFICATION_TYPE.BOOKING,
+      id,
+      'booking',
+    );
 
     return { message: msg.bookings.customerCancelSuccess, data: null };
   }

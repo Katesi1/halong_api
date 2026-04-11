@@ -7,7 +7,8 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { Messages } from '../../i18n';
-import { ROLE, STAFF_ROLES, BOOKING_STATUS, CALENDAR_LOCK_STATUS } from '../../common/constants';
+import { ROLE, STAFF_ROLES, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 interface GridProperty {
   id: string;
@@ -26,6 +27,7 @@ export class CalendarService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private notifications: NotificationsService,
   ) {}
 
   private readonly propertyGridSelect = {
@@ -171,6 +173,15 @@ export class CalendarService {
       },
     });
 
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Ngày đã bị khóa',
+      `Ngày ${date} đã được khóa trên lịch`,
+      NOTIFICATION_TYPE.SYSTEM,
+      propertyId,
+      'property',
+    );
+
     return { message: msg.calendar.lockSuccess, data: lock };
   }
 
@@ -189,6 +200,15 @@ export class CalendarService {
     if (!lock) throw new NotFoundException(msg.calendar.lockNotFound);
 
     await this.prisma.calendarLock.delete({ where: { id: lock.id } });
+
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Ngày đã mở khóa',
+      `Ngày ${date} đã được mở khóa trên lịch`,
+      NOTIFICATION_TYPE.SYSTEM,
+      propertyId,
+      'property',
+    );
 
     return { message: msg.calendar.unlockSuccess, data: null };
   }
@@ -211,6 +231,14 @@ export class CalendarService {
         where: { id: existingLock.id },
         data: { status: CALENDAR_LOCK_STATUS.BOOKED },
       });
+      await this.notifications.notifyPropertyOwner(
+        propertyId,
+        'Ngày đánh dấu đã bán',
+        `Ngày ${date} được đánh dấu đã bán`,
+        NOTIFICATION_TYPE.BOOKING,
+        propertyId,
+        'property',
+      );
       return { message: msg.calendar.soldSuccess, data: updated };
     }
 
@@ -221,6 +249,15 @@ export class CalendarService {
         status: CALENDAR_LOCK_STATUS.BOOKED,
       },
     });
+
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Ngày đánh dấu đã bán',
+      `Ngày ${date} được đánh dấu đã bán`,
+      NOTIFICATION_TYPE.BOOKING,
+      propertyId,
+      'property',
+    );
 
     return { message: msg.calendar.soldSuccess, data: lock };
   }

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { LoginResponse, MessageResponse, ProfileResponse } from '../../common/dto/api-response.dto';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -23,6 +24,7 @@ export class AuthController {
   @Public()
   @Post('register')
   @ApiOperation({ summary: 'Đăng ký', description: 'Đăng ký tài khoản STAFF hoặc CUSTOMER. Trả token luôn (auto-login)' })
+  @ApiResponse({ status: 201, type: LoginResponse })
   register(@Body() dto: RegisterDto, @Lang() msg: Messages) {
     return this.authService.register(dto, msg);
   }
@@ -30,6 +32,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @ApiOperation({ summary: 'Đăng nhập', description: 'Trả về accessToken và refreshToken' })
+  @ApiResponse({ status: 200, type: LoginResponse })
   login(@Body() dto: LoginDto, @Lang() msg: Messages) {
     return this.authService.login(dto, msg);
   }
@@ -37,6 +40,7 @@ export class AuthController {
   @Public()
   @Post('google')
   @ApiOperation({ summary: 'Đăng nhập Google', description: 'Đăng nhập/đăng ký bằng Google ID Token. User mới cần field role.' })
+  @ApiResponse({ status: 200, type: LoginResponse })
   googleAuth(@Body() dto: GoogleAuthDto, @Lang() msg: Messages) {
     return this.authService.googleAuth(dto, msg);
   }
@@ -44,6 +48,7 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @ApiOperation({ summary: 'Làm mới token', description: 'Đổi refreshToken lấy accessToken mới' })
+  @ApiResponse({ status: 200, type: LoginResponse })
   refresh(@Body() dto: RefreshTokenDto, @Lang() msg: Messages) {
     return this.authService.refreshToken(dto.refreshToken, msg);
   }
@@ -51,6 +56,7 @@ export class AuthController {
   @Public()
   @Post('forgot-password')
   @ApiOperation({ summary: 'Quên mật khẩu', description: 'Gửi mã xác nhận qua SMS/email' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   forgotPassword(@Body() dto: ForgotPasswordDto, @Lang() msg: Messages) {
     return this.authService.forgotPassword(dto, msg);
   }
@@ -58,6 +64,7 @@ export class AuthController {
   @Public()
   @Post('reset-password')
   @ApiOperation({ summary: 'Đặt lại mật khẩu', description: 'Đặt lại mật khẩu bằng token' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   resetPassword(@Body() dto: ResetPasswordDto, @Lang() msg: Messages) {
     return this.authService.resetPassword(dto, msg);
   }
@@ -66,6 +73,7 @@ export class AuthController {
   @Post('logout')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Đăng xuất', description: 'Vô hiệu hóa refresh token' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   logout(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
     return this.authService.logout(userId, msg);
   }
@@ -74,6 +82,7 @@ export class AuthController {
   @Get('profile')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Lấy thông tin user đăng nhập' })
+  @ApiResponse({ status: 200, type: ProfileResponse })
   getProfile(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
     return this.authService.getProfile(userId, msg);
   }
@@ -82,6 +91,7 @@ export class AuthController {
   @Post('change-password')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Đổi mật khẩu', description: 'Đổi mật khẩu khi đang đăng nhập' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   changePassword(
     @CurrentUser('id') userId: string,
     @Body() dto: ChangePasswordDto,

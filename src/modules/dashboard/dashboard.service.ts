@@ -85,10 +85,10 @@ export class DashboardService {
     ]);
 
     const data = {
-      totalProperties,
-      activeProperties,
-      emptyProperties: Math.max(0, emptyProperties),
-      occupiedProperties,
+      totalRooms: totalProperties,
+      activeRooms: activeProperties,
+      emptyRooms: Math.max(0, emptyProperties),
+      occupiedRooms: occupiedProperties,
       checkoutToday: checkoutTodayBookings,
       totalBookings,
       thisMonthBookings,
@@ -111,9 +111,21 @@ export class DashboardService {
     const propertyWhere: any = scopedPropertyIds ? { id: { in: scopedPropertyIds } } : {};
     const bookingWhere: any = scopedPropertyIds ? { propertyId: { in: scopedPropertyIds } } : {};
 
-    const [totalProperties, activeProperties] = await Promise.all([
+    const [totalProperties, activeProperties, roomsWithCover, roomsWithPrice] = await Promise.all([
       this.prisma.property.count({ where: propertyWhere }),
       this.prisma.property.count({ where: { ...propertyWhere, isActive: true } }),
+      this.prisma.property.count({
+        where: {
+          ...propertyWhere,
+          images: { some: { isCover: true } },
+        },
+      }),
+      this.prisma.property.count({
+        where: {
+          ...propertyWhere,
+          weekdayPrice: { not: null },
+        },
+      }),
     ]);
 
     const totalBookings = await this.prisma.booking.count({ where: bookingWhere });
@@ -180,8 +192,8 @@ export class DashboardService {
     });
 
     const data = {
-      totalProperties,
-      activeProperties,
+      totalRooms: totalProperties,
+      activeRooms: activeProperties,
       totalBookings,
       thisMonthBookings,
       holdCount: statusMap[BOOKING_STATUS.HOLD] || 0,
@@ -190,6 +202,8 @@ export class DashboardService {
       completedCount: statusMap[BOOKING_STATUS.COMPLETED] || 0,
       totalDeposit: depositResult._sum.depositAmount || 0,
       occupancyRate,
+      roomsWithCover,
+      roomsWithPrice,
       recentBookings,
     };
 

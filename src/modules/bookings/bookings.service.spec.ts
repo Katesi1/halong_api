@@ -3,6 +3,7 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../config/redis.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { en } from '../../i18n';
 import { BOOKING_STATUS, ROLE } from '../../common/constants';
 
@@ -58,6 +59,15 @@ describe('BookingsService', () => {
             setHold: jest.fn().mockResolvedValue(undefined),
             delHold: jest.fn().mockResolvedValue(undefined),
             getHoldTtl: jest.fn().mockResolvedValue(1800),
+          },
+        },
+        {
+          provide: NotificationsService,
+          useValue: {
+            create: jest.fn().mockResolvedValue(undefined),
+            notifyPropertyOwner: jest.fn().mockResolvedValue(undefined),
+            notifyAdmins: jest.fn().mockResolvedValue(undefined),
+            notifyUser: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -135,7 +145,11 @@ describe('BookingsService', () => {
 
     it('should confirm and clear Redis hold', async () => {
       (prisma.booking.findUnique as jest.Mock).mockResolvedValue(mockBooking);
-      (prisma.booking.update as jest.Mock).mockResolvedValue({ ...mockBooking, status: BOOKING_STATUS.CONFIRMED });
+      (prisma.booking.update as jest.Mock).mockResolvedValue({
+        ...mockBooking,
+        status: BOOKING_STATUS.CONFIRMED,
+        property: { name: 'Villa Test', code: 'VT01' },
+      });
 
       await service.confirmBooking('booking-1', { id: 'admin-1', role: ROLE.ADMIN }, msg);
 

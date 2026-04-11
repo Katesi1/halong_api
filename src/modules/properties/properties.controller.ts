@@ -3,7 +3,7 @@ import {
   Body, Param, Query, UseGuards, UseInterceptors,
   UploadedFiles,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { PropertiesService } from './properties.service';
@@ -18,6 +18,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
 import { ROLE } from '../../common/constants';
 import type { Messages } from '../../i18n';
+import { PropertyListResponse, PropertyResponse, MessageResponse } from '../../common/dto/api-response.dto';
 
 @ApiTags('Properties')
 @ApiBearerAuth('access-token')
@@ -37,6 +38,7 @@ export class PropertiesController {
   @ApiQuery({ name: 'maxPrice', required: false, type: Number })
   @ApiQuery({ name: 'type', required: false, type: Number, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
   @ApiQuery({ name: 'view', required: false, description: '"sea" hoặc "city"' })
+  @ApiResponse({ status: 200, type: PropertyListResponse })
   findPublic(
     @Query('checkinDate') checkinDate: string,
     @Query('checkoutDate') checkoutDate: string,
@@ -64,6 +66,7 @@ export class PropertiesController {
   @ApiOperation({ summary: 'Danh sách properties' })
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'Admin thấy cả property đang tắt' })
   @ApiQuery({ name: 'view', required: false, description: '"sea" hoặc "city"' })
+  @ApiResponse({ status: 200, type: PropertyListResponse })
   findAll(
     @CurrentUser() user: any,
     @Query('includeInactive') includeInactive: string,
@@ -76,6 +79,7 @@ export class PropertiesController {
   @Get(':id')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Chi tiết property' })
+  @ApiResponse({ status: 200, type: PropertyResponse })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.findOne(id, user, msg);
   }
@@ -83,6 +87,8 @@ export class PropertiesController {
   @Post()
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Tạo property' })
+  @ApiResponse({ status: 201, type: PropertyResponse, description: 'Property đã tạo thành công (tự động tạo notification cho Admin)' })
+  @ApiResponse({ status: 409, description: 'Mã code bị trùng' })
   create(@Body() dto: CreatePropertyDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.create(dto, user, msg);
   }
@@ -90,20 +96,27 @@ export class PropertiesController {
   @Patch(':id')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Cập nhật property (partial)' })
+  @ApiResponse({ status: 200, type: PropertyResponse })
   update(@Param('id') id: string, @Body() dto: UpdatePropertyDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.update(id, dto, user, msg);
   }
 
   @Delete(':id')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @ApiOperation({ summary: 'Xóa property (soft delete)' })
+  @ApiOperation({ summary: 'Xóa property (soft delete — đặt isActive=false, không xóa DB)' })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  @ApiResponse({ status: 404, description: 'Property not found' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.propertiesService.remove(id, user, msg);
   }
 
   @Put(':id/prices')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @ApiOperation({ summary: 'Cập nhật giá property' })
+  @ApiOperation({
+    summary: 'Cập nhật giá property',
+    description: 'Tất cả fields optional — chỉ gửi field cần update. Fields: weekdayPrice, weekendPrice, holidayPrice, adultSurcharge, childSurcharge',
+  })
+  @ApiResponse({ status: 200, type: PropertyResponse })
   updatePrices(
     @Param('id') id: string,
     @Body() dto: UpdatePricesDto,
@@ -115,9 +128,13 @@ export class PropertiesController {
 
   @Post(':id/images')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @ApiOperation({ summary: 'Upload ảnh property (multipart, tối đa 10 ảnh JPG/PNG/WEBP)' })
+  @ApiOperation({
+    summary: 'Upload ảnh property (multipart, tối đa 10 ảnh JPG/PNG/WEBP)',
+    description: 'Gửi multipart/form-data, field name: images. Max 10 ảnh/lần, max 10MB/ảnh. Ảnh đầu tiên tự động set cover nếu chưa có ảnh.',
+  })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { images: { type: 'array', items: { type: 'string', format: 'binary' } } } } })
+  @ApiResponse({ status: 201, type: PropertyResponse })
   @UseInterceptors(
     FilesInterceptor('images', 10, {
       storage: memoryStorage(),
@@ -142,6 +159,7 @@ export class PropertiesController {
   @Delete(':id/images/:imageId')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Xóa ảnh property' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   deleteImage(
     @Param('id') propertyId: string,
     @Param('imageId') imageId: string,
@@ -154,6 +172,7 @@ export class PropertiesController {
   @Patch(':id/images/:imageId/cover')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Đặt ảnh làm ảnh bìa' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   setCoverImage(
     @Param('id') propertyId: string,
     @Param('imageId') imageId: string,
