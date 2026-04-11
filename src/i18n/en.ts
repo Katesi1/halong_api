@@ -90,6 +90,7 @@ export const en = {
     notYourBooking: 'This booking does not belong to you',
     onlyCancelHold: 'Only bookings with HOLD status can be cancelled',
     propertyNotAvailable: 'Property is not available for the selected dates',
+    dateLocked: 'Some dates in this range are locked, held, or already sold',
     confirmSuccess: 'Booking confirmed successfully',
     cancelSuccess: 'Booking cancelled successfully',
     updateSuccess: 'Booking updated successfully',

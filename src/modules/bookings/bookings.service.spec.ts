@@ -50,6 +50,9 @@ describe('BookingsService', () => {
             property: {
               findUnique: jest.fn(),
             },
+            calendarLock: {
+              findFirst: jest.fn().mockResolvedValue(null),
+            },
           },
         },
         {

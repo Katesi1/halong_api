@@ -79,8 +79,8 @@ export class CalendarService {
     propertyId?: string,
     type?: number,
   ) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = this.toUTCDate(startDate);
+    const end = this.toUTCDate(endDate);
 
     const where: any = { isActive: true, deletedAt: null };
     if (propertyId) where.id = propertyId;
@@ -107,8 +107,8 @@ export class CalendarService {
     propertyId?: string,
     type?: number,
   ) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = this.toUTCDate(startDate);
+    const end = this.toUTCDate(endDate);
 
     const where: any = { isActive: true, deletedAt: null };
     if (propertyId) where.id = propertyId;
@@ -142,7 +142,7 @@ export class CalendarService {
     msg: Messages,
   ) {
     await this.getPropertyWithAccess(propertyId, user, msg);
-    const lockDate = new Date(date);
+    const lockDate = this.toUTCDate(date);
 
     const existingLock = await this.prisma.calendarLock.findFirst({
       where: { propertyId, date: lockDate },
@@ -152,7 +152,7 @@ export class CalendarService {
     }
 
     const nextDay = new Date(lockDate);
-    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
     const existingBooking = await this.prisma.booking.findFirst({
       where: {
         propertyId,
@@ -192,7 +192,7 @@ export class CalendarService {
     msg: Messages,
   ) {
     await this.getPropertyWithAccess(propertyId, user, msg);
-    const lockDate = new Date(date);
+    const lockDate = this.toUTCDate(date);
 
     const lock = await this.prisma.calendarLock.findFirst({
       where: { propertyId, date: lockDate },
@@ -220,7 +220,7 @@ export class CalendarService {
     msg: Messages,
   ) {
     await this.getPropertyWithAccess(propertyId, user, msg);
-    const lockDate = new Date(date);
+    const lockDate = this.toUTCDate(date);
 
     const existingLock = await this.prisma.calendarLock.findFirst({
       where: { propertyId, date: lockDate },
@@ -281,6 +281,21 @@ export class CalendarService {
 
   // ─── Private Helpers ───────────────────────────────────────────────────────
 
+  /** Normalize any Date/string to 'YYYY-MM-DD' (timezone-safe) */
+  private toDateStr(d: Date | string): string {
+    if (typeof d === 'string') return d.split('T')[0];
+    // Use UTC components to avoid timezone offset
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /** Parse 'YYYY-MM-DD' → UTC midnight Date */
+  private toUTCDate(dateStr: string): Date {
+    return new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+  }
+
   private async buildGrid(
     properties: GridProperty[],
     start: Date,
@@ -316,23 +331,30 @@ export class CalendarService {
       }),
     ]);
 
-    // Group by propertyId
-    const bookingsByProp = new Map<string, typeof bookings>();
-    for (const b of bookings) {
-      const list = bookingsByProp.get(b.propertyId) || [];
-      list.push(b);
-      bookingsByProp.set(b.propertyId, list);
-    }
-
+    // Group locks by propertyId → Map<dateStr, status>
     const locksByProp = new Map<string, Map<string, number>>();
     for (const lock of locks) {
       if (!locksByProp.has(lock.propertyId)) {
         locksByProp.set(lock.propertyId, new Map());
       }
       locksByProp.get(lock.propertyId)!.set(
-        lock.date.toISOString().split('T')[0],
+        this.toDateStr(lock.date),
         lock.status,
       );
+    }
+
+    // Pre-compute booking date strings for timezone-safe comparison
+    const bookingsWithStr = bookings.map(b => ({
+      ...b,
+      checkinStr: this.toDateStr(b.checkinDate),
+      checkoutStr: this.toDateStr(b.checkoutDate),
+    }));
+
+    const bookingsByProp = new Map<string, typeof bookingsWithStr>();
+    for (const b of bookingsWithStr) {
+      const list = bookingsByProp.get(b.propertyId) || [];
+      list.push(b);
+      bookingsByProp.set(b.propertyId, list);
     }
 
     return properties.map(property => {
@@ -343,8 +365,8 @@ export class CalendarService {
       const current = new Date(start);
 
       while (current <= end) {
-        const dateStr = current.toISOString().split('T')[0];
-        const dayOfWeek = current.getDay();
+        const dateStr = this.toDateStr(current);
+        const dayOfWeek = current.getUTCDay();
 
         let price = property.weekdayPrice || 0;
         if (dayOfWeek === 5 || dayOfWeek === 6) price = property.weekendPrice || price;
@@ -354,12 +376,19 @@ export class CalendarService {
 
         if (propLocks.has(dateStr)) {
           const lockStatus = propLocks.get(dateStr)!;
-          status = lockStatus === CALENDAR_LOCK_STATUS.BOOKED ? 'booked' : 'locked';
+          if (lockStatus === CALENDAR_LOCK_STATUS.BOOKED) {
+            status = 'booked';
+          } else if (lockStatus === CALENDAR_LOCK_STATUS.HOLD) {
+            status = 'hold';
+          } else {
+            status = 'locked';
+          }
         }
 
         if (status === 'available') {
           for (const booking of propBookings) {
-            if (current >= booking.checkinDate && current < booking.checkoutDate) {
+            // Compare date strings: checkin <= date < checkout (checkout excluded)
+            if (dateStr >= booking.checkinStr && dateStr < booking.checkoutStr) {
               status = booking.status === BOOKING_STATUS.CONFIRMED ? 'booked' : 'hold';
               if (includeNote) note = booking.customerName || undefined;
               break;
@@ -368,7 +397,7 @@ export class CalendarService {
         }
 
         days.push({ date: dateStr, price, status, ...(note ? { note } : {}) });
-        current.setDate(current.getDate() + 1);
+        current.setUTCDate(current.getUTCDate() + 1);
       }
 
       return {

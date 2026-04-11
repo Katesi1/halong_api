@@ -94,8 +94,8 @@ export class PropertiesService {
 
     // Filter by date availability
     if (checkinDate && checkoutDate) {
-      const checkin = new Date(checkinDate);
-      const checkout = new Date(checkoutDate);
+      const checkin = new Date(checkinDate.split('T')[0] + 'T00:00:00.000Z');
+      const checkout = new Date(checkoutDate.split('T')[0] + 'T00:00:00.000Z');
 
       const conflictingBookings = await this.prisma.booking.findMany({
         where: {

@@ -39,7 +39,8 @@ export const NOTIFICATION_TYPE = {
 
 export const CALENDAR_LOCK_STATUS = {
   LOCKED: 0,
-  BOOKED: 1,
+  HOLD: 1,
+  BOOKED: 2,
 } as const;
 
 export const GENDER = {

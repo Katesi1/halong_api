@@ -47,8 +47,8 @@ export class PartnerService {
   }
 
   async getPropertyAvailability(propertyId: string, year: number, month: number, msg: Messages) {
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0, 23, 59, 59);
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
 
     const bookings = await this.prisma.booking.findMany({
       where: {
@@ -67,8 +67,8 @@ export class PartnerService {
     const property = await this.prisma.property.findUnique({ where: { id: data.propertyId, deletedAt: null } });
     if (!property) throw new NotFoundException(msg.properties.notFound);
 
-    const checkin = new Date(data.checkinDate);
-    const checkout = new Date(data.checkoutDate);
+    const checkin = new Date(data.checkinDate.split('T')[0] + 'T00:00:00.000Z');
+    const checkout = new Date(data.checkoutDate.split('T')[0] + 'T00:00:00.000Z');
 
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);

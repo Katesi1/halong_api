@@ -12,7 +12,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
-import { ROLE, STAFF_ROLES, BOOKING_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import { ROLE, STAFF_ROLES, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
@@ -96,11 +96,16 @@ export class BookingsService {
     };
   }
 
+  /** Parse 'YYYY-MM-DD' → UTC midnight Date */
+  private toUTCDate(dateStr: string): Date {
+    return new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+  }
+
   async holdProperty(dto: CreateBookingDto, user: { id: string; role: number }, msg: Messages) {
     const { propertyId, checkinDate, checkoutDate } = dto;
 
-    const checkin = new Date(checkinDate);
-    const checkout = new Date(checkoutDate);
+    const checkin = this.toUTCDate(checkinDate);
+    const checkout = this.toUTCDate(checkoutDate);
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
@@ -135,6 +140,17 @@ export class BookingsService {
     });
     if (conflict) {
       throw new BadRequestException(msg.bookings.propertyAlreadyBooked);
+    }
+
+    // Check calendar lock conflicts (locked/hold/booked dates)
+    const lockConflict = await this.prisma.calendarLock.findFirst({
+      where: {
+        propertyId,
+        date: { gte: checkin, lt: checkout },
+      },
+    });
+    if (lockConflict) {
+      throw new BadRequestException(msg.bookings.dateLocked);
     }
 
     // Cancel existing holds for this property
@@ -277,8 +293,8 @@ export class BookingsService {
   async customerHold(dto: CustomerHoldBookingDto, user: { id: string; role: number }, msg: Messages) {
     const { propertyId, checkinDate, checkoutDate } = dto;
 
-    const checkin = new Date(checkinDate);
-    const checkout = new Date(checkoutDate);
+    const checkin = this.toUTCDate(checkinDate);
+    const checkout = this.toUTCDate(checkoutDate);
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
@@ -300,6 +316,17 @@ export class BookingsService {
     });
     if (conflict) {
       throw new ConflictException(msg.bookings.propertyNotAvailable);
+    }
+
+    // Check calendar lock conflicts (locked/hold/booked dates)
+    const lockConflict = await this.prisma.calendarLock.findFirst({
+      where: {
+        propertyId,
+        date: { gte: checkin, lt: checkout },
+      },
+    });
+    if (lockConflict) {
+      throw new ConflictException(msg.bookings.dateLocked);
     }
 
     const holdExpireAt = new Date(Date.now() + CUSTOMER_HOLD_DURATION_SECONDS * 1000);

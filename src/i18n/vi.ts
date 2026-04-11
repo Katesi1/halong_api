@@ -90,6 +90,7 @@ export const vi = {
     notYourBooking: 'Booking này không thuộc về bạn',
     onlyCancelHold: 'Chỉ có thể huỷ booking đang ở trạng thái HOLD',
     propertyNotAvailable: 'Cơ sở đã được đặt trong khoảng thời gian này',
+    dateLocked: 'Một số ngày trong khoảng này đã bị khoá, giữ chỗ hoặc đã bán',
     confirmSuccess: 'Xác nhận booking thành công',
     cancelSuccess: 'Huỷ booking thành công',
     updateSuccess: 'Cập nhật booking thành công',

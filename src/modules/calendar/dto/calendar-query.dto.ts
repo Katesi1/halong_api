@@ -51,13 +51,13 @@ export class CalendarLockDto {
   date: string;
 
   @ApiPropertyOptional({
-    description: '0=LOCKED (chủ khoá), 1=BOOKED (đánh dấu đã bán). Mặc định: 0',
+    description: '0=LOCKED (khoá ngày), 1=HOLD (giữ chỗ), 2=BOOKED (đã bán). Mặc định: 0',
     example: 0,
   })
   @IsOptional()
   @IsInt()
   @Min(0)
-  @Max(1)
+  @Max(2)
   @Type(() => Number)
   status?: number;
 }
