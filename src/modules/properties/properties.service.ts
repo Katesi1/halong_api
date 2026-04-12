@@ -277,7 +277,7 @@ export class PropertiesService {
     await this.getPropertyWithAccess(propertyId, user, msg);
 
     const currentCount = await this.prisma.propertyImage.count({ where: { propertyId } });
-    const maxImages = 20;
+    const maxImages = 30;
     if (currentCount + files.length > maxImages) {
       throw new ConflictException(msg.properties.maxImages(maxImages));
     }

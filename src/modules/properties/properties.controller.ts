@@ -128,8 +128,8 @@ export class PropertiesController {
   @Post(':id/images')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({
-    summary: 'Upload ảnh property (multipart, tối đa 10 ảnh JPG/PNG/WEBP)',
-    description: 'Gửi multipart/form-data, field name: images. Max 10 ảnh/lần, max 10MB/ảnh. Ảnh đầu tiên tự động set cover nếu chưa có ảnh.',
+    summary: 'Upload ảnh property (multipart, tối đa 20 ảnh JPG/PNG/WEBP)',
+    description: 'Gửi multipart/form-data, field name: images. Max 20 ảnh/lần, max 10MB/ảnh. Ảnh đầu tiên tự động set cover nếu chưa có ảnh.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { images: { type: 'array', items: { type: 'string', format: 'binary' } } } } })
@@ -143,7 +143,7 @@ export class PropertiesController {
         }
         cb(null, true);
       },
-      limits: { fileSize: 10 * 1024 * 1024, files: 10 },
+      limits: { fileSize: 10 * 1024 * 1024, files: 20 },
     }),
   )
   uploadImages(
