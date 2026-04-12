@@ -64,8 +64,7 @@ export class BookingsController {
   }
 
   @Post('hold')
-  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @ApiOperation({ summary: 'Giữ chỗ (Admin/Staff) — hold 30 phút' })
+  @ApiOperation({ summary: 'Giữ chỗ — hold 30 phút (mọi authenticated user)' })
   @ApiResponse({ status: 201, type: BookingResponse })
   holdProperty(@Body() dto: CreateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.holdProperty(dto, user, msg);

@@ -104,10 +104,6 @@ export class BookingsService {
   }
 
   async holdProperty(dto: CreateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
-    if (isSaleUnassigned(user)) {
-      throw new BadRequestException(msg.users.saleNotAssigned);
-    }
-
     const { propertyId, checkinDate, checkoutDate } = dto;
 
     const checkin = this.toUTCDate(checkinDate);
@@ -121,12 +117,6 @@ export class BookingsService {
 
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
-
-    // Check ownership
-    const effectiveOwnerId = getEffectiveOwnerId(user);
-    if (effectiveOwnerId && property.ownerId !== effectiveOwnerId) {
-      throw new ForbiddenException(msg.properties.forbidden);
-    }
 
     // Check Redis hold
     const existingHold = await this.redis.getHold(propertyId);
