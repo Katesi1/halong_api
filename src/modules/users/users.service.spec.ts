@@ -59,11 +59,11 @@ describe('UsersService', () => {
   });
 
   describe('create', () => {
-    it('should throw ConflictException on duplicate phone', async () => {
+    it('should throw ConflictException on duplicate email', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
 
       await expect(
-        service.create({ name: 'New', phone: '0900000001', password: 'Test@123', role: ROLE.SALE }, msg),
+        service.create({ name: 'New', email: 'test@example.com', password: 'Test@123', role: ROLE.SALE }, msg),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -75,7 +75,7 @@ describe('UsersService', () => {
         return Promise.resolve({ id: 'new-id', ...data });
       });
 
-      await service.create({ name: 'New', phone: '0900000002', password: 'Test@123', role: ROLE.SALE }, msg);
+      await service.create({ name: 'New', email: 'new@example.com', password: 'Test@123', role: ROLE.SALE }, msg);
 
       expect(prisma.user.create).toHaveBeenCalled();
     });

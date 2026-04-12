@@ -27,19 +27,21 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto, msg: Messages) {
-    const existingPhone = await this.prisma.user.findUnique({
-      where: { phone: dto.phone },
+    const email = dto.email.toLowerCase().trim();
+
+    const existingEmail = await this.prisma.user.findUnique({
+      where: { email },
     });
-    if (existingPhone) {
-      throw new ConflictException(msg.auth.phoneDuplicate);
+    if (existingEmail) {
+      throw new ConflictException(msg.auth.emailDuplicate);
     }
 
-    if (dto.email) {
-      const existingEmail = await this.prisma.user.findUnique({
-        where: { email: dto.email },
+    if (dto.phone) {
+      const existingPhone = await this.prisma.user.findUnique({
+        where: { phone: dto.phone },
       });
-      if (existingEmail) {
-        throw new ConflictException(msg.auth.emailDuplicate);
+      if (existingPhone) {
+        throw new ConflictException(msg.auth.phoneDuplicate);
       }
     }
 
@@ -48,14 +50,14 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
-        phone: dto.phone,
+        email,
         password: hashedPassword,
         role: dto.role,
-        email: dto.email || null,
+        phone: dto.phone || null,
       },
     });
 
-    const tokens = await this.generateTokens(user.id, user.phone, user.role);
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
@@ -69,6 +71,7 @@ export class AuthService {
           phone: user.phone,
           email: user.email,
           role: user.role,
+          ownerId: user.ownerId || null,
           isActive: user.isActive,
         },
       },
@@ -76,12 +79,9 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, msg: Messages) {
-    const identifier = dto.phone.trim();
-    const isEmail = identifier.includes('@');
-
-    const user = isEmail
-      ? await this.prisma.user.findUnique({ where: { email: identifier } })
-      : await this.prisma.user.findUnique({ where: { phone: identifier } });
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase().trim() },
+    });
 
     if (!user || !user.isActive || user.deletedAt) {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
@@ -92,7 +92,7 @@ export class AuthService {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
     }
 
-    const tokens = await this.generateTokens(user.id, user.phone, user.role);
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
@@ -106,6 +106,7 @@ export class AuthService {
           phone: user.phone,
           email: user.email,
           role: user.role,
+          ownerId: user.ownerId || null,
           isActive: user.isActive,
         },
       },
@@ -119,7 +120,7 @@ export class AuthService {
       if (!decoded || !decoded.email) {
         throw new Error('Invalid token');
       }
-      googlePayload = { email: decoded.email, name: decoded.name || decoded.email, sub: decoded.sub };
+      googlePayload = { email: decoded.email.toLowerCase(), name: decoded.name || decoded.email, sub: decoded.sub };
     } catch {
       throw new BadRequestException(msg.auth.googleTokenInvalid);
     }
@@ -141,7 +142,6 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: {
           name: googlePayload.name,
-          phone: `google_${googlePayload.sub}`,
           email: googlePayload.email,
           password: randomPassword,
           role: dto.role,
@@ -149,7 +149,7 @@ export class AuthService {
       });
     }
 
-    const tokens = await this.generateTokens(user.id, user.phone, user.role);
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
@@ -163,6 +163,7 @@ export class AuthService {
           phone: user.phone,
           email: user.email,
           role: user.role,
+          ownerId: user.ownerId || null,
           isActive: user.isActive,
         },
       },
@@ -226,7 +227,7 @@ export class AuthService {
         throw new ForbiddenException(msg.auth.invalidRefreshToken);
       }
 
-      const tokens = await this.generateTokens(user.id, user.phone, user.role);
+      const tokens = await this.generateTokens(user.id, user.email, user.role);
       await this.updateRefreshToken(user.id, tokens.refreshToken);
 
       return {
@@ -251,7 +252,7 @@ export class AuthService {
       where: { id: userId },
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
+        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
       },
     });
     return { message: msg.auth.profileSuccess, data: user };
@@ -275,8 +276,8 @@ export class AuthService {
     return { message: msg.auth.changePasswordSuccess, data: null };
   }
 
-  private async generateTokens(userId: string, phone: string, role: number) {
-    const payload = { sub: userId, phone, role };
+  private async generateTokens(userId: string, email: string, role: number) {
+    const payload = { sub: userId, email, role };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {

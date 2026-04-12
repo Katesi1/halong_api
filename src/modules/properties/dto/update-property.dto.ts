@@ -41,6 +41,11 @@ export class UpdatePropertyDto {
   @Type(() => Number)
   longitude?: number;
 
+  @ApiPropertyOptional({ example: 'Bãi Cháy, Hạ Long' })
+  @IsOptional()
+  @IsString()
+  address?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

@@ -3,13 +3,14 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CloudinaryService } from '../../config/cloudinary.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
-import { ROLE, STAFF_ROLES, BOOKING_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
@@ -21,15 +22,15 @@ export class PropertiesService {
   ) {}
 
   async findAll(
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
     includeInactive?: boolean,
     view?: string,
   ) {
-    const where: any =
-      (STAFF_ROLES as readonly number[]).includes(user.role)
-        ? { ownerId: user.id, deletedAt: null }
-        : { deletedAt: null };
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    const where: any = effectiveOwnerId
+      ? { ownerId: effectiveOwnerId, deletedAt: null }
+      : { deletedAt: null };
 
     if (!includeInactive) {
       where.isActive = true;
@@ -113,23 +114,30 @@ export class PropertiesService {
     return { message: msg.properties.publicListSuccess, data: properties };
   }
 
-  async findOne(id: string, user: { id: string; role: number }, msg: Messages) {
+  async findOne(id: string, msg: Messages) {
     const property = await this.prisma.property.findUnique({
       where: { id },
       include: {
-        owner: { select: { id: true, name: true, phone: true } },
+        owner: {
+          select: {
+            id: true, name: true, phone: true,
+          },
+        },
         images: { orderBy: { order: 'asc' } },
         _count: { select: { bookings: true } },
       },
     });
 
     if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
-    this.checkOwnerAccess(property, user, msg);
 
     return { message: msg.properties.getSuccess, data: property };
   }
 
-  async create(dto: CreatePropertyDto, user: { id: string; role: number }, msg: Messages) {
+  async create(dto: CreatePropertyDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    // ADMIN can assign to any owner; OWNER creates for self; SALE cannot create
+    if (user.role === ROLE.SALE) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
     const ownerId = user.role === ROLE.ADMIN && dto.ownerId ? dto.ownerId : user.id;
 
     if (user.role === ROLE.ADMIN && dto.ownerId) {
@@ -162,7 +170,7 @@ export class PropertiesService {
     return { message: msg.properties.createSuccess, data: property };
   }
 
-  async update(id: string, dto: UpdatePropertyDto, user: { id: string; role: number }, msg: Messages) {
+  async update(id: string, dto: UpdatePropertyDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const property = await this.prisma.property.findUnique({ where: { id } });
     if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
@@ -194,7 +202,12 @@ export class PropertiesService {
     return { message: msg.properties.updateSuccess, data: updated };
   }
 
-  async remove(id: string, user: { id: string; role: number }, msg: Messages) {
+  async remove(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    // Only ADMIN and OWNER can delete
+    if (user.role === ROLE.SALE) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
+
     const property = await this.prisma.property.findUnique({ where: { id } });
     if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
@@ -220,7 +233,7 @@ export class PropertiesService {
   async updatePrices(
     id: string,
     dto: { weekdayPrice?: number; weekendPrice?: number; holidayPrice?: number; adultSurcharge?: number; childSurcharge?: number },
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
     const property = await this.prisma.property.findUnique({ where: { id } });
@@ -254,9 +267,13 @@ export class PropertiesService {
   async uploadImages(
     propertyId: string,
     files: Express.Multer.File[],
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
+    if (!files || files.length === 0) {
+      throw new BadRequestException(msg.properties.noFiles);
+    }
+
     await this.getPropertyWithAccess(propertyId, user, msg);
 
     const currentCount = await this.prisma.propertyImage.count({ where: { propertyId } });
@@ -301,7 +318,7 @@ export class PropertiesService {
   async deleteImage(
     propertyId: string,
     imageId: string,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
     await this.getPropertyWithAccess(propertyId, user, msg);
@@ -342,7 +359,7 @@ export class PropertiesService {
   async setCoverImage(
     propertyId: string,
     imageId: string,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
     await this.getPropertyWithAccess(propertyId, user, msg);
@@ -364,7 +381,7 @@ export class PropertiesService {
 
   private async getPropertyWithAccess(
     id: string,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
     const property = await this.prisma.property.findUnique({ where: { id } });
@@ -373,8 +390,9 @@ export class PropertiesService {
     return property;
   }
 
-  private checkOwnerAccess(property: any, user: { id: string; role: number }, msg: Messages) {
-    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
+  private checkOwnerAccess(property: any, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId && property.ownerId !== effectiveOwnerId) {
       throw new ForbiddenException(msg.properties.forbidden);
     }
   }

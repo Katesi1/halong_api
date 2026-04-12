@@ -10,11 +10,10 @@ export class RegisterDto {
   @MaxLength(100, { message: 'Tên tối đa 100 ký tự' })
   name: string;
 
-  @ApiProperty({ example: '0912345678', description: 'Số điện thoại (10-11 số, bắt đầu bằng 0)' })
-  @IsString()
-  @IsNotEmpty({ message: 'Số điện thoại không được để trống' })
-  @Matches(/^0\d{9,10}$/, { message: 'Số điện thoại phải 10-11 số và bắt đầu bằng 0' })
-  phone: string;
+  @ApiProperty({ example: 'a@example.com', description: 'Email (bắt buộc, unique)' })
+  @IsEmail({}, { message: 'Email không hợp lệ' })
+  @IsNotEmpty({ message: 'Email không được để trống' })
+  email: string;
 
   @ApiProperty({ example: 'matkhau123', description: 'Mật khẩu (tối thiểu 6 ký tự)' })
   @IsString()
@@ -28,8 +27,8 @@ export class RegisterDto {
   @Type(() => Number)
   role: number;
 
-  @ApiPropertyOptional({ example: 'a@example.com', description: 'Email (optional)' })
+  @ApiPropertyOptional({ example: '0912345678', description: 'Số điện thoại (optional, thêm sau ở profile)' })
   @IsOptional()
-  @IsEmail({}, { message: 'Email không hợp lệ' })
-  email?: string;
+  @Matches(/^0\d{9,10}$/, { message: 'Số điện thoại phải 10-11 số và bắt đầu bằng 0' })
+  phone?: string;
 }

@@ -12,7 +12,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
-import { ROLE, STAFF_ROLES, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
@@ -29,7 +29,7 @@ export class BookingsService {
   // ─── Staff/Admin Methods ──────────────────────────────────────────────────
 
   async findAll(
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
     propertyId?: string,
     status?: number,
@@ -39,8 +39,10 @@ export class BookingsService {
     if (propertyId) where.propertyId = propertyId;
     if (status !== undefined) where.status = status;
 
-    if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
-      where.saleId = user.id;
+    // Scope by property ownership
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId) {
+      where.property = { ownerId: effectiveOwnerId };
     }
 
     const bookings = await this.prisma.booking.findMany({
@@ -68,7 +70,7 @@ export class BookingsService {
     return { message: msg.bookings.listSuccess, data: bookingsWithHoldTtl };
   }
 
-  async findOne(id: string, user: { id: string; role: number }, msg: Messages) {
+  async findOne(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: {
@@ -101,7 +103,11 @@ export class BookingsService {
     return new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
   }
 
-  async holdProperty(dto: CreateBookingDto, user: { id: string; role: number }, msg: Messages) {
+  async holdProperty(dto: CreateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    if (isSaleUnassigned(user)) {
+      throw new BadRequestException(msg.users.saleNotAssigned);
+    }
+
     const { propertyId, checkinDate, checkoutDate } = dto;
 
     const checkin = this.toUTCDate(checkinDate);
@@ -115,6 +121,12 @@ export class BookingsService {
 
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
+
+    // Check ownership
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId && property.ownerId !== effectiveOwnerId) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
 
     // Check Redis hold
     const existingHold = await this.redis.getHold(propertyId);
@@ -198,8 +210,11 @@ export class BookingsService {
     };
   }
 
-  async confirmBooking(id: string, user: { id: string; role: number }, msg: Messages) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async confirmBooking(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { ownerId: true } } },
+    });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
     this.checkBookingAccess(booking, user, msg);
@@ -241,8 +256,11 @@ export class BookingsService {
     return { message: msg.bookings.confirmSuccess, data: confirmed };
   }
 
-  async cancelBooking(id: string, user: { id: string; role: number }, msg: Messages) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async cancelBooking(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { ownerId: true } } },
+    });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
     this.checkBookingAccess(booking, user, msg);
@@ -272,8 +290,11 @@ export class BookingsService {
     return { message: msg.bookings.cancelSuccess, data: null };
   }
 
-  async update(id: string, dto: UpdateBookingDto, user: { id: string; role: number }, msg: Messages) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { ownerId: true } } },
+    });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
     this.checkBookingAccess(booking, user, msg);
 
@@ -455,8 +476,9 @@ export class BookingsService {
 
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
-  private checkBookingAccess(booking: any, user: { id: string; role: number }, msg: Messages) {
-    if ((STAFF_ROLES as readonly number[]).includes(user.role) && booking.saleId !== user.id) {
+  private checkBookingAccess(booking: any, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId && booking.property?.ownerId !== effectiveOwnerId) {
       throw new ForbiddenException(msg.bookings.forbiddenAccess);
     }
   }

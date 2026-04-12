@@ -20,7 +20,7 @@ describe('AuthService', () => {
     id: 'user-1',
     name: 'Test User',
     phone: '0900000001',
-    email: null,
+    email: 'test@example.com',
     password: hashedPassword,
     role: 'STAFF' as const,
     isActive: true,
@@ -68,12 +68,12 @@ describe('AuthService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
       (prisma.user.update as jest.Mock).mockResolvedValue(mockUser);
 
-      const result = await service.login({ phone: '0900000001', password: 'Test@123' }, msg);
+      const result = await service.login({ email: 'test@example.com', password: 'Test@123' }, msg);
 
       expect(result.data.accessToken).toBeDefined();
       expect(result.data.refreshToken).toBeDefined();
       expect(result.data.user.id).toBe('user-1');
-      expect(result.data.user.phone).toBe('0900000001');
+      expect(result.data.user.email).toBe('test@example.com');
       expect((result.data.user as any).password).toBeUndefined();
     });
 
@@ -81,7 +81,7 @@ describe('AuthService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
 
       await expect(
-        service.login({ phone: '0900000001', password: 'wrong-pass' }, msg),
+        service.login({ email: 'test@example.com', password: 'wrong-pass' }, msg),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -89,7 +89,7 @@ describe('AuthService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
 
       await expect(
-        service.login({ phone: '0999999999', password: 'Test@123' }, msg),
+        service.login({ email: 'notfound@example.com', password: 'Test@123' }, msg),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -97,7 +97,7 @@ describe('AuthService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...mockUser, isActive: false });
 
       await expect(
-        service.login({ phone: '0900000001', password: 'Test@123' }, msg),
+        service.login({ email: 'test@example.com', password: 'Test@123' }, msg),
       ).rejects.toThrow(UnauthorizedException);
     });
   });
@@ -148,7 +148,7 @@ describe('AuthService', () => {
         id: 'user-1',
         name: 'Test',
         phone: '0900000001',
-        email: null,
+        email: 'test@example.com',
         role: 'STAFF',
         createdAt: new Date(),
       });

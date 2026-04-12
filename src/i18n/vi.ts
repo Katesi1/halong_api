@@ -39,6 +39,7 @@ export const vi = {
   users: {
     notFound: 'Người dùng không tồn tại',
     phoneDuplicate: 'Số điện thoại đã được sử dụng',
+    emailDuplicate: 'Email đã được sử dụng',
     cannotDeleteSelf: 'Không thể xoá tài khoản của chính mình',
     adminNotFound: 'Không tìm thấy admin',
     listSuccess: 'Lấy danh sách người dùng thành công',
@@ -46,6 +47,15 @@ export const vi = {
     createSuccess: 'Tạo người dùng thành công',
     updateSuccess: 'Cập nhật người dùng thành công',
     disableSuccess: 'Vô hiệu hóa người dùng thành công',
+    staffListSuccess: 'Lấy danh sách nhân viên thành công',
+    staffAddSuccess: 'Thêm nhân viên thành công',
+    staffRemoveSuccess: 'Đã gỡ nhân viên khỏi đội của bạn',
+    staffNotFound: 'Nhân viên không tồn tại hoặc không thuộc đội của bạn',
+    staffAlreadyAssigned: 'Người dùng này đã thuộc về một chủ nhà khác',
+    staffOnlySaleRole: 'Chỉ tài khoản có role SALE mới được thêm làm nhân viên',
+    staffUserNotFound: 'Không tìm thấy người dùng với số điện thoại này',
+    onlyOwnerCanManageStaff: 'Chỉ chủ nhà (OWNER) mới có thể quản lý nhân viên',
+    saleNotAssigned: 'Bạn chưa được gán cho chủ nhà nào',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -55,6 +65,7 @@ export const vi = {
     codeDuplicate: 'Mã cơ sở đã tồn tại',
     forbidden: 'Bạn không có quyền truy cập cơ sở này',
     imageNotFound: 'Ảnh không tồn tại',
+    noFiles: 'Không có file ảnh. Field name phải là "images"',
     maxImages: (max: number) => `Tối đa ${max} ảnh mỗi cơ sở`,
     uploadSuccess: (count: number) => `Upload ${count} ảnh thành công`,
     listSuccess: 'Lấy danh sách cơ sở thành công',

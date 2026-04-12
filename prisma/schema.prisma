@@ -10,10 +10,11 @@ datasource db {
 model User {
   id           String    @id @default(uuid())
   name         String
-  phone        String    @unique
-  email        String?   @unique
+  phone        String?   @unique
+  email        String    @unique
   password     String
   role         Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
+  ownerId      String?   // SALE → trỏ về User có role OWNER (chủ của mình)
   gender       Int?      // 0=MALE, 1=FEMALE, 2=OTHER
   dateOfBirth  DateTime?
   isActive     Boolean   @default(true)
@@ -22,6 +23,8 @@ model User {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
 
+  owner            User?    @relation("OwnerStaff", fields: [ownerId], references: [id])
+  staffMembers     User[]   @relation("OwnerStaff")
   properties       Property[]
   notifications    Notification[]
   saleBookings     Booking[]  @relation("SaleBookings")

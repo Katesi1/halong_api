@@ -1,23 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS } from '../../common/constants';
+import { BOOKING_STATUS, getEffectiveOwnerId } from '../../common/constants';
 
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
-  private async getScopedPropertyIds(user: { id: string; role: number }): Promise<string[] | null> {
-    if (user.role === ROLE.ADMIN) return null;
+  private async getScopedPropertyIds(user: { id: string; role: number; ownerId?: string | null }): Promise<string[] | null> {
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (!effectiveOwnerId) return null; // ADMIN sees all
 
     const properties = await this.prisma.property.findMany({
-      where: { ownerId: user.id, deletedAt: null },
+      where: { ownerId: effectiveOwnerId, deletedAt: null },
       select: { id: true },
     });
     return properties.map((p) => p.id);
   }
 
-  async getStats(user: { id: string; role: number }, msg: Messages) {
+  async getStats(user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const todayEnd = new Date(todayStart);
@@ -30,15 +31,25 @@ export class DashboardService {
     const propertyWhere: any = scopedPropertyIds ? { id: { in: scopedPropertyIds } } : {};
     const bookingWhere: any = scopedPropertyIds ? { propertyId: { in: scopedPropertyIds } } : {};
 
-    const [totalProperties, activeProperties] = await Promise.all([
+    const [totalProperties, activeProperties, globalTotalProperties, globalActiveProperties] = await Promise.all([
       this.prisma.property.count({ where: { ...propertyWhere, deletedAt: null } }),
       this.prisma.property.count({ where: { ...propertyWhere, isActive: true, deletedAt: null } }),
+      this.prisma.property.count({ where: { deletedAt: null } }),
+      this.prisma.property.count({ where: { isActive: true, deletedAt: null } }),
     ]);
 
-    const [occupiedBookings, checkoutTodayBookings] = await Promise.all([
+    const [occupiedBookings, globalOccupiedBookings, checkoutTodayBookings] = await Promise.all([
       this.prisma.booking.findMany({
         where: {
           ...bookingWhere,
+          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          checkinDate: { lte: now },
+          checkoutDate: { gt: now },
+        },
+        select: { propertyId: true },
+      }),
+      this.prisma.booking.findMany({
+        where: {
           status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
           checkinDate: { lte: now },
           checkoutDate: { gt: now },
@@ -57,6 +68,10 @@ export class DashboardService {
     const occupiedPropertyIds = new Set(occupiedBookings.map((b) => b.propertyId));
     const occupiedProperties = occupiedPropertyIds.size;
     const emptyProperties = activeProperties - occupiedProperties;
+
+    const globalOccupiedPropertyIds = new Set(globalOccupiedBookings.map((b) => b.propertyId));
+    const globalOccupied = globalOccupiedPropertyIds.size;
+    const globalEmpty = globalActiveProperties - globalOccupied;
 
     const [totalBookings, thisMonthBookings] = await Promise.all([
       this.prisma.booking.count({ where: bookingWhere }),
@@ -89,6 +104,8 @@ export class DashboardService {
       activeRooms: activeProperties,
       emptyRooms: Math.max(0, emptyProperties),
       occupiedRooms: occupiedProperties,
+      globalTotalRooms: globalTotalProperties,
+      globalEmptyRooms: Math.max(0, globalEmpty),
       checkoutToday: checkoutTodayBookings,
       totalBookings,
       thisMonthBookings,
@@ -99,7 +116,7 @@ export class DashboardService {
     return { message: msg.dashboard.statsSuccess, data };
   }
 
-  async getReports(user: { id: string; role: number }, msg: Messages, month?: number, year?: number) {
+  async getReports(user: { id: string; role: number; ownerId?: string | null }, msg: Messages, month?: number, year?: number) {
     const now = new Date();
     const targetYear = year || now.getFullYear();
     const targetMonth = month || now.getMonth() + 1;

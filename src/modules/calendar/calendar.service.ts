@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { Messages } from '../../i18n';
-import { ROLE, STAFF_ROLES, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
 
 interface GridProperty {
@@ -46,17 +46,18 @@ export class CalendarService {
   // ─── Property list for calendar sidebar ────────────────────────────────────
 
   async getProperties(
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
     type?: number,
-    ownerId?: string,
+    filterOwnerId?: string,
   ) {
     const where: any = { isActive: true, deletedAt: null };
 
-    if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
-      where.ownerId = user.id;
-    } else if (ownerId) {
-      where.ownerId = ownerId;
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId) {
+      where.ownerId = effectiveOwnerId;
+    } else if (filterOwnerId) {
+      where.ownerId = filterOwnerId;
     }
 
     if (type !== undefined) where.type = type;
@@ -102,7 +103,7 @@ export class CalendarService {
   async getCalendarGrid(
     startDate: string,
     endDate: string,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
     propertyId?: string,
     type?: number,
@@ -112,8 +113,9 @@ export class CalendarService {
 
     const where: any = { isActive: true, deletedAt: null };
     if (propertyId) where.id = propertyId;
-    if ((STAFF_ROLES as readonly number[]).includes(user.role)) {
-      where.ownerId = user.id;
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId) {
+      where.ownerId = effectiveOwnerId;
     }
     if (type !== undefined) where.type = type;
 
@@ -138,9 +140,12 @@ export class CalendarService {
     propertyId: string,
     date: string,
     status: number | undefined,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
+    if (isSaleUnassigned(user)) {
+      throw new BadRequestException(msg.users.saleNotAssigned);
+    }
     await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = this.toUTCDate(date);
 
@@ -188,9 +193,12 @@ export class CalendarService {
   async unlockDate(
     propertyId: string,
     date: string,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
+    if (isSaleUnassigned(user)) {
+      throw new BadRequestException(msg.users.saleNotAssigned);
+    }
     await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = this.toUTCDate(date);
 
@@ -216,9 +224,12 @@ export class CalendarService {
   async markSold(
     propertyId: string,
     date: string,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
+    if (isSaleUnassigned(user)) {
+      throw new BadRequestException(msg.users.saleNotAssigned);
+    }
     await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = this.toUTCDate(date);
 
@@ -414,7 +425,7 @@ export class CalendarService {
 
   private async getPropertyWithAccess(
     propertyId: string,
-    user: { id: string; role: number },
+    user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
     const property = await this.prisma.property.findUnique({
@@ -423,7 +434,8 @@ export class CalendarService {
     });
     if (!property || !property.isActive) throw new NotFoundException(msg.calendar.propertyNotFound);
 
-    if ((STAFF_ROLES as readonly number[]).includes(user.role) && property.ownerId !== user.id) {
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId && property.ownerId !== effectiveOwnerId) {
       throw new ForbiddenException(msg.properties.forbidden);
     }
 

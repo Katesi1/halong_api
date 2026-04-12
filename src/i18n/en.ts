@@ -39,6 +39,7 @@ export const en = {
   users: {
     notFound: 'User not found',
     phoneDuplicate: 'Phone number is already in use',
+    emailDuplicate: 'Email is already in use',
     cannotDeleteSelf: 'Cannot delete your own account',
     adminNotFound: 'Admin not found',
     listSuccess: 'User list retrieved successfully',
@@ -46,6 +47,15 @@ export const en = {
     createSuccess: 'User created successfully',
     updateSuccess: 'User updated successfully',
     disableSuccess: 'User disabled successfully',
+    staffListSuccess: 'Staff list retrieved successfully',
+    staffAddSuccess: 'Staff added successfully',
+    staffRemoveSuccess: 'Staff removed from your team',
+    staffNotFound: 'Staff not found or not in your team',
+    staffAlreadyAssigned: 'This user is already assigned to an owner',
+    staffOnlySaleRole: 'Only users with SALE role can be added as staff',
+    staffUserNotFound: 'User not found with this phone number',
+    onlyOwnerCanManageStaff: 'Only OWNER can manage staff',
+    saleNotAssigned: 'You have not been assigned to any owner yet',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -55,6 +65,7 @@ export const en = {
     codeDuplicate: 'Property code already exists',
     forbidden: 'You do not have access to this property',
     imageNotFound: 'Image not found',
+    noFiles: 'No image files provided. Field name must be "images"',
     maxImages: (max: number) => `Maximum ${max} images per property`,
     uploadSuccess: (count: number) => `${count} image(s) uploaded successfully`,
     listSuccess: 'Property list retrieved successfully',

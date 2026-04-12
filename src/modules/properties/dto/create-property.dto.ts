@@ -28,6 +28,11 @@ export class CreatePropertyDto {
   @IsIn(['sea', 'city'])
   view?: string;
 
+  @ApiPropertyOptional({ example: 'Bãi Cháy, Hạ Long' })
+  @IsOptional()
+  @IsString()
+  address?: string;
+
   @ApiPropertyOptional({ example: 'https://maps.google.com/...' })
   @IsOptional()
   @IsString()
@@ -66,6 +71,22 @@ export class CreatePropertyDto {
   @IsArray()
   @IsString({ each: true })
   amenities?: string[];
+
+  @ApiPropertyOptional({ example: 'Mô tả villa...' })
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @ApiPropertyOptional({ example: 'Không hút thuốc' })
+  @IsOptional()
+  @IsString()
+  rules?: string;
+
+  @ApiPropertyOptional({ example: ['Thuê xe máy', 'Nướng BBQ'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  services?: string[];
 
   @ApiPropertyOptional({ example: 0, description: '0=FLEXIBLE, 1=MODERATE, 2=STRICT' })
   @IsOptional()

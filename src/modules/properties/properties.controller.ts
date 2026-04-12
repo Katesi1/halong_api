@@ -4,7 +4,7 @@ import {
   UploadedFiles,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { FilesInterceptor } from '@nestjs/platform-express';
+import { AnyFilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
@@ -77,16 +77,15 @@ export class PropertiesController {
   }
 
   @Get(':id')
-  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @ApiOperation({ summary: 'Chi tiết property' })
+  @ApiOperation({ summary: 'Chi tiết property (tất cả authenticated user đều xem được)' })
   @ApiResponse({ status: 200, type: PropertyResponse })
-  findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
-    return this.propertiesService.findOne(id, user, msg);
+  findOne(@Param('id') id: string, @Lang() msg: Messages) {
+    return this.propertiesService.findOne(id, msg);
   }
 
   @Post()
-  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @ApiOperation({ summary: 'Tạo property' })
+  @Roles(ROLE.ADMIN, ROLE.OWNER)
+  @ApiOperation({ summary: 'Tạo property (Admin/Owner only)' })
   @ApiResponse({ status: 201, type: PropertyResponse, description: 'Property đã tạo thành công (tự động tạo notification cho Admin)' })
   @ApiResponse({ status: 409, description: 'Mã code bị trùng' })
   create(@Body() dto: CreatePropertyDto, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -102,8 +101,8 @@ export class PropertiesController {
   }
 
   @Delete(':id')
-  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @ApiOperation({ summary: 'Xóa property (soft delete — đặt isActive=false, không xóa DB)' })
+  @Roles(ROLE.ADMIN, ROLE.OWNER)
+  @ApiOperation({ summary: 'Xóa property (Admin/Owner only, soft delete)' })
   @ApiResponse({ status: 200, type: MessageResponse })
   @ApiResponse({ status: 404, description: 'Property not found' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -136,7 +135,7 @@ export class PropertiesController {
   @ApiBody({ schema: { type: 'object', properties: { images: { type: 'array', items: { type: 'string', format: 'binary' } } } } })
   @ApiResponse({ status: 201, type: PropertyResponse })
   @UseInterceptors(
-    FilesInterceptor('images', 10, {
+    AnyFilesInterceptor({
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
         if (!file.mimetype.match(/^image\/(jpeg|png|webp)$/)) {
@@ -144,7 +143,7 @@ export class PropertiesController {
         }
         cb(null, true);
       },
-      limits: { fileSize: 10 * 1024 * 1024 },
+      limits: { fileSize: 10 * 1024 * 1024, files: 10 },
     }),
   )
   uploadImages(

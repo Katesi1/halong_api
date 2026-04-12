@@ -30,6 +30,7 @@ describe('BookingsService', () => {
     notes: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+    property: { ownerId: 'owner-1' },
   };
 
   beforeEach(async () => {
@@ -117,7 +118,7 @@ describe('BookingsService', () => {
     });
 
     it('should create HOLD booking and set Redis on success', async () => {
-      (prisma.property.findUnique as jest.Mock).mockResolvedValue({ id: 'property-1', isActive: true });
+      (prisma.property.findUnique as jest.Mock).mockResolvedValue({ id: 'property-1', ownerId: 'owner-1', isActive: true });
       (prisma.booking.findFirst as jest.Mock).mockResolvedValue(null);
       (prisma.booking.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
       (prisma.booking.create as jest.Mock).mockResolvedValue({
@@ -128,7 +129,7 @@ describe('BookingsService', () => {
 
       const result = await service.holdProperty(
         { propertyId: 'property-1', checkinDate: '2026-08-01', checkoutDate: '2026-08-03', customerName: 'Guest', customerPhone: '0911111111' },
-        { id: 'staff-1', role: ROLE.SALE },
+        { id: 'staff-1', role: ROLE.SALE, ownerId: 'owner-1' },
         msg,
       );
 
@@ -169,11 +170,14 @@ describe('BookingsService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw ForbiddenException when STAFF cancels another staff booking', async () => {
-      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, saleId: 'other-staff' });
+    it('should throw ForbiddenException when SALE cancels booking of another owner', async () => {
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({
+        ...mockBooking,
+        property: { ownerId: 'other-owner' },
+      });
 
       await expect(
-        service.cancelBooking('booking-1', { id: 'staff-1', role: ROLE.SALE }, msg),
+        service.cancelBooking('booking-1', { id: 'staff-1', role: ROLE.SALE, ownerId: 'owner-1' }, msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });

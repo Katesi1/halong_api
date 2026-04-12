@@ -242,6 +242,12 @@ export class DashboardStatsDto {
   @ApiProperty({ example: 2 })
   occupiedRooms: number;
 
+  @ApiProperty({ example: 20, description: 'Tổng phòng toàn hệ thống' })
+  globalTotalRooms: number;
+
+  @ApiProperty({ example: 12, description: 'Phòng trống toàn hệ thống' })
+  globalEmptyRooms: number;
+
   @ApiProperty({ example: 1 })
   checkoutToday: number;
 

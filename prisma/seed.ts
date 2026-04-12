@@ -9,68 +9,39 @@ const ROLE = { ADMIN: 0, OWNER: 1, SALE: 2, CUSTOMER: 3 };
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Reset existing data
+  // Reset all data
   await prisma.partnerKey.deleteMany();
   await prisma.booking.deleteMany();
   await prisma.calendarLock.deleteMany();
   await prisma.propertyImage.deleteMany();
   await prisma.property.deleteMany();
+  await prisma.notification.deleteMany();
+  await prisma.user.deleteMany();
 
   const commonPassword = await bcrypt.hash('Abcd@1234', 10);
-  const adminPhone = process.env.ADMIN_PHONE || 'Admin';
 
-  // Delete non-admin test users
-  await prisma.user.deleteMany({
-    where: {
-      AND: [
-        { phone: { not: adminPhone } },
-        { role: { not: ROLE.ADMIN } },
-      ],
-    },
-  });
-
-  // 1. Users — chỉ tạo tài khoản, phòng để Admin/Owner tự tạo trên app
-  const admin = await prisma.user.upsert({
-    where: { phone: adminPhone },
-    update: { role: ROLE.ADMIN },
-    create: { name: 'Super Admin', phone: adminPhone, password: commonPassword, role: ROLE.ADMIN },
+  // 1. Users
+  await prisma.user.create({
+    data: { name: 'Super Admin', email: 'admin@halong24h.com', password: commonPassword, role: ROLE.ADMIN },
   });
 
   await prisma.user.create({
-    data: {
-      name: 'Owner Test',
-      phone: '0900000001',
-      email: 'ownertest@gmail.com',
-      password: commonPassword,
-      role: ROLE.OWNER,
-    },
+    data: { name: 'Owner Test', email: 'owner@halong24h.com', password: commonPassword, role: ROLE.OWNER },
   });
 
   await prisma.user.create({
-    data: {
-      name: 'Sale Test',
-      phone: '0900000003',
-      email: 'saletest@gmail.com',
-      password: commonPassword,
-      role: ROLE.SALE,
-    },
+    data: { name: 'Staff Test', email: 'staff@halong24h.com', password: commonPassword, role: ROLE.SALE },
   });
 
   await prisma.user.create({
-    data: {
-      name: 'User Test',
-      phone: '0900000002',
-      email: 'usertest@gmail.com',
-      password: commonPassword,
-      role: ROLE.CUSTOMER,
-    },
+    data: { name: 'Customer Test', email: 'customer@halong24h.com', password: commonPassword, role: ROLE.CUSTOMER },
   });
 
   console.log('✅ Users seeded (4 accounts):');
-  console.log('   ADMIN    — phone: ' + adminPhone + ' / password: Abcd@1234');
-  console.log('   OWNER    — email: ownertest@gmail.com / password: Abcd@1234');
-  console.log('   SALE     — email: saletest@gmail.com / password: Abcd@1234');
-  console.log('   CUSTOMER — email: usertest@gmail.com / password: Abcd@1234');
+  console.log('   ADMIN    — email: admin@halong24h.com / password: Abcd@1234');
+  console.log('   OWNER    — email: owner@halong24h.com / password: Abcd@1234');
+  console.log('   SALE     — email: staff@halong24h.com / password: Abcd@1234');
+  console.log('   CUSTOMER — email: customer@halong24h.com / password: Abcd@1234');
 
   // 2. PartnerKeys
   await Promise.all([
