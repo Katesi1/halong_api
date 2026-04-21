@@ -61,6 +61,15 @@ export class PropertiesController {
     );
   }
 
+  @Public()
+  @Get('share/:id')
+  @ApiOperation({ summary: 'Thông tin property công khai (share link)', description: 'Trả về thông tin property không bao gồm giá, dùng cho share link khách hàng' })
+  @ApiResponse({ status: 200, type: PropertyResponse })
+  @ApiResponse({ status: 404, description: 'Property not found' })
+  findShareDetail(@Param('id') id: string, @Lang() msg: Messages) {
+    return this.propertiesService.findShareDetail(id, msg);
+  }
+
   @Get()
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @ApiOperation({ summary: 'Danh sách properties' })

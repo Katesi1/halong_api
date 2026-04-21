@@ -377,6 +377,44 @@ export class PropertiesService {
     return { message: msg.properties.setCoverSuccess, data: image };
   }
 
+  // ─── Public Share (no auth, no prices) ──────────────────────────────────────
+
+  async findShareDetail(id: string, msg: Messages) {
+    const property = await this.prisma.property.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        type: true,
+        address: true,
+        latitude: true,
+        longitude: true,
+        mapLink: true,
+        view: true,
+        bedrooms: true,
+        bathrooms: true,
+        standardGuests: true,
+        maxGuests: true,
+        amenities: true,
+        description: true,
+        rules: true,
+        services: true,
+        cancellationPolicy: true,
+        checkInTime: true,
+        checkOutTime: true,
+        isActive: true,
+        images: { orderBy: { order: 'asc' } },
+      },
+    });
+
+    if (!property || !property.isActive) {
+      throw new NotFoundException(msg.properties.notFound);
+    }
+
+    return { message: msg.properties.shareSuccess, data: property };
+  }
+
   // ─── Private Helpers ────────────────────────────────────────────────────────
 
   private async getPropertyWithAccess(

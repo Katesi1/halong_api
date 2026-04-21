@@ -77,6 +77,7 @@ export const en = {
     deleteImageSuccess: 'Image deleted successfully',
     setCoverSuccess: 'Cover image set successfully',
     updatePricesSuccess: 'Property prices updated successfully',
+    shareSuccess: 'Property share info retrieved successfully',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────

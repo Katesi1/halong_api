@@ -77,6 +77,7 @@ export const vi = {
     deleteImageSuccess: 'Xoá ảnh thành công',
     setCoverSuccess: 'Đặt ảnh cover thành công',
     updatePricesSuccess: 'Cập nhật giá cơ sở thành công',
+    shareSuccess: 'Lấy thông tin chia sẻ cơ sở thành công',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
