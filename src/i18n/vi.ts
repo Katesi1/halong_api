@@ -144,4 +144,53 @@ export const vi = {
     statsSuccess: 'Lấy thống kê dashboard thành công',
     reportsSuccess: 'Lấy dữ liệu báo cáo thành công',
   },
+
+  // ─── KYC ───────────────────────────────────────────────────────────────────
+  kyc: {
+    submissionNotFound: 'Không tìm thấy hồ sơ xác minh',
+    submissionNotOwned: 'Bạn không có quyền truy cập hồ sơ này',
+    uploadSuccess: 'Upload ảnh thành công',
+    ocrFailed: 'Không nhận diện được CCCD. Hãy chụp lại với ánh sáng tốt hơn.',
+    faceDetectionFailed: 'Không phát hiện khuôn mặt trong ảnh selfie.',
+    incompleteKyc: 'Cần upload đủ CCCD trước, sau và selfie trước khi gửi.',
+    submitSuccess: 'Gửi hồ sơ xác minh chờ duyệt thành công',
+    cannotSubmit: 'Không thể gửi hồ sơ ở trạng thái hiện tại',
+    resubmitSuccess: 'Gửi lại thành công, vui lòng upload lại các mục bị từ chối',
+    cannotResubmit: 'Không thể gửi lại hồ sơ ở trạng thái hiện tại',
+    getSuccess: 'Lấy thông tin hồ sơ xác minh thành công',
+    statusSuccess: 'Lấy trạng thái KYC thành công',
+    ownerNotVerified: 'Chủ nhà chưa hoàn thành xác minh danh tính',
+    kycRequired: 'Bạn cần hoàn thành xác minh KYC trước khi quản lý cơ sở',
+  },
+
+  // ─── Billing ───────────────────────────────────────────────────────────────
+  billing: {
+    listSuccess: 'Lấy danh sách gói dịch vụ thành công',
+    planNotFound: 'Gói không tồn tại hoặc đã ngừng cung cấp',
+    roomCountExceedsPlan: 'Số phòng vượt quá giới hạn của gói',
+  },
+
+  // ─── Payment ───────────────────────────────────────────────────────────────
+  payment: {
+    initiateSuccess: 'Tạo phiên thanh toán thành công',
+    statusSuccess: 'Lấy trạng thái thanh toán thành công',
+    amountMismatch: 'Số tiền thanh toán không khớp với gói đã chọn',
+    invalidPlan: 'Gói không tồn tại hoặc đã ngừng cung cấp',
+    sessionNotFound: 'Không tìm thấy phiên thanh toán',
+    sessionExpired: 'Phiên thanh toán đã hết hạn. Vui lòng tạo mới.',
+    alreadyPaid: 'Hồ sơ này đã thanh toán rồi',
+    refundSuccess: 'Yêu cầu hoàn tiền đã được gửi',
+    alreadyRefunded: 'Giao dịch này đã được hoàn tiền',
+    cannotRefund: 'Không thể hoàn tiền ở trạng thái hiện tại',
+    webhookSuccess: 'Webhook xử lý thành công',
+  },
+
+  // ─── Admin KYC ─────────────────────────────────────────────────────────────
+  adminKyc: {
+    queueSuccess: 'Lấy danh sách chờ duyệt thành công',
+    approveSuccess: 'Duyệt hồ sơ xác minh thành công',
+    rejectSuccess: 'Từ chối hồ sơ xác minh thành công',
+    alreadyProcessed: 'Hồ sơ này đã được xử lý rồi',
+    invalidStatus: 'Hồ sơ không ở trạng thái chờ duyệt',
+  },
 };

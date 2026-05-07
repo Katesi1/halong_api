@@ -16,6 +16,10 @@ import { PartnerModule } from './modules/partner/partner.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { PaymentModule } from './modules/payment/payment.module';
+import { AdminKycModule } from './modules/admin-kyc/admin-kyc.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -38,6 +42,10 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     CalendarModule,
     NotificationsModule,
     DashboardModule,
+    KycModule,
+    BillingModule,
+    PaymentModule,
+    AdminKycModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

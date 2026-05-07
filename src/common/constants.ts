@@ -69,3 +69,55 @@ export const GENDER = {
   FEMALE: 1,
   OTHER: 2,
 } as const;
+
+// ─── KYC Constants ──────────────────────────────────────────────────────────
+
+export const KYC_STATUS = {
+  NONE: 'none',
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+} as const;
+
+export const KYC_SUBMISSION_STATUS = {
+  DRAFT: 'draft',
+  KYC_SUBMITTED: 'kyc_submitted',
+  PAYMENT_PENDING: 'payment_pending',
+  AWAITING_APPROVAL: 'awaiting_approval',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  REFUNDED: 'refunded',
+} as const;
+
+export const PAYMENT_STATUS = {
+  PENDING: 'pending',
+  PAID: 'paid',
+  FAILED: 'failed',
+  EXPIRED: 'expired',
+  REFUNDED: 'refunded',
+} as const;
+
+export const SUBSCRIPTION_STATUS = {
+  NONE: 'none',
+  TRIAL: 'trial',
+  ACTIVE: 'active',
+  PAST_DUE: 'past_due',
+  CANCELLED: 'cancelled',
+} as const;
+
+export const KYC_UPLOAD_TYPE = {
+  CCCD_FRONT: 'cccd_front',
+  CCCD_BACK: 'cccd_back',
+  SELFIE: 'selfie',
+} as const;
+
+// Status mapping for API response (camelCase for frontend)
+export const KYC_STATUS_API_MAP: Record<string, string> = {
+  draft: 'draft',
+  kyc_submitted: 'kycSubmitted',
+  payment_pending: 'paymentPending',
+  awaiting_approval: 'awaitingApproval',
+  approved: 'approved',
+  rejected: 'rejected',
+  refunded: 'refunded',
+};

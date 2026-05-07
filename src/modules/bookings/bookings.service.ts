@@ -118,30 +118,26 @@ export class BookingsService {
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
-    // Check Redis hold
-    const existingHold = await this.redis.getHold(propertyId);
-    if (existingHold) {
-      const holdBooking = await this.prisma.booking.findFirst({
-        where: { id: existingHold, status: BOOKING_STATUS.HOLD },
-        select: { saleId: true },
-      });
-      if (holdBooking && holdBooking.saleId !== user.id) {
-        const ttl = await this.redis.getHoldTtl(propertyId);
-        throw new BadRequestException(msg.bookings.propertyOnHold(Math.ceil(ttl / 60)));
-      }
-    }
-
-    // Check date conflicts
+    // Check date conflicts (both HOLD and CONFIRMED)
     const conflict = await this.prisma.booking.findFirst({
       where: {
         propertyId,
-        status: BOOKING_STATUS.CONFIRMED,
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
         checkinDate: { lt: checkout },
         checkoutDate: { gt: checkin },
       },
     });
     if (conflict) {
-      throw new BadRequestException(msg.bookings.propertyAlreadyBooked);
+      if (conflict.status === BOOKING_STATUS.CONFIRMED) {
+        throw new BadRequestException(msg.bookings.propertyAlreadyBooked);
+      }
+      // HOLD by another user → block
+      if (conflict.saleId !== user.id) {
+        const holdRemaining = conflict.holdExpireAt
+          ? Math.max(0, Math.ceil((conflict.holdExpireAt.getTime() - Date.now()) / 60000))
+          : 30;
+        throw new BadRequestException(msg.bookings.propertyOnHold(holdRemaining));
+      }
     }
 
     // Check calendar lock conflicts (locked/hold/booked dates)
@@ -155,11 +151,23 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.dateLocked);
     }
 
-    // Cancel existing holds for this property
-    await this.prisma.booking.updateMany({
-      where: { propertyId, status: BOOKING_STATUS.HOLD },
-      data: { status: BOOKING_STATUS.CANCELLED },
+    // Cancel only overlapping holds for this property
+    const overlappingHolds = await this.prisma.booking.findMany({
+      where: {
+        propertyId,
+        status: BOOKING_STATUS.HOLD,
+        checkinDate: { lt: checkout },
+        checkoutDate: { gt: checkin },
+      },
+      select: { id: true },
     });
+    if (overlappingHolds.length > 0) {
+      await this.prisma.booking.updateMany({
+        where: { id: { in: overlappingHolds.map(h => h.id) } },
+        data: { status: BOOKING_STATUS.CANCELLED },
+      });
+      await Promise.all(overlappingHolds.map(h => this.redis.delHold(h.id)));
+    }
 
     const holdExpireAt = new Date(Date.now() + STAFF_HOLD_DURATION_SECONDS * 1000);
     const booking = await this.prisma.booking.create({
@@ -182,7 +190,7 @@ export class BookingsService {
       },
     });
 
-    await this.redis.setHold(propertyId, booking.id, STAFF_HOLD_DURATION_SECONDS);
+    await this.redis.setHold(booking.id, STAFF_HOLD_DURATION_SECONDS);
 
     // Notify owner
     await this.notifications.notifyPropertyOwner(
@@ -221,7 +229,7 @@ export class BookingsService {
       },
     });
 
-    await this.redis.delHold(booking.propertyId);
+    await this.redis.delHold(id);
 
     // Notify owner + customer
     await this.notifications.notifyPropertyOwner(
@@ -265,7 +273,7 @@ export class BookingsService {
       include: { property: { select: { name: true, code: true } } },
     });
 
-    await this.redis.delHold(booking.propertyId);
+    await this.redis.delHold(id);
 
     // Notify owner
     await this.notifications.notifyPropertyOwner(
@@ -425,7 +433,7 @@ export class BookingsService {
       include: { property: { select: { name: true, code: true } } },
     });
 
-    await this.redis.delHold(booking.propertyId);
+    await this.redis.delHold(id);
 
     // Notify owner
     await this.notifications.notifyPropertyOwner(
@@ -458,7 +466,7 @@ export class BookingsService {
         data: { status: BOOKING_STATUS.CANCELLED },
       });
 
-      await Promise.all(expired.map((b) => this.redis.delHold(b.propertyId)));
+      await Promise.all(expired.map((b) => this.redis.delHold(b.id)));
     }
 
     return expired.length;

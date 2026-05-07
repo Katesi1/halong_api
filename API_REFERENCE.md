@@ -229,7 +229,7 @@
 
 ---
 
-## 2. USERS (`/users`) — ADMIN only
+## 2. USERS (`/users`)
 
 ### GET `/users` — Danh sách user
 
@@ -247,6 +247,7 @@
     "phone": "0912345678",
     "email": "user@email.com",
     "role": 1,
+    "ownerId": null,
     "isActive": true,
     "gender": 0,
     "dateOfBirth": "1990-01-01T00:00:00.000Z",
@@ -257,9 +258,54 @@
 
 ---
 
+### GET `/users/available-staff` — Danh sách SALE chưa thuộc owner nào
+
+> Role: ADMIN, OWNER
+
+**Response `data`:** _Array — chỉ user có role=SALE, ownerId=null, isActive=true_
+
+```json
+[
+  {
+    "id": "uuid",
+    "name": "Sale Mới",
+    "phone": "0933444555",
+    "email": "sale@email.com",
+    "role": 2,
+    "ownerId": null,
+    "isActive": true,
+    "createdAt": "2026-04-01T00:00:00.000Z"
+  }
+]
+```
+
+---
+
+### GET `/users/my-staff` — Danh sách nhân viên của tôi
+
+> Role: OWNER
+
+**Response `data`:** _Array — danh sách SALE thuộc owner đang đăng nhập_
+
+```json
+[
+  {
+    "id": "uuid",
+    "name": "Sale A",
+    "phone": "0933444555",
+    "email": "sale@email.com",
+    "role": 2,
+    "isActive": true,
+    "createdAt": "2026-04-01T00:00:00.000Z"
+  }
+]
+```
+
+---
+
 ### GET `/users/:id` — Chi tiết user
 
-> Role: ADMIN
+> Role: ADMIN, OWNER (Owner chỉ xem được SALE của mình)
 
 **Response `data`:**
 
@@ -270,12 +316,16 @@
   "phone": "0912345678",
   "email": "user@email.com",
   "role": 1,
+  "ownerId": null,
   "isActive": true,
   "gender": 0,
   "dateOfBirth": "1990-01-01T00:00:00.000Z",
   "createdAt": "2026-04-01T00:00:00.000Z",
   "properties": [
     { "id": "uuid", "name": "Villa ABC", "code": "VL001" }
+  ],
+  "staffMembers": [
+    { "id": "uuid", "name": "Sale A", "phone": "0933444555", "role": 2, "isActive": true }
   ]
 }
 ```
@@ -295,6 +345,7 @@
   "phone": "0912345678",
   "email": null,
   "role": 1,
+  "ownerId": null,
   "gender": null,
   "dateOfBirth": null,
   "createdAt": "2026-04-11T00:00:00.000Z"
@@ -303,9 +354,40 @@
 
 ---
 
+### POST `/users/my-staff` — Thêm nhân viên vào đội
+
+> Role: OWNER — thêm SALE (bằng email) vào đội của mình
+
+**Body:**
+
+```json
+{
+  "email": "sale@example.com"
+}
+```
+
+**Response `data`:**
+
+```json
+{
+  "id": "uuid",
+  "name": "Sale A",
+  "phone": "0933444555",
+  "email": "sale@example.com",
+  "role": 2,
+  "ownerId": "owner-uuid",
+  "isActive": true,
+  "createdAt": "2026-04-01T00:00:00.000Z"
+}
+```
+
+> Lỗi thường gặp: `staffUserNotFound` (email không tồn tại), `staffOnlySaleRole` (không phải SALE), `staffAlreadyAssigned` (đã thuộc owner khác)
+
+---
+
 ### PUT `/users/:id` — Cập nhật user
 
-> ADMIN sửa ai cũng được, user khác chỉ sửa chính mình
+> ADMIN sửa ai cũng được, user khác chỉ sửa chính mình (chỉ được sửa: name, phone, email, gender, dateOfBirth)
 
 **Response `data`:**
 
@@ -316,6 +398,7 @@
   "phone": "0912345678",
   "email": "user@email.com",
   "role": 1,
+  "ownerId": null,
   "isActive": true,
   "gender": 0,
   "dateOfBirth": "1990-01-01T00:00:00.000Z",
@@ -325,7 +408,15 @@
 
 ---
 
-### DELETE `/users/:id` — Xóa user
+### DELETE `/users/my-staff/:id` — Gỡ nhân viên khỏi đội
+
+> Role: OWNER — chỉ gỡ được SALE thuộc đội mình (set ownerId = null)
+
+**Response `data`:** `null`
+
+---
+
+### DELETE `/users/:id` — Xóa user (soft delete)
 
 > Role: ADMIN
 
@@ -396,6 +487,53 @@
   }
 ]
 ```
+
+---
+
+### GET `/properties/share/:id` — Thông tin property cho share link
+
+> Public — không cần token. Dùng khi app share link phòng cho khách hàng xem preview. **Không trả về giá.**
+
+**Response `data`:**
+
+```json
+{
+  "id": "uuid",
+  "name": "Villa Vịnh Xanh",
+  "code": "VL001",
+  "type": 0,
+  "address": "Bãi Cháy, Quảng Ninh",
+  "latitude": 20.9511,
+  "longitude": 107.0748,
+  "mapLink": "https://maps.google.com/...",
+  "view": "sea",
+  "bedrooms": 3,
+  "bathrooms": 2,
+  "standardGuests": 4,
+  "maxGuests": 6,
+  "amenities": ["Wifi", "Điều hòa", "Bể bơi"],
+  "description": "Mô tả...",
+  "rules": "Không hút thuốc",
+  "services": ["BBQ", "Thuê xe máy"],
+  "cancellationPolicy": 0,
+  "checkInTime": "14:00",
+  "checkOutTime": "12:00",
+  "isActive": true,
+  "images": [
+    {
+      "id": "uuid",
+      "propertyId": "uuid",
+      "imageUrl": "https://res.cloudinary.com/...",
+      "publicId": "cloudinary-public-id",
+      "isCover": true,
+      "order": 0,
+      "createdAt": "2026-04-12T09:57:50.191Z"
+    }
+  ]
+}
+```
+
+> **Lưu ý:** Không có `weekdayPrice`, `weekendPrice`, `holidayPrice`, `adultSurcharge`, `childSurcharge`, `owner`, `ownerId`, `createdAt`, `updatedAt`, `deletedAt`. Property inactive hoặc đã xóa → 404.
 
 ---
 

@@ -23,12 +23,23 @@ model User {
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
 
+  // KYC & Subscription
+  kycStatus          String   @default("none") // none | pending | approved | rejected
+  kycSubmissionId    String?
+  subscriptionStatus String   @default("none") // none | trial | active | past_due | cancelled
+  subscriptionPlanId String?
+  subscriptionCycle  String?  // monthly | yearly
+  trialEndsAt        DateTime?
+  nextChargeAt       DateTime?
+
   owner            User?    @relation("OwnerStaff", fields: [ownerId], references: [id])
   staffMembers     User[]   @relation("OwnerStaff")
   properties       Property[]
   notifications    Notification[]
   saleBookings     Booking[]  @relation("SaleBookings")
   customerBookings Booking[]  @relation("CustomerBookings")
+  kycSubmissions   KycSubmission[]
+  approvedSubmissions KycSubmission[] @relation("ApprovedBy")
 
   @@map("users")
 }
@@ -163,4 +174,102 @@ model Notification {
 
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+// ─── KYC ──────────────────────────────────────────────────────────────────────
+
+model KycSubmission {
+  id             String    @id @default(uuid())
+  userId         String
+  status         String    @default("draft") // draft | kyc_submitted | payment_pending | awaiting_approval | approved | rejected | refunded
+  rejectReason   String?
+  rejectedItems  String[]  @default([]) // ["cccdFront","cccdBack","selfie"]
+  approvedAt     DateTime?
+  approvedById   String?
+  trialEndsAt    DateTime?
+  chargeStartsAt DateTime?
+  expectedRooms  Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User?         @relation("ApprovedBy", fields: [approvedById], references: [id])
+  uploads    KycUpload[]
+  payments   PaymentSession[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_submissions")
+}
+
+model KycUpload {
+  id               String   @id @default(uuid())
+  submissionId     String
+  type             String   // cccd_front | cccd_back | selfie
+  imageUrl         String
+  imageUrlThumb    String?
+  publicId         String?
+  ocrResult        Json?
+  ocrConfidence    Float?
+  faceMatchScore   Float?
+  livenessScore    Float?
+  provider         String?  // fpt_ai | vnpt_ekyc | manual
+  providerRequestId String?
+  uploadedAt       DateTime @default(now())
+
+  submission KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, type])
+  @@index([submissionId])
+  @@map("kyc_uploads")
+}
+
+// ─── Billing ──────────────────────────────────────────────────────────────────
+
+model BillingPlan {
+  id                String   @id // starter | professional | enterprise
+  name              String
+  pricePerRoom      Int      // VND/month
+  minCharge         Int      // VND/month (floor)
+  maxRooms          Int?     // null = unlimited
+  yearlyDiscountPct Float    @default(20)
+  vatPct            Float    @default(10)
+  features          String[] @default([])
+  active            Boolean  @default(true)
+  sortOrder         Int      @default(0)
+
+  payments PaymentSession[]
+
+  @@map("billing_plans")
+}
+
+// ─── Payment ──────────────────────────────────────────────────────────────────
+
+model PaymentSession {
+  id              String    @id @default(uuid())
+  submissionId    String
+  planId          String
+  cycle           String    // monthly | yearly
+  rooms           Int
+  totalAmount     Int       // VND, includes VAT
+  method          String    // vnpay_qr | bank_transfer | card
+  status          String    @default("pending") // pending | paid | failed | expired | refunded
+  qrCode          String?
+  bankInfo        Json?
+  redirectUrl     String?
+  provider        String?   // vnpay | momo | manual_bank
+  providerTxnId   String?
+  providerPayload Json?
+  paidAt          DateTime?
+  refundedAt      DateTime?
+  refundedAmount  Int?
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+
+  submission KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  plan       BillingPlan   @relation(fields: [planId], references: [id])
+
+  @@index([submissionId])
+  @@index([status, expiresAt])
+  @@map("payment_sessions")
 }

@@ -144,4 +144,53 @@ export const en = {
     statsSuccess: 'Dashboard stats retrieved successfully',
     reportsSuccess: 'Report data retrieved successfully',
   },
+
+  // ─── KYC ───────────────────────────────────────────────────────────────────
+  kyc: {
+    submissionNotFound: 'KYC submission not found',
+    submissionNotOwned: 'You do not have permission to access this submission',
+    uploadSuccess: 'Image uploaded successfully',
+    ocrFailed: 'Could not recognize ID card. Please retake with better lighting.',
+    faceDetectionFailed: 'No face detected in selfie image.',
+    incompleteKyc: 'Please upload CCCD front, back, and selfie before submitting.',
+    submitSuccess: 'KYC submission sent for approval',
+    cannotSubmit: 'Submission cannot be submitted in its current status',
+    resubmitSuccess: 'Resubmit successful, please upload the rejected items again',
+    cannotResubmit: 'Submission cannot be resubmitted in its current status',
+    getSuccess: 'KYC submission retrieved successfully',
+    statusSuccess: 'KYC status retrieved successfully',
+    ownerNotVerified: 'Owner has not completed identity verification',
+    kycRequired: 'You must complete KYC verification before managing properties',
+  },
+
+  // ─── Billing ───────────────────────────────────────────────────────────────
+  billing: {
+    listSuccess: 'Billing plans retrieved successfully',
+    planNotFound: 'Plan not found or no longer available',
+    roomCountExceedsPlan: 'Room count exceeds the plan limit',
+  },
+
+  // ─── Payment ───────────────────────────────────────────────────────────────
+  payment: {
+    initiateSuccess: 'Payment session created successfully',
+    statusSuccess: 'Payment status retrieved successfully',
+    amountMismatch: 'Payment amount does not match the selected plan',
+    invalidPlan: 'Plan not found or no longer available',
+    sessionNotFound: 'Payment session not found',
+    sessionExpired: 'Payment session has expired. Please create a new one.',
+    alreadyPaid: 'This submission has already been paid',
+    refundSuccess: 'Refund request submitted successfully',
+    alreadyRefunded: 'This payment has already been refunded',
+    cannotRefund: 'Cannot refund in the current submission status',
+    webhookSuccess: 'Webhook processed successfully',
+  },
+
+  // ─── Admin KYC ─────────────────────────────────────────────────────────────
+  adminKyc: {
+    queueSuccess: 'KYC queue retrieved successfully',
+    approveSuccess: 'KYC submission approved successfully',
+    rejectSuccess: 'KYC submission rejected successfully',
+    alreadyProcessed: 'This submission has already been processed',
+    invalidStatus: 'Submission is not in awaiting_approval status',
+  },
 };

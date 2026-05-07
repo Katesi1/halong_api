@@ -10,7 +10,7 @@ import { CloudinaryService } from '../../config/cloudinary.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
@@ -134,11 +134,24 @@ export class PropertiesService {
   }
 
   async create(dto: CreatePropertyDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
-    // ADMIN can assign to any owner; OWNER creates for self; SALE cannot create
+    // SALE: assigned can CRU, unassigned cannot create
     if (user.role === ROLE.SALE) {
-      throw new ForbiddenException(msg.properties.forbidden);
+      if (isSaleUnassigned(user)) {
+        throw new ForbiddenException(msg.properties.forbidden);
+      }
+      // Assigned SALE can create for their owner
     }
-    const ownerId = user.role === ROLE.ADMIN && dto.ownerId ? dto.ownerId : user.id;
+
+    // OWNER must complete KYC before managing properties
+    if (user.role === ROLE.OWNER) {
+      await this.checkKycApproved(user.id, msg);
+    }
+
+    const ownerId = user.role === ROLE.ADMIN && dto.ownerId
+      ? dto.ownerId
+      : user.role === ROLE.SALE && user.ownerId
+        ? user.ownerId
+        : user.id;
 
     if (user.role === ROLE.ADMIN && dto.ownerId) {
       const owner = await this.prisma.user.findUnique({ where: { id: dto.ownerId } });
@@ -171,6 +184,16 @@ export class PropertiesService {
   }
 
   async update(id: string, dto: UpdatePropertyDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    // Unassigned SALE cannot update
+    if (user.role === ROLE.SALE && isSaleUnassigned(user)) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
+
+    // OWNER must complete KYC
+    if (user.role === ROLE.OWNER) {
+      await this.checkKycApproved(user.id, msg);
+    }
+
     const property = await this.prisma.property.findUnique({ where: { id } });
     if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
@@ -432,6 +455,16 @@ export class PropertiesService {
     const effectiveOwnerId = getEffectiveOwnerId(user);
     if (effectiveOwnerId && property.ownerId !== effectiveOwnerId) {
       throw new ForbiddenException(msg.properties.forbidden);
+    }
+  }
+
+  private async checkKycApproved(userId: string, msg: Messages) {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kycStatus: true },
+    });
+    if (!owner || owner.kycStatus !== KYC_STATUS.APPROVED) {
+      throw new ForbiddenException(msg.kyc.kycRequired);
     }
   }
 }
