@@ -20,6 +20,7 @@ import { KycModule } from './modules/kyc/kyc.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { AdminKycModule } from './modules/admin-kyc/admin-kyc.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -46,6 +47,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     BillingModule,
     PaymentModule,
     AdminKycModule,
+    ReviewsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -50,10 +50,22 @@ export class KycService {
     return submission;
   }
 
+  /** Parse ocrResult JSON string from client, return Prisma-compatible value */
+  private parseOcrResult(ocrResultStr?: string): Prisma.InputJsonValue | typeof Prisma.DbNull {
+    if (!ocrResultStr) return Prisma.DbNull;
+    try {
+      return JSON.parse(ocrResultStr) as Prisma.InputJsonValue;
+    } catch {
+      this.logger.warn('Invalid ocrResult JSON from client, ignoring');
+      return Prisma.DbNull;
+    }
+  }
+
   /** Upload CCCD front image */
   async uploadCccdFront(
     user: { id: string },
     file: Express.Multer.File,
+    ocrResultStr: string | undefined,
     msg: Messages,
   ) {
     const submission = await this.getOrCreateSubmission(user.id);
@@ -64,8 +76,8 @@ export class KycService {
     const imageUrlThumb = this.cloudinary.getThumbnailUrl(imageUrl);
     const publicId = uploadResult.public_id;
 
-    // TODO: Call FPT.AI OCR API here — for now, store without OCR
-    const ocrResult: Prisma.InputJsonValue | typeof Prisma.DbNull = Prisma.DbNull;
+    // OCR data extracted on client side (google_mlkit) and sent as JSON string
+    const ocrResult = this.parseOcrResult(ocrResultStr);
     const ocrConfidence = null;
 
     // Upsert the upload record (unique on submissionId + type)
@@ -112,6 +124,7 @@ export class KycService {
   async uploadCccdBack(
     user: { id: string },
     file: Express.Multer.File,
+    ocrResultStr: string | undefined,
     msg: Messages,
   ) {
     const submission = await this.getOrCreateSubmission(user.id);
@@ -120,6 +133,9 @@ export class KycService {
     const imageUrl = uploadResult.secure_url;
     const imageUrlThumb = this.cloudinary.getThumbnailUrl(imageUrl);
     const publicId = uploadResult.public_id;
+
+    // OCR/QR data extracted on client side (google_mlkit barcode scanning)
+    const ocrResult = this.parseOcrResult(ocrResultStr);
 
     const upload = await this.prisma.kycUpload.upsert({
       where: {
@@ -132,7 +148,7 @@ export class KycService {
         imageUrl,
         imageUrlThumb,
         publicId,
-        ocrResult: Prisma.DbNull,
+        ocrResult,
         ocrConfidence: null,
         provider: 'manual',
       },
@@ -142,6 +158,7 @@ export class KycService {
         imageUrl,
         imageUrlThumb,
         publicId,
+        ocrResult,
         provider: 'manual',
       },
     });
@@ -170,7 +187,7 @@ export class KycService {
     const imageUrl = uploadResult.secure_url;
     const publicId = uploadResult.public_id;
 
-    // TODO: Call FPT.AI Face Match API here
+    // Face match + liveness handled on client side (google_mlkit) — server only stores image
     const faceMatchScore = null;
     const livenessScore = null;
     const isValid = true; // Default to true when no provider — admin will verify manually

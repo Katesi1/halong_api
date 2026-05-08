@@ -143,6 +143,23 @@ export const vi = {
   dashboard: {
     statsSuccess: 'Lấy thống kê dashboard thành công',
     reportsSuccess: 'Lấy dữ liệu báo cáo thành công',
+    missingDateRange: 'Vui lòng cung cấp from và to khi dùng period=custom',
+    invalidDateRange: 'Ngày from phải trước ngày to',
+  },
+
+  // ─── Reviews ───────────────────────────────────────────────────────────────
+  reviews: {
+    createSuccess: 'Đánh giá đã được gửi',
+    listSuccess: 'Lấy danh sách đánh giá thành công',
+    replySuccess: 'Đã trả lời đánh giá',
+    hideSuccess: 'Đã ẩn đánh giá',
+    notFound: 'Đánh giá không tồn tại',
+    propertyNotFound: 'Cơ sở không tồn tại',
+    notYourBooking: 'Booking này không thuộc về bạn',
+    bookingNotCompleted: 'Booking chưa hoàn thành, không thể đánh giá',
+    alreadyReviewed: 'Booking này đã được đánh giá rồi',
+    invalidScore: 'Điểm đánh giá phải là số nguyên từ 1 đến 5',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
   },
 
   // ─── KYC ───────────────────────────────────────────────────────────────────

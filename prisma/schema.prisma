@@ -40,6 +40,7 @@ model User {
   customerBookings Booking[]  @relation("CustomerBookings")
   kycSubmissions   KycSubmission[]
   approvedSubmissions KycSubmission[] @relation("ApprovedBy")
+  reviews          PropertyReview[]
 
   @@map("users")
 }
@@ -93,6 +94,7 @@ model Property {
   images        PropertyImage[]
   bookings      Booking[]
   calendarLocks CalendarLock[]
+  reviews       PropertyReview[]
 
   @@map("properties")
 }
@@ -128,9 +130,10 @@ model Booking {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  property Property @relation(fields: [propertyId], references: [id])
-  sale     User?    @relation("SaleBookings", fields: [saleId], references: [id])
-  customer User?    @relation("CustomerBookings", fields: [customerId], references: [id])
+  property Property        @relation(fields: [propertyId], references: [id])
+  sale     User?           @relation("SaleBookings", fields: [saleId], references: [id])
+  customer User?           @relation("CustomerBookings", fields: [customerId], references: [id])
+  review   PropertyReview?
 
   @@map("bookings")
 }
@@ -174,6 +177,48 @@ model Notification {
 
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+
+model PropertyReview {
+  id          String    @id @default(uuid())
+  propertyId  String
+  bookingId   String    @unique
+  customerId  String
+
+  // 6 score (1-5)
+  cleanliness Int
+  location    Int
+  amenities   Int
+  service     Int
+  value       Int
+  accuracy    Int
+
+  // Avg pre-computed = (c+l+a+s+v+ac) / 6.0
+  avgRating   Float
+
+  comment     String?
+  photos      Json?     // ["url1", "url2", ...]
+
+  // Owner reply
+  ownerReply   String?
+  ownerReplyAt DateTime?
+
+  // Admin moderation
+  isHidden     Boolean  @default(false)
+  hiddenReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  booking  Booking  @relation(fields: [bookingId], references: [id])
+  customer User     @relation(fields: [customerId], references: [id])
+
+  @@index([propertyId])
+  @@index([customerId])
+  @@map("property_reviews")
 }
 
 // ─── KYC ──────────────────────────────────────────────────────────────────────

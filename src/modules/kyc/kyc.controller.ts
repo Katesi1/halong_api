@@ -49,9 +49,10 @@ export class KycController {
   uploadCccdFront(
     @CurrentUser() user: any,
     @UploadedFile() file: Express.Multer.File,
+    @Body('ocrResult') ocrResultStr: string,
     @Lang() msg: Messages,
   ) {
-    return this.kycService.uploadCccdFront(user, file, msg);
+    return this.kycService.uploadCccdFront(user, file, ocrResultStr, msg);
   }
 
   @Post('upload-cccd-back')
@@ -64,9 +65,10 @@ export class KycController {
   uploadCccdBack(
     @CurrentUser() user: any,
     @UploadedFile() file: Express.Multer.File,
+    @Body('ocrResult') ocrResultStr: string,
     @Lang() msg: Messages,
   ) {
-    return this.kycService.uploadCccdBack(user, file, msg);
+    return this.kycService.uploadCccdBack(user, file, ocrResultStr, msg);
   }
 
   @Post('upload-selfie')

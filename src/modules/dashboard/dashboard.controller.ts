@@ -21,8 +21,8 @@ export class DashboardController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('dashboard/stats')
   @ApiOperation({
-    summary: 'KPI Dashboard — tổng quan hôm nay',
-    description: 'ADMIN thấy tất cả, OWNER/SALE chỉ thấy property của mình',
+    summary: 'KPI Dashboard — tong quan hom nay',
+    description: 'ADMIN thay tat ca, OWNER/SALE chi thay property cua minh',
   })
   @ApiResponse({ status: 200, type: DashboardStatsResponse })
   getStats(@CurrentUser() user: any, @Lang() msg: Messages) {
@@ -32,23 +32,30 @@ export class DashboardController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('reports')
   @ApiOperation({
-    summary: 'Báo cáo theo tháng',
-    description: 'Mặc định tháng hiện tại. Trả thống kê booking, doanh thu, occupancy rate, recent bookings.',
+    summary: 'Bao cao mo rong',
+    description: 'Ho tro period filter (today/week/month/year/custom). Backward-compat voi month/year cu. Tra du lieu KPI, trend, top rooms, ratings, reviews.',
   })
-  @ApiQuery({ name: 'month', required: false, type: Number, description: 'Tháng (1-12), mặc định tháng hiện tại' })
-  @ApiQuery({ name: 'year', required: false, type: Number, description: 'Năm, mặc định năm hiện tại' })
+  @ApiQuery({ name: 'period', required: false, enum: ['today', 'week', 'month', 'year', 'custom'], description: 'Ky bao cao' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'YYYY-MM-DD (bat buoc khi period=custom)' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'YYYY-MM-DD (bat buoc khi period=custom)' })
+  @ApiQuery({ name: 'month', required: false, type: Number, description: 'Legacy: Thang (1-12)' })
+  @ApiQuery({ name: 'year', required: false, type: Number, description: 'Legacy: Nam' })
   @ApiResponse({ status: 200, type: ReportsResponse })
   getReports(
     @CurrentUser() user: any,
+    @Query('period') period: string,
+    @Query('from') from: string,
+    @Query('to') to: string,
     @Query('month') month: string,
     @Query('year') year: string,
     @Lang() msg: Messages,
   ) {
-    return this.dashboardService.getReports(
-      user,
-      msg,
-      month ? parseInt(month) : undefined,
-      year ? parseInt(year) : undefined,
-    );
+    return this.dashboardService.getReports(user, msg, {
+      period: period || undefined,
+      from: from || undefined,
+      to: to || undefined,
+      month: month ? parseInt(month) : undefined,
+      year: year ? parseInt(year) : undefined,
+    });
   }
 }

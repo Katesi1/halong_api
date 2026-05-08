@@ -143,6 +143,23 @@ export const en = {
   dashboard: {
     statsSuccess: 'Dashboard stats retrieved successfully',
     reportsSuccess: 'Report data retrieved successfully',
+    missingDateRange: 'Please provide from and to when using period=custom',
+    invalidDateRange: 'from date must be before to date',
+  },
+
+  // ─── Reviews ───────────────────────────────────────────────────────────────
+  reviews: {
+    createSuccess: 'Review submitted successfully',
+    listSuccess: 'Reviews retrieved successfully',
+    replySuccess: 'Reply submitted successfully',
+    hideSuccess: 'Review hidden successfully',
+    notFound: 'Review not found',
+    propertyNotFound: 'Property not found',
+    notYourBooking: 'This booking does not belong to you',
+    bookingNotCompleted: 'Booking is not completed, cannot review',
+    alreadyReviewed: 'This booking has already been reviewed',
+    invalidScore: 'Score must be an integer between 1 and 5',
+    forbidden: 'You do not have permission to perform this action',
   },
 
   // ─── KYC ───────────────────────────────────────────────────────────────────

@@ -21,10 +21,10 @@ export class CreateBookingDto {
   @IsString()
   customerName?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ example: '0911111111', description: 'So dien thoai khach hang (bat buoc)' })
   @IsString()
-  customerPhone?: string;
+  @IsNotEmpty({ message: 'Số điện thoại khách hàng không được để trống' })
+  customerPhone: string;
 
   @ApiPropertyOptional()
   @IsOptional()
