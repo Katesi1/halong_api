@@ -150,6 +150,27 @@ export class AdminKycService {
       },
     });
 
+    // Create Subscription row used by /payments/renew (endsAt = trialEndsAt;
+    // status starts as `active` so user can renew before / at trial end).
+    if (payment) {
+      const existing = await this.prisma.subscription.findFirst({
+        where: { userId: submission.userId, planId: payment.planId },
+      });
+      if (!existing) {
+        await this.prisma.subscription.create({
+          data: {
+            userId: submission.userId,
+            planId: payment.planId,
+            cycle: payment.cycle,
+            rooms: submission.expectedRooms,
+            status: SUBSCRIPTION_STATUS.ACTIVE,
+            startsAt: now,
+            endsAt: trialEndsAt,
+          },
+        });
+      }
+    }
+
     // TODO: Send FCM push notification to user
 
     return {

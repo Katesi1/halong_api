@@ -56,6 +56,8 @@ export const vi = {
     staffUserNotFound: 'Không tìm thấy người dùng với số điện thoại này',
     onlyOwnerCanManageStaff: 'Chỉ chủ nhà (OWNER) mới có thể quản lý nhân viên',
     saleNotAssigned: 'Bạn chưa được gán cho chủ nhà nào',
+    kycBypassGranted: 'Đã cấp quyền bỏ qua KYC — người dùng có thể quản lý cơ sở mà không cần KYC',
+    kycBypassRevoked: 'Đã thu hồi quyền bỏ qua KYC — người dùng cần hoàn thành KYC để quản lý cơ sở',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -200,6 +202,20 @@ export const vi = {
     alreadyRefunded: 'Giao dịch này đã được hoàn tiền',
     cannotRefund: 'Không thể hoàn tiền ở trạng thái hiện tại',
     webhookSuccess: 'Webhook xử lý thành công',
+    historySuccess: 'Lấy lịch sử thanh toán thành công',
+    renewSuccess: 'Tạo phiên gia hạn thành công',
+    noActiveSubscription: 'Bạn chưa có gói đăng ký để gia hạn',
+    invalidWebhookSecret: 'Webhook secret không hợp lệ',
+    invalidSignature: 'Chữ ký không hợp lệ',
+    cannotMatchTransfer: 'Không xác định được phiên thanh toán từ nội dung chuyển khoản',
+  },
+
+  // ─── Permissions ───────────────────────────────────────────────────────────
+  permissions: {
+    getSuccess: 'Lấy quyền thành công',
+    setSuccess: 'Cập nhật quyền thành công',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    invalidModule: (mod: string) => `Module quyền không hợp lệ: ${mod}`,
   },
 
   // ─── Admin KYC ─────────────────────────────────────────────────────────────

@@ -461,9 +461,12 @@ export class PropertiesService {
   private async checkKycApproved(userId: string, msg: Messages) {
     const owner = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { kycStatus: true },
+      select: { kycStatus: true, kycBypass: true },
     });
-    if (!owner || owner.kycStatus !== KYC_STATUS.APPROVED) {
+    if (!owner) throw new ForbiddenException(msg.kyc.kycRequired);
+    // ADMIN-granted bypass skips KYC requirement
+    if (owner.kycBypass) return;
+    if (owner.kycStatus !== KYC_STATUS.APPROVED) {
       throw new ForbiddenException(msg.kyc.kycRequired);
     }
   }

@@ -56,6 +56,8 @@ export const en = {
     staffUserNotFound: 'User not found with this phone number',
     onlyOwnerCanManageStaff: 'Only OWNER can manage staff',
     saleNotAssigned: 'You have not been assigned to any owner yet',
+    kycBypassGranted: 'KYC bypass granted — user can manage properties without KYC',
+    kycBypassRevoked: 'KYC bypass revoked — user must complete KYC to manage properties',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -200,6 +202,20 @@ export const en = {
     alreadyRefunded: 'This payment has already been refunded',
     cannotRefund: 'Cannot refund in the current submission status',
     webhookSuccess: 'Webhook processed successfully',
+    historySuccess: 'Payment history retrieved successfully',
+    renewSuccess: 'Renewal session created successfully',
+    noActiveSubscription: 'You do not have an active subscription to renew',
+    invalidWebhookSecret: 'Invalid webhook secret',
+    invalidSignature: 'Invalid signature',
+    cannotMatchTransfer: 'Could not match transfer description to a payment session',
+  },
+
+  // ─── Permissions ───────────────────────────────────────────────────────────
+  permissions: {
+    getSuccess: 'Permissions retrieved successfully',
+    setSuccess: 'Permissions updated successfully',
+    forbidden: 'You do not have permission to perform this action',
+    invalidModule: (mod: string) => `Invalid permission module: ${mod}`,
   },
 
   // ─── Admin KYC ─────────────────────────────────────────────────────────────

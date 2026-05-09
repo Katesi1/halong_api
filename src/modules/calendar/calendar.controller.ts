@@ -8,7 +8,8 @@ import { Lang } from '../../common/decorators/lang.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE, PERMISSION_ACTION } from '../../common/constants';
+import { Permission } from '../../common/decorators/permission.decorator';
 import type { Messages } from '../../i18n';
 import { CalendarGridResponse, CalendarPropertyListResponse, MessageResponse, AdminContactResponse } from '../../common/dto/api-response.dto';
 
@@ -22,6 +23,7 @@ export class CalendarController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('properties')
   @ApiBearerAuth('access-token')
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.READ)
   @ApiOperation({ summary: 'Danh sách property cho calendar' })
   @ApiResponse({ status: 200, type: CalendarPropertyListResponse })
   getProperties(
@@ -56,6 +58,7 @@ export class CalendarController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Get('grid')
   @ApiBearerAuth('access-token')
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.READ)
   @ApiOperation({
     summary: 'Trang 2 — Lịch quản lý (OWNER/SALE thấy property của mình, ADMIN thấy tất cả)',
     description: 'Giống public-grid nhưng: cần auth, OWNER/SALE chỉ thấy property của mình, có thêm field note (tên khách).',
@@ -80,6 +83,7 @@ export class CalendarController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Post('lock')
   @ApiBearerAuth('access-token')
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.CREATE)
   @ApiOperation({ summary: 'Khoá ngày (chủ nhà)' })
   @ApiResponse({ status: 201, type: MessageResponse })
   lockDate(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -90,6 +94,7 @@ export class CalendarController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Delete('lock')
   @ApiBearerAuth('access-token')
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.DELETE)
   @ApiOperation({ summary: 'Mở khoá ngày (chủ nhà)' })
   @ApiResponse({ status: 200, type: MessageResponse })
   unlockDate(@Body() dto: CalendarUnlockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -100,6 +105,7 @@ export class CalendarController {
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Patch('sold')
   @ApiBearerAuth('access-token')
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.UPDATE)
   @ApiOperation({ summary: 'Đánh dấu ngày đã bán' })
   @ApiResponse({ status: 200, type: MessageResponse })
   markSold(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {

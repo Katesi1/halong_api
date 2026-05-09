@@ -253,8 +253,11 @@ export class AuthService {
       select: {
         id: true, name: true, phone: true, email: true,
         role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
-        kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
+        kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
         subscriptionCycle: true, trialEndsAt: true, nextChargeAt: true,
+        permissions: {
+          select: { module: true, canCreate: true, canRead: true, canUpdate: true, canDelete: true },
+        },
       },
     });
     return { message: msg.auth.profileSuccess, data: user };

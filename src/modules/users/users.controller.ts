@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete,
+  Controller, Get, Post, Put, Patch, Delete,
   Body, Param, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -8,6 +8,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AddStaffDto } from './dto/add-staff.dto';
+import { ToggleKycBypassDto } from './dto/toggle-kyc-bypass.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -87,6 +88,18 @@ export class UsersController {
     @Lang() msg: Messages,
   ) {
     return this.usersService.update(id, dto, user, msg);
+  }
+
+  @Patch(':id/kyc-bypass')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'Bật/tắt quyền bỏ qua KYC cho OWNER (Admin only)' })
+  @ApiResponse({ status: 200, type: UserResponse })
+  toggleKycBypass(
+    @Param('id') id: string,
+    @Body() dto: ToggleKycBypassDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.usersService.toggleKycBypass(id, dto.bypass, msg);
   }
 
   @Delete('my-staff/:id')

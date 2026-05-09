@@ -97,6 +97,26 @@ export const PAYMENT_STATUS = {
   REFUNDED: 'refunded',
 } as const;
 
+export const PAYMENT_KIND = {
+  SUBSCRIPTION: 'subscription',
+  RENEW: 'renew',
+  UPGRADE: 'upgrade',
+  REFUND: 'refund',
+} as const;
+
+export const PAYMENT_METHOD = {
+  VNPAY_QR: 'vnpay_qr',
+  BANK_TRANSFER: 'bank_transfer',
+  CARD: 'card',
+} as const;
+
+export const PAYMENT_PROVIDER = {
+  VNPAY: 'vnpay',
+  CASSO: 'casso',
+  SEPAY: 'sepay',
+  MANUAL_BANK: 'manual_bank',
+} as const;
+
 export const SUBSCRIPTION_STATUS = {
   NONE: 'none',
   TRIAL: 'trial',
@@ -110,6 +130,24 @@ export const KYC_UPLOAD_TYPE = {
   CCCD_BACK: 'cccd_back',
   SELFIE: 'selfie',
 } as const;
+
+// ─── Permission Constants ────────────────────────────────────────────────────
+
+export const PERMISSION_MODULE = {
+  PROPERTIES: 'properties',
+  BOOKINGS: 'bookings',
+  CALENDAR: 'calendar',
+  REVIEWS: 'reviews',
+} as const;
+
+export const PERMISSION_ACTION = {
+  CREATE: 'canCreate',
+  READ: 'canRead',
+  UPDATE: 'canUpdate',
+  DELETE: 'canDelete',
+} as const;
+
+export const ALL_PERMISSION_MODULES = Object.values(PERMISSION_MODULE);
 
 // Status mapping for API response (camelCase for frontend)
 export const KYC_STATUS_API_MAP: Record<string, string> = {

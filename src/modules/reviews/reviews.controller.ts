@@ -16,7 +16,8 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE, PERMISSION_ACTION } from '../../common/constants';
+import { Permission } from '../../common/decorators/permission.decorator';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Reviews')
@@ -71,6 +72,7 @@ export class ReviewsController {
 
   @Post('properties/:id/reviews/:reviewId/reply')
   @Roles(ROLE.ADMIN, ROLE.OWNER)
+  @Permission(PERMISSION_MODULE.REVIEWS, PERMISSION_ACTION.UPDATE)
   @ApiOperation({ summary: 'Owner reply review', description: 'OWNER cua property hoac ADMIN.' })
   @ApiResponse({ status: 200, description: 'Reply saved' })
   @ApiResponse({ status: 404, description: 'review_not_found' })

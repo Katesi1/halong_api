@@ -13,7 +13,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE, PERMISSION_ACTION } from '../../common/constants';
+import { Permission } from '../../common/decorators/permission.decorator';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Bookings')
@@ -28,6 +29,7 @@ export class BookingsController {
 
   @Get()
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.READ)
   @ApiOperation({ summary: 'Danh sách booking (Staff/Admin)' })
   @ApiQuery({ name: 'propertyId', required: false })
   @ApiQuery({ name: 'status', required: false, description: '0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED' })
@@ -57,6 +59,7 @@ export class BookingsController {
 
   @Get(':id')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.READ)
   @ApiOperation({ summary: 'Chi tiết booking' })
   @ApiResponse({ status: 200, type: BookingResponse })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -64,6 +67,7 @@ export class BookingsController {
   }
 
   @Post('hold')
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.CREATE)
   @ApiOperation({ summary: 'Giữ chỗ — hold 30 phút (mọi authenticated user)' })
   @ApiResponse({ status: 201, type: BookingResponse })
   holdProperty(@Body() dto: CreateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -72,6 +76,7 @@ export class BookingsController {
 
   @Patch(':id/confirm')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.UPDATE)
   @ApiOperation({ summary: 'Xác nhận booking (Admin/Staff)' })
   @ApiResponse({ status: 200, type: BookingResponse })
   confirmBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -80,6 +85,7 @@ export class BookingsController {
 
   @Patch(':id/cancel')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.DELETE)
   @ApiOperation({ summary: 'Hủy booking (Staff)' })
   @ApiResponse({ status: 200, type: MessageResponse })
   cancelBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
@@ -88,6 +94,7 @@ export class BookingsController {
 
   @Put(':id')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.UPDATE)
   @ApiOperation({ summary: 'Cập nhật booking' })
   @ApiResponse({ status: 200, type: BookingResponse })
   update(@Param('id') id: string, @Body() dto: UpdateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {

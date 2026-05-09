@@ -21,9 +21,11 @@ import { BillingModule } from './modules/billing/billing.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { AdminKycModule } from './modules/admin-kyc/admin-kyc.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
+import { PermissionsModule } from './modules/permissions/permissions.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { PermissionGuard } from './common/guards/permission.guard';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
@@ -48,10 +50,12 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     PaymentModule,
     AdminKycModule,
     ReviewsModule,
+    PermissionsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },

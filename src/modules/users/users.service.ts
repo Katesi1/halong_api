@@ -24,7 +24,8 @@ export class UsersService {
       where: { deletedAt: null, ...(role !== undefined ? { role } : {}) },
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
+        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
+        kycBypass: true, kycStatus: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -36,7 +37,8 @@ export class UsersService {
       where: { id, deletedAt: null },
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
+        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
+        kycBypass: true, kycStatus: true, createdAt: true,
         properties: {
           select: { id: true, name: true, code: true },
           where: { isActive: true, deletedAt: null },
@@ -137,6 +139,29 @@ export class UsersService {
     });
 
     return { message: msg.users.disableSuccess, data: null };
+  }
+
+  // ─── KYC Bypass (ADMIN only) ────────────────────────────────────────────────
+
+  async toggleKycBypass(id: string, bypass: boolean, msg: Messages) {
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null, role: ROLE.OWNER },
+    });
+    if (!user) throw new NotFoundException(msg.users.notFound);
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { kycBypass: bypass },
+      select: {
+        id: true, name: true, phone: true, email: true,
+        role: true, isActive: true, kycBypass: true, kycStatus: true,
+      },
+    });
+
+    return {
+      message: bypass ? msg.users.kycBypassGranted : msg.users.kycBypassRevoked,
+      data: updated,
+    };
   }
 
   // ─── Staff Management (OWNER only) ─────────────────────────────────────────
