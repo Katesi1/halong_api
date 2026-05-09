@@ -12,10 +12,11 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { Messages } from '../../i18n';
-import { ROLE, KYC_STATUS, SUBSCRIPTION_STATUS } from '../../common/constants';
+import { ROLE, KYC_STATUS, SUBSCRIPTION_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
@@ -31,6 +32,7 @@ export class StaffService {
     private prisma: PrismaService,
     private authService: AuthService,
     private emailService: EmailService,
+    private notifications: NotificationsService,
     private configService: ConfigService,
   ) {}
 
@@ -257,6 +259,17 @@ export class StaffService {
       data: { status: 'accepted', acceptedAt: new Date(), acceptedUserId: newUser.id },
     });
 
+    // Notify OWNER: nhân viên đã accept invite
+    await this.notifications.notifyUser(
+      invite.ownerId,
+      msg.staff.notifyInviteAcceptedTitle,
+      msg.staff.notifyInviteAcceptedBody(newUser.name, newUser.email),
+      NOTIFICATION_TYPE.SYSTEM,
+      newUser.id,
+      'staff',
+      { pushType: 'staff_invite_accepted', deepLink: '/staff/manage' },
+    );
+
     const tokens = await this.authService.issueTokensFor({
       id: newUser.id, email: newUser.email, role: newUser.role,
     });
@@ -309,6 +322,17 @@ export class StaffService {
       where: { id: staffId },
       data: { isActive: false, refreshToken: null },
     });
+
+    // Notify SALE: bị xoá khỏi team → FE detect và logout
+    await this.notifications.notifyUser(
+      staffId,
+      'Bạn đã bị gỡ khỏi đội',
+      'Tài khoản nhân viên của bạn đã bị huỷ bởi chủ homestay. Vui lòng đăng nhập lại nếu cần.',
+      NOTIFICATION_TYPE.SYSTEM,
+      staffId,
+      'staff',
+      { pushType: 'staff_removed', deepLink: '/login' },
+    );
 
     return { message: msg.staff.removeSuccess, data: null };
   }

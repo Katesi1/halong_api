@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { LoginResponse, MessageResponse, ProfileResponse } from '../../common/dto/api-response.dto';
 import { AuthService } from './auth.service';
@@ -23,10 +24,18 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  @ApiOperation({ summary: 'Đăng ký', description: 'Đăng ký tài khoản STAFF hoặc CUSTOMER. Trả token luôn (auto-login)' })
+  @Throttle({ default: { limit: 5, ttl: 3600_000 } }) // 5 req / giờ / IP
+  @ApiHeader({ name: 'X-Device-Id', required: false, description: 'Device ID (chống spam register)' })
+  @ApiOperation({ summary: 'Đăng ký', description: 'Đăng ký tài khoản OWNER hoặc CUSTOMER. Trả token luôn (auto-login). Tối đa 3 account / device / 24h.' })
   @ApiResponse({ status: 201, type: LoginResponse })
-  register(@Body() dto: RegisterDto, @Lang() msg: Messages) {
-    return this.authService.register(dto, msg);
+  @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng ký từ device/IP này' })
+  register(
+    @Body() dto: RegisterDto,
+    @Headers('x-device-id') deviceId: string | undefined,
+    @Ip() ip: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.register(dto, msg, { deviceId: deviceId || null, ip: ip || null });
   }
 
   @Public()
@@ -39,10 +48,18 @@ export class AuthController {
 
   @Public()
   @Post('google')
-  @ApiOperation({ summary: 'Đăng nhập Google', description: 'Đăng nhập/đăng ký bằng Google ID Token. User mới cần field role.' })
+  @Throttle({ default: { limit: 10, ttl: 3600_000 } }) // 10 req / giờ / IP (Google còn dùng cho login lại nhiều)
+  @ApiHeader({ name: 'X-Device-Id', required: false, description: 'Device ID (chống spam register Google)' })
+  @ApiOperation({ summary: 'Đăng nhập Google', description: 'Đăng nhập/đăng ký bằng Google ID Token. User mới cần field role. Tối đa 3 account / device / 24h khi tạo mới.' })
   @ApiResponse({ status: 200, type: LoginResponse })
-  googleAuth(@Body() dto: GoogleAuthDto, @Lang() msg: Messages) {
-    return this.authService.googleAuth(dto, msg);
+  @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng ký mới từ device/IP này' })
+  googleAuth(
+    @Body() dto: GoogleAuthDto,
+    @Headers('x-device-id') deviceId: string | undefined,
+    @Ip() ip: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.googleAuth(dto, msg, { deviceId: deviceId || null, ip: ip || null });
   }
 
   @Public()

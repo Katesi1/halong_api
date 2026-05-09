@@ -10,14 +10,19 @@ import {
   KYC_STATUS,
   SUBSCRIPTION_STATUS,
   KYC_STATUS_API_MAP,
+  NOTIFICATION_TYPE,
 } from '../../common/constants';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { Messages } from '../../i18n';
 
 @Injectable()
 export class AdminKycService {
   private readonly logger = new Logger(AdminKycService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   /** Get KYC approval queue */
   async getQueue(
@@ -171,7 +176,15 @@ export class AdminKycService {
       }
     }
 
-    // TODO: Send FCM push notification to user
+    await this.notifications.notifyUser(
+      submission.userId,
+      'KYC duyệt thành công',
+      'Hồ sơ xác minh của bạn đã được duyệt. Bạn có thể bắt đầu quản lý cơ sở.',
+      NOTIFICATION_TYPE.SYSTEM,
+      submissionId,
+      'kyc',
+      { pushType: 'kyc_approved', deepLink: '/dashboard' },
+    );
 
     return {
       message: msg.adminKyc.approveSuccess,
@@ -217,7 +230,15 @@ export class AdminKycService {
       data: { kycStatus: KYC_STATUS.REJECTED },
     });
 
-    // TODO: Send FCM push notification to user
+    await this.notifications.notifyUser(
+      submission.userId,
+      'KYC bị từ chối',
+      reason || 'Hồ sơ xác minh bị từ chối. Vui lòng kiểm tra và gửi lại.',
+      NOTIFICATION_TYPE.SYSTEM,
+      submissionId,
+      'kyc',
+      { pushType: 'kyc_rejected', deepLink: '/verify/rejected' },
+    );
 
     return {
       message: msg.adminKyc.rejectSuccess,

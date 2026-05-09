@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   ConflictException,
   BadRequestException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -29,7 +31,11 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
-  async register(dto: RegisterDto, msg: Messages) {
+  async register(
+    dto: RegisterDto,
+    msg: Messages,
+    meta: { deviceId?: string | null; ip?: string | null } = {},
+  ) {
     const email = dto.email.toLowerCase().trim();
 
     const existingEmail = await this.prisma.user.findUnique({
@@ -48,6 +54,8 @@ export class AuthService {
       }
     }
 
+    await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.user.create({
@@ -57,6 +65,8 @@ export class AuthService {
         password: hashedPassword,
         role: dto.role,
         phone: dto.phone || null,
+        registerDeviceId: meta.deviceId || null,
+        registerIp: meta.ip || null,
       },
     });
 
@@ -100,7 +110,11 @@ export class AuthService {
     };
   }
 
-  async googleAuth(dto: GoogleAuthDto, msg: Messages) {
+  async googleAuth(
+    dto: GoogleAuthDto,
+    msg: Messages,
+    meta: { deviceId?: string | null; ip?: string | null } = {},
+  ) {
     const audience = this.configService.get<string>('GOOGLE_OAUTH_WEB_CLIENT_ID');
     if (!audience) {
       throw new UnauthorizedException(msg.auth.googleTokenInvalid);
@@ -166,6 +180,8 @@ export class AuthService {
         throw new BadRequestException(msg.auth.googleRoleInvalid);
       }
 
+      await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
+
       user = await this.prisma.user.create({
         data: {
           name,
@@ -175,6 +191,8 @@ export class AuthService {
           googleSub,
           emailVerified: true,
           avatar: picture,
+          registerDeviceId: meta.deviceId || null,
+          registerIp: meta.ip || null,
         },
       });
     }
@@ -305,6 +323,40 @@ export class AuthService {
     });
 
     return { message: msg.auth.changePasswordSuccess, data: null };
+  }
+
+  /**
+   * Anti-spam check: trong 24h vừa qua, 1 deviceId chỉ được tạo tối đa 3 account
+   * và 1 IP tối đa 10 account (cho phép share network gia đình/văn phòng).
+   * Throw 429 nếu vượt threshold.
+   */
+  private async assertRegisterAllowed(
+    deviceId: string | null,
+    ip: string | null,
+    msg: Messages,
+  ): Promise<void> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const limits: Array<Promise<number>> = [];
+
+    if (deviceId) {
+      limits.push(
+        this.prisma.user.count({
+          where: { registerDeviceId: deviceId, createdAt: { gt: since } },
+        }).then((n) => (n >= 3 ? -1 : n)),
+      );
+    }
+    if (ip) {
+      limits.push(
+        this.prisma.user.count({
+          where: { registerIp: ip, createdAt: { gt: since } },
+        }).then((n) => (n >= 10 ? -2 : n)),
+      );
+    }
+
+    const results = await Promise.all(limits);
+    if (results.some((r) => r === -1 || r === -2)) {
+      throw new HttpException(msg.auth.tooManyRegisters, HttpStatus.TOO_MANY_REQUESTS);
+    }
   }
 
   /**

@@ -18,7 +18,9 @@ import {
   PAYMENT_PROVIDER,
   KYC_STATUS,
   SUBSCRIPTION_STATUS,
+  NOTIFICATION_TYPE,
 } from '../../common/constants';
+import { NotificationsService } from '../notifications/notifications.service';
 import type { Messages } from '../../i18n';
 import {
   buildVnpayPayUrl,
@@ -46,6 +48,7 @@ export class PaymentService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private notifications: NotificationsService,
   ) {}
 
   // ─── VNPay config ────────────────────────────────────────────────────────
@@ -557,6 +560,15 @@ export class PaymentService {
         providerPayload: payload as any,
       },
     });
+    await this.notifications.notifyUser(
+      session.userId,
+      'Thanh toán thất bại',
+      `${session.planLabel ?? 'Phiên thanh toán'} bị từ chối. Vui lòng thử lại.`,
+      NOTIFICATION_TYPE.PAYMENT,
+      session.id,
+      'payment',
+      { pushType: 'payment_failed', deepLink: '/my-bookings' },
+    );
     return { RspCode: '00', Message: 'Confirm Success' };
   }
 
@@ -657,18 +669,26 @@ export class PaymentService {
         where: { id: session.userId },
         data: { kycStatus: KYC_STATUS.PENDING },
       });
+      await this.notifications.notifyUser(
+        session.userId,
+        'Thanh toán thành công',
+        `${session.planLabel ?? 'Gói'} đã thanh toán, hồ sơ KYC đang chờ duyệt`,
+        NOTIFICATION_TYPE.PAYMENT,
+        session.id,
+        'payment',
+        { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
+      );
     } else if (session.kind === PAYMENT_KIND.RENEW) {
       await this.extendSubscription(session);
-      await this.prisma.notification.create({
-        data: {
-          userId: session.userId,
-          title: 'Gia hạn thành công',
-          subtitle: `${session.planLabel ?? ''} đã được gia hạn`,
-          type: 1, // PAYMENT
-          targetId: session.id,
-          targetType: 'payment',
-        },
-      });
+      await this.notifications.notifyUser(
+        session.userId,
+        'Gia hạn thành công',
+        `${session.planLabel ?? 'Gói'} đã được gia hạn`,
+        NOTIFICATION_TYPE.PAYMENT,
+        session.id,
+        'payment',
+        { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
+      );
     }
   }
 

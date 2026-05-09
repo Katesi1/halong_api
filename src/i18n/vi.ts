@@ -25,6 +25,7 @@ export const vi = {
     googleEmailNotVerified: 'Email Google chưa được xác thực',
     googleNewUserPrompt: 'Vui lòng chọn vai trò',
     accountInactive: 'Tài khoản đã bị vô hiệu hoá',
+    tooManyRegisters: 'Đã đăng ký quá nhiều tài khoản từ thiết bị/mạng này. Thử lại sau 24 giờ.',
     forgotPasswordSuccess: 'Đã gửi mã xác nhận',
     resetPasswordSuccess: 'Đặt lại mật khẩu thành công',
     resetTokenInvalid: 'Token đặt lại mật khẩu không hợp lệ',
@@ -147,6 +148,13 @@ export const vi = {
     notFound: 'Thông báo không tồn tại',
   },
 
+  // ─── Devices (FCM push tokens) ──────────────────────────────────────────────
+  devices: {
+    registerSuccess: 'Đăng ký thiết bị nhận thông báo thành công',
+    unregisterSuccess: 'Đã huỷ đăng ký thiết bị',
+    listSuccess: 'Lấy danh sách thiết bị thành công',
+  },
+
   // ─── Dashboard ──────────────────────────────────────────────────────────────
   dashboard: {
     statsSuccess: 'Lấy thống kê dashboard thành công',
@@ -254,6 +262,8 @@ export const vi = {
     removeSuccess: 'Đã gỡ nhân viên khỏi đội của bạn',
     notFound: 'Nhân viên không tồn tại hoặc không thuộc đội của bạn',
     cannotRemoveSelf: 'Không thể xoá tài khoản của chính mình',
+    notifyInviteAcceptedTitle: 'Nhân viên mới đã tham gia',
+    notifyInviteAcceptedBody: (name: string, email: string) => `${name} (${email}) đã chấp nhận lời mời và gia nhập đội của bạn`,
   },
 
   // ─── Admin KYC ─────────────────────────────────────────────────────────────

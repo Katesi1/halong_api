@@ -25,6 +25,7 @@ export const en = {
     googleEmailNotVerified: 'Google email is not verified',
     googleNewUserPrompt: 'Please select a role',
     accountInactive: 'Account has been deactivated',
+    tooManyRegisters: 'Too many accounts registered from this device/network. Please try again in 24 hours.',
     forgotPasswordSuccess: 'Verification code sent',
     resetPasswordSuccess: 'Password reset successful',
     resetTokenInvalid: 'Invalid reset token',
@@ -147,6 +148,13 @@ export const en = {
     notFound: 'Notification not found',
   },
 
+  // ─── Devices (FCM push tokens) ──────────────────────────────────────────────
+  devices: {
+    registerSuccess: 'Device registered for push notifications',
+    unregisterSuccess: 'Device unregistered',
+    listSuccess: 'Devices retrieved successfully',
+  },
+
   // ─── Dashboard ──────────────────────────────────────────────────────────────
   dashboard: {
     statsSuccess: 'Dashboard stats retrieved successfully',
@@ -254,6 +262,8 @@ export const en = {
     removeSuccess: 'Staff member removed from your team',
     notFound: 'Staff member not found or not in your team',
     cannotRemoveSelf: 'Cannot delete your own account',
+    notifyInviteAcceptedTitle: 'New staff member joined',
+    notifyInviteAcceptedBody: (name: string, email: string) => `${name} (${email}) accepted your invitation and joined your team`,
   },
 
   // ─── Admin KYC ─────────────────────────────────────────────────────────────

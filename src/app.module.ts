@@ -24,6 +24,8 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { EmailModule } from './modules/email/email.module';
 import { StaffModule } from './modules/staff/staff.module';
+import { FirebaseModule } from './modules/firebase/firebase.module';
+import { DevicesModule } from './modules/devices/devices.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -55,6 +57,8 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     PermissionsModule,
     EmailModule,
     StaffModule,
+    FirebaseModule,
+    DevicesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

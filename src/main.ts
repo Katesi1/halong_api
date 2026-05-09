@@ -8,6 +8,9 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Trust reverse proxy (nginx) → @Ip() đọc đúng X-Forwarded-For thay vì 127.0.0.1
+  app.set('trust proxy', true);
+
   // Redirect root về Swagger
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.get('/', (_req: any, res: any) => res.redirect('/index.html'));
@@ -19,7 +22,7 @@ async function bootstrap() {
   app.enableCors({
     origin: '*', // Thay bằng domain cụ thể khi production
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Partner-Key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Partner-Key', 'X-Device-Id', 'Accept-Language'],
   });
 
   // Logging interceptor toàn cục

@@ -22,6 +22,8 @@ model User {
   googleSub     String?   @unique // Google's sub claim — stable user ID
   emailVerified Boolean   @default(false)
   avatar        String?   // URL ảnh đại diện (từ Google picture hoặc upload)
+  registerDeviceId String? // Device ID lúc tạo account — chống spam register
+  registerIp       String? // IP lúc tạo account — chống spam register
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
@@ -51,8 +53,27 @@ model User {
   paymentSessions  PaymentSession[]
   sentInvites      StaffInvite[]   @relation("InviteOwner")
   acceptedInvite   StaffInvite?    @relation("InviteAcceptedUser")
+  devices          UserDevice[]
 
   @@map("users")
+}
+
+model UserDevice {
+  id           String   @id @default(uuid())
+  userId       String
+  fcmToken     String   @unique // FCM registration token
+  platform     String   // ios | android
+  deviceModel  String?  // iPhone 13, Galaxy S21, ...
+  osVersion    String?  // 17.4
+  appVersion   String?  // 1.0.2
+  locale       String?  // vi | en
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_devices")
 }
 
 model StaffInvite {

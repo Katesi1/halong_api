@@ -200,6 +200,7 @@ export class BookingsService {
       NOTIFICATION_TYPE.BOOKING,
       booking.id,
       'booking',
+      { pushType: 'booking_created', deepLink: `/bookings/${booking.id}` },
     );
 
     return {
@@ -239,6 +240,7 @@ export class BookingsService {
       NOTIFICATION_TYPE.BOOKING,
       id,
       'booking',
+      { pushType: 'booking_confirmed', deepLink: `/bookings/${id}` },
     );
     if (booking.customerId) {
       await this.notifications.notifyUser(
@@ -248,6 +250,7 @@ export class BookingsService {
         NOTIFICATION_TYPE.BOOKING,
         id,
         'booking',
+        { pushType: 'booking_confirmed', deepLink: '/my-bookings' },
       );
     }
 
@@ -275,7 +278,7 @@ export class BookingsService {
 
     await this.redis.delHold(id);
 
-    // Notify owner
+    // Notify owner + customer (if any)
     await this.notifications.notifyPropertyOwner(
       booking.propertyId,
       'Booking đã bị hủy',
@@ -283,7 +286,19 @@ export class BookingsService {
       NOTIFICATION_TYPE.BOOKING,
       id,
       'booking',
+      { pushType: 'booking_cancelled', deepLink: `/bookings/${id}` },
     );
+    if (booking.customerId) {
+      await this.notifications.notifyUser(
+        booking.customerId,
+        'Đặt phòng đã huỷ',
+        `${cancelled.property.name} đã được huỷ`,
+        NOTIFICATION_TYPE.BOOKING,
+        id,
+        'booking',
+        { pushType: 'booking_cancelled', deepLink: '/my-bookings' },
+      );
+    }
 
     return { message: msg.bookings.cancelSuccess, data: null };
   }
@@ -374,6 +389,7 @@ export class BookingsService {
       NOTIFICATION_TYPE.BOOKING,
       booking.id,
       'booking',
+      { pushType: 'booking_created', deepLink: `/bookings/${booking.id}` },
     );
 
     return {
@@ -443,6 +459,7 @@ export class BookingsService {
       NOTIFICATION_TYPE.BOOKING,
       id,
       'booking',
+      { pushType: 'booking_cancelled', deepLink: `/bookings/${id}` },
     );
 
     return { message: msg.bookings.customerCancelSuccess, data: null };
