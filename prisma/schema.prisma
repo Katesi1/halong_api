@@ -8,20 +8,23 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  name         String
-  phone        String?   @unique
-  email        String    @unique
-  password     String
-  role         Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
-  ownerId      String?   // SALE → trỏ về User có role OWNER (chủ của mình)
-  gender       Int?      // 0=MALE, 1=FEMALE, 2=OTHER
-  dateOfBirth  DateTime?
-  isActive     Boolean   @default(true)
-  refreshToken String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  id            String    @id @default(uuid())
+  name          String
+  phone         String?   @unique
+  email         String    @unique
+  password      String?   // null nếu user chỉ login Google
+  role          Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
+  ownerId       String?   // SALE → trỏ về User có role OWNER (chủ của mình)
+  gender        Int?      // 0=MALE, 1=FEMALE, 2=OTHER
+  dateOfBirth   DateTime?
+  isActive      Boolean   @default(true)
+  refreshToken  String?
+  googleSub     String?   @unique // Google's sub claim — stable user ID
+  emailVerified Boolean   @default(false)
+  avatar        String?   // URL ảnh đại diện (từ Google picture hoặc upload)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
   // KYC & Subscription
   kycBypass          Boolean  @default(false)  // ADMIN grant: skip KYC to manage properties
@@ -46,8 +49,31 @@ model User {
   permissions      UserPermission[]
   subscriptions    Subscription[]
   paymentSessions  PaymentSession[]
+  sentInvites      StaffInvite[]   @relation("InviteOwner")
+  acceptedInvite   StaffInvite?    @relation("InviteAcceptedUser")
 
   @@map("users")
+}
+
+model StaffInvite {
+  id              String    @id @default(uuid())
+  ownerId         String
+  email           String
+  token           String    @unique // 64 hex chars (32 bytes random)
+  shortCode       String    @unique // "HL-XXXXXX" — dùng cho UX nhập tay
+  status          String    @default("pending") // pending | accepted | expired | cancelled
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  acceptedUserId  String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  owner        User  @relation("InviteOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  acceptedUser User? @relation("InviteAcceptedUser", fields: [acceptedUserId], references: [id])
+
+  @@index([ownerId, status])
+  @@index([email, status])
+  @@map("staff_invites")
 }
 
 model UserPermission {

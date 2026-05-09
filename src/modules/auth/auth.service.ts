@@ -17,9 +17,12 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { Messages } from '../../i18n';
 import { ROLE } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
+import { OAuth2Client, TokenPayload } from 'google-auth-library';
 
 @Injectable()
 export class AuthService {
+  private readonly googleClient = new OAuth2Client();
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -65,15 +68,7 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          email: user.email,
-          role: user.role,
-          ownerId: user.ownerId || null,
-          isActive: user.isActive,
-        },
+        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -83,7 +78,7 @@ export class AuthService {
       where: { email: dto.email.toLowerCase().trim() },
     });
 
-    if (!user || !user.isActive || user.deletedAt) {
+    if (!user || !user.isActive || user.deletedAt || !user.password) {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
     }
 
@@ -100,51 +95,86 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          email: user.email,
-          role: user.role,
-          ownerId: user.ownerId || null,
-          isActive: user.isActive,
-        },
+        user: this.serializeAuthUser(user),
       },
     };
   }
 
   async googleAuth(dto: GoogleAuthDto, msg: Messages) {
-    let googlePayload: { email: string; name: string; sub: string };
-    try {
-      const decoded = this.jwtService.decode(dto.idToken) as any;
-      if (!decoded || !decoded.email) {
-        throw new Error('Invalid token');
-      }
-      googlePayload = { email: decoded.email.toLowerCase(), name: decoded.name || decoded.email, sub: decoded.sub };
-    } catch {
-      throw new BadRequestException(msg.auth.googleTokenInvalid);
+    const audience = this.configService.get<string>('GOOGLE_OAUTH_WEB_CLIENT_ID');
+    if (!audience) {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
     }
 
-    let user = await this.prisma.user.findUnique({
-      where: { email: googlePayload.email },
-    });
+    let payload: TokenPayload | undefined;
+    try {
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken: dto.idToken,
+        audience,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+
+    if (!payload || !payload.email || !payload.sub) {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+    if (payload.email_verified !== true) {
+      throw new UnauthorizedException(msg.auth.googleEmailNotVerified);
+    }
+
+    const email = payload.email.toLowerCase();
+    const googleSub = payload.sub;
+    const name = payload.name || email;
+    const picture = payload.picture || null;
+
+    let user = await this.prisma.user.findUnique({ where: { googleSub } });
+    if (!user) {
+      user = await this.prisma.user.findUnique({ where: { email } });
+    }
 
     if (user) {
-      if (!user.isActive) {
-        throw new UnauthorizedException(msg.auth.accountDisabled);
+      if (!user.isActive || user.deletedAt) {
+        throw new ForbiddenException(msg.auth.accountInactive);
+      }
+      const updateData: Record<string, any> = {};
+      if (!user.googleSub) updateData.googleSub = googleSub;
+      if (!user.emailVerified) updateData.emailVerified = true;
+      if (!user.avatar && picture) updateData.avatar = picture;
+      if (Object.keys(updateData).length > 0) {
+        user = await this.prisma.user.update({ where: { id: user.id }, data: updateData });
       }
     } else {
+      // First-time Google login → cần role
       if (dto.role === undefined || dto.role === null) {
-        throw new BadRequestException(msg.auth.googleRoleRequired);
+        return {
+          message: msg.auth.googleNewUserPrompt,
+          data: {
+            isNewUser: true,
+            googleProfile: { email, name, avatar: picture, sub: googleSub },
+          },
+        };
+      }
+      if (dto.role === ROLE.ADMIN) {
+        throw new ForbiddenException(msg.auth.googleAdminForbidden);
+      }
+      if (dto.role === ROLE.SALE) {
+        throw new ForbiddenException(msg.auth.googleSaleForbidden);
+      }
+      if (dto.role !== ROLE.OWNER && dto.role !== ROLE.CUSTOMER) {
+        throw new BadRequestException(msg.auth.googleRoleInvalid);
       }
 
-      const randomPassword = await bcrypt.hash(Math.random().toString(36), 10);
       user = await this.prisma.user.create({
         data: {
-          name: googlePayload.name,
-          email: googlePayload.email,
-          password: randomPassword,
+          name,
+          email,
+          password: null,
           role: dto.role,
+          googleSub,
+          emailVerified: true,
+          avatar: picture,
         },
       });
     }
@@ -157,15 +187,7 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          email: user.email,
-          role: user.role,
-          ownerId: user.ownerId || null,
-          isActive: user.isActive,
-        },
+        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -251,8 +273,9 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true, name: true, phone: true, email: true,
-        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true, createdAt: true,
+        id: true, name: true, phone: true, email: true, avatar: true,
+        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
+        emailVerified: true, createdAt: true, updatedAt: true,
         kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
         subscriptionCycle: true, trialEndsAt: true, nextChargeAt: true,
         permissions: {
@@ -266,6 +289,9 @@ export class AuthService {
   async changePassword(userId: string, dto: ChangePasswordDto, msg: Messages) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException(msg.auth.accountDisabled);
+    if (!user.password) {
+      throw new BadRequestException(msg.auth.currentPasswordIncorrect);
+    }
 
     const isPasswordValid = await bcrypt.compare(dto.currentPassword, user.password);
     if (!isPasswordValid) {
@@ -279,6 +305,64 @@ export class AuthService {
     });
 
     return { message: msg.auth.changePasswordSuccess, data: null };
+  }
+
+  /**
+   * Shape user object dùng chung cho mọi auth response (login/register/google/profile).
+   */
+  private serializeAuthUser(user: any) {
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar ?? null,
+      phone: user.phone ?? null,
+      role: user.role,
+      ownerId: user.ownerId ?? null,
+      isActive: user.isActive,
+      emailVerified: user.emailVerified ?? false,
+      kycStatus: user.kycStatus ?? null,
+      subscriptionStatus: user.subscriptionStatus ?? null,
+      trialEndsAt: user.trialEndsAt ?? null,
+      createdAt: user.createdAt ?? null,
+      updatedAt: user.updatedAt ?? null,
+    };
+  }
+
+  /**
+   * Verify Google idToken (audience = GOOGLE_OAUTH_WEB_CLIENT_ID).
+   * Throws UnauthorizedException nếu invalid / email chưa verified.
+   * Public để các module khác (staff invite accept) dùng lại.
+   */
+  async verifyGoogleIdToken(idToken: string, msg: Messages): Promise<TokenPayload> {
+    const audience = this.configService.get<string>('GOOGLE_OAUTH_WEB_CLIENT_ID');
+    if (!audience) throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+
+    let payload: TokenPayload | undefined;
+    try {
+      const ticket = await this.googleClient.verifyIdToken({ idToken, audience });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+
+    if (!payload || !payload.email || !payload.sub) {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+    if (payload.email_verified !== true) {
+      throw new UnauthorizedException(msg.auth.googleEmailNotVerified);
+    }
+    return payload;
+  }
+
+  /**
+   * Issue access + refresh tokens cho user vừa được tạo / login.
+   * Persist hashed refresh token vào DB.
+   */
+  async issueTokensFor(user: { id: string; email: string; role: number }) {
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    return tokens;
   }
 
   private async generateTokens(userId: string, email: string, role: number) {

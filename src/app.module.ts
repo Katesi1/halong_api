@@ -22,6 +22,8 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { AdminKycModule } from './modules/admin-kyc/admin-kyc.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
+import { EmailModule } from './modules/email/email.module';
+import { StaffModule } from './modules/staff/staff.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -51,6 +53,8 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     AdminKycModule,
     ReviewsModule,
     PermissionsModule,
+    EmailModule,
+    StaffModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

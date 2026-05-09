@@ -125,12 +125,19 @@ export class PaymentController {
   @ApiOperation({ summary: 'Bank reconciliation webhook (Casso/Sepay)' })
   bankWebhook(
     @Body() payload: Record<string, any>,
-    @Headers('x-webhook-secret') secret?: string,
+    @Headers('secure-token') cassoToken?: string,
+    @Headers('x-webhook-secret') xWebhookSecret?: string,
     @Headers('authorization') auth?: string,
   ) {
-    // Casso uses x-webhook-secret; Sepay uses Authorization: Apikey <key>
-    const headerSecret =
-      secret ?? (auth?.startsWith('Apikey ') ? auth.slice('Apikey '.length) : auth);
+    // Casso v2: header `Secure-Token: <secret>`
+    // Casso v1 / custom: header `X-Webhook-Secret: <secret>`
+    // Sepay:            header `Authorization: Apikey <secret>`
+    const fromAuth = auth?.startsWith('Apikey ')
+      ? auth.slice('Apikey '.length)
+      : auth?.startsWith('Bearer ')
+      ? auth.slice('Bearer '.length)
+      : auth;
+    const headerSecret = cassoToken ?? xWebhookSecret ?? fromAuth;
     return this.paymentService.handleBankWebhook(payload, headerSecret);
   }
 }
