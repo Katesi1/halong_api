@@ -24,6 +24,8 @@ export const en = {
     googleRoleInvalid: 'Invalid role',
     googleEmailNotVerified: 'Google email is not verified',
     googleNewUserPrompt: 'Please select a role',
+    appleTokenInvalid: 'Invalid Apple token',
+    appleEmailRequired: 'Apple did not return an email — please allow email sharing when signing in',
     accountInactive: 'Account has been deactivated',
     tooManyRegisters: 'Too many accounts registered from this device/network. Please try again in 24 hours.',
     forgotPasswordSuccess: 'Verification code sent',
@@ -48,6 +50,7 @@ export const en = {
     phoneDuplicate: 'Phone number is already in use',
     emailDuplicate: 'Email is already in use',
     cannotDeleteSelf: 'Cannot delete your own account',
+    selfDeleteSuccess: 'Account deleted successfully',
     adminNotFound: 'Admin not found',
     listSuccess: 'User list retrieved successfully',
     getSuccess: 'User retrieved successfully',
@@ -146,6 +149,12 @@ export const en = {
     markReadSuccess: 'Notification marked as read',
     markAllReadSuccess: 'All notifications marked as read',
     notFound: 'Notification not found',
+  },
+
+  // ─── App Version ────────────────────────────────────────────────────────────
+  appVersion: {
+    success: 'App version retrieved successfully',
+    updateSuccess: 'App version updated successfully',
   },
 
   // ─── Devices (FCM push tokens) ──────────────────────────────────────────────

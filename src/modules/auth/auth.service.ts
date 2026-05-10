@@ -20,6 +20,8 @@ import { Messages } from '../../i18n';
 import { ROLE } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
 import { OAuth2Client, TokenPayload } from 'google-auth-library';
+import * as appleSignin from 'apple-signin-auth';
+import { AppleAuthDto } from './dto/apple-auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -191,6 +193,110 @@ export class AuthService {
           googleSub,
           emailVerified: true,
           avatar: picture,
+          registerDeviceId: meta.deviceId || null,
+          registerIp: meta.ip || null,
+        },
+      });
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    return {
+      message: msg.auth.loginSuccess,
+      data: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: this.serializeAuthUser(user),
+      },
+    };
+  }
+
+  /**
+   * Apple Sign-In flow (iOS Apple Guideline 4.8).
+   * Logic giống googleAuth: 4 case (existing/new+role/new-no-role/error).
+   * KHÁC: Apple chỉ trả email + name ở LẦN ĐẦU user authorize → BE phải cache.
+   * FE phải lưu email/name từ lần đầu và gửi kèm các lần sau (best-effort).
+   */
+  async appleAuth(
+    dto: AppleAuthDto,
+    msg: Messages,
+    meta: { deviceId?: string | null; ip?: string | null } = {},
+  ) {
+    const audience = this.configService.get<string>('APPLE_CLIENT_ID');
+    if (!audience) throw new UnauthorizedException(msg.auth.appleTokenInvalid);
+
+    let payload: appleSignin.AppleIdTokenType;
+    try {
+      payload = await appleSignin.verifyIdToken(dto.idToken, {
+        audience,
+        ignoreExpiration: false,
+      });
+    } catch {
+      throw new UnauthorizedException(msg.auth.appleTokenInvalid);
+    }
+
+    if (!payload?.sub) {
+      throw new UnauthorizedException(msg.auth.appleTokenInvalid);
+    }
+
+    const appleSub = payload.sub;
+    // Apple email_verified có thể là 'true' (string) hoặc true (boolean) tuỳ payload
+    const emailFromToken = payload.email?.toLowerCase() || null;
+    // FE gửi kèm email/name từ first-consent — ưu tiên token, fallback DTO
+    const email = emailFromToken || dto.email?.toLowerCase() || null;
+    const name = dto.name || (email ? email.split('@')[0] : 'Apple User');
+
+    let user = await this.prisma.user.findUnique({ where: { appleSub } });
+    if (!user && email) {
+      user = await this.prisma.user.findUnique({ where: { email } });
+    }
+
+    if (user) {
+      if (!user.isActive || user.deletedAt) {
+        throw new ForbiddenException(msg.auth.accountInactive);
+      }
+      const updateData: Record<string, any> = {};
+      if (!user.appleSub) updateData.appleSub = appleSub;
+      if (!user.emailVerified && payload.email_verified === true) updateData.emailVerified = true;
+      if (Object.keys(updateData).length > 0) {
+        user = await this.prisma.user.update({ where: { id: user.id }, data: updateData });
+      }
+    } else {
+      // First-time Apple login → cần role
+      if (dto.role === undefined || dto.role === null) {
+        return {
+          message: msg.auth.googleNewUserPrompt,
+          data: {
+            isNewUser: true,
+            appleProfile: { email, name, sub: appleSub },
+          },
+        };
+      }
+      if (dto.role === ROLE.ADMIN) {
+        throw new ForbiddenException(msg.auth.googleAdminForbidden);
+      }
+      if (dto.role === ROLE.SALE) {
+        throw new ForbiddenException(msg.auth.googleSaleForbidden);
+      }
+      if (dto.role !== ROLE.OWNER && dto.role !== ROLE.CUSTOMER) {
+        throw new BadRequestException(msg.auth.googleRoleInvalid);
+      }
+      // Apple yêu cầu email để tạo account; nếu user hide email và không cache → reject
+      if (!email) {
+        throw new BadRequestException(msg.auth.appleEmailRequired);
+      }
+
+      await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
+
+      user = await this.prisma.user.create({
+        data: {
+          name,
+          email,
+          password: null,
+          role: dto.role,
+          appleSub,
+          emailVerified: payload.email_verified === true,
           registerDeviceId: meta.deviceId || null,
           registerIp: meta.ip || null,
         },

@@ -467,6 +467,89 @@ export class BookingsService {
 
   // ─── Cron Job ─────────────────────────────────────────────────────────────
 
+  /**
+   * Calendar grid cho 1 property theo year + month.
+   * Trả mỗi ngày: status (available/locked/hold/booked) + bookingId + customerName.
+   * Scope theo getEffectiveOwnerId — SALE chỉ thấy property của OWNER mình.
+   */
+  async getCalendarForProperty(
+    propertyId: string,
+    year: number,
+    month: number,
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId, deletedAt: null },
+      select: { id: true, name: true, code: true, ownerId: true },
+    });
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId && property.ownerId !== effectiveOwnerId) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
+
+    // Range: ngày đầu tháng → ngày đầu tháng kế (UTC)
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const end = new Date(Date.UTC(year, month, 1));
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    const [bookings, locks] = await Promise.all([
+      this.prisma.booking.findMany({
+        where: {
+          propertyId,
+          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          checkinDate: { lt: end },
+          checkoutDate: { gt: start },
+        },
+        select: {
+          id: true, checkinDate: true, checkoutDate: true, status: true,
+          customerName: true, customer: { select: { name: true } },
+        },
+      }),
+      this.prisma.calendarLock.findMany({
+        where: { propertyId, date: { gte: start, lt: end } },
+      }),
+    ]);
+
+    const days: any[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(Date.UTC(year, month - 1, d));
+      const dateStr = date.toISOString().slice(0, 10);
+
+      let status: 'available' | 'locked' | 'hold' | 'booked' = 'available';
+      let bookingId: string | null = null;
+      let note: string | null = null;
+
+      const lock = locks.find((l) => l.date.toISOString().slice(0, 10) === dateStr);
+      if (lock) {
+        status = 'locked';
+      }
+
+      const booking = bookings.find(
+        (b) => b.checkinDate <= date && b.checkoutDate > date,
+      );
+      if (booking) {
+        status = booking.status === BOOKING_STATUS.CONFIRMED ? 'booked' : 'hold';
+        bookingId = booking.id;
+        note = booking.customer?.name || booking.customerName || null;
+      }
+
+      days.push({ date: dateStr, status, bookingId, note });
+    }
+
+    return {
+      message: msg.bookings.listSuccess,
+      data: {
+        property: { id: property.id, name: property.name, code: property.code },
+        year,
+        month,
+        days,
+      },
+    };
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async expireHoldBookings() {
     const now = new Date();

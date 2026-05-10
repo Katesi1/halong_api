@@ -57,6 +57,32 @@ export class BookingsController {
     );
   }
 
+  @Get('calendar/:propertyId')
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.READ)
+  @ApiOperation({
+    summary: 'Lịch booking 1 property theo tháng',
+    description: 'Trả mảng days[] với status (available/locked/hold/booked) + bookingId + note (tên khách).',
+  })
+  @ApiQuery({ name: 'year', required: true, type: Number, example: 2026 })
+  @ApiQuery({ name: 'month', required: true, type: Number, example: 5 })
+  getPropertyCalendar(
+    @Param('propertyId') propertyId: string,
+    @Query('year') year: string,
+    @Query('month') month: string,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    const now = new Date();
+    return this.bookingsService.getCalendarForProperty(
+      propertyId,
+      parseInt(year) || now.getFullYear(),
+      parseInt(month) || now.getMonth() + 1,
+      user,
+      msg,
+    );
+  }
+
   @Get(':id')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.READ)

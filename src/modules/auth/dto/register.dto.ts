@@ -27,8 +27,8 @@ export class RegisterDto {
   @Type(() => Number)
   role: number;
 
-  @ApiPropertyOptional({ example: '0912345678', description: 'Số điện thoại (optional, thêm sau ở profile)' })
+  @ApiPropertyOptional({ example: '0912345678', description: 'Số điện thoại VN — 10 số, bắt đầu 0' })
   @IsOptional()
-  @Matches(/^0\d{9,10}$/, { message: 'Số điện thoại phải 10-11 số và bắt đầu bằng 0' })
+  @Matches(/^0\d{9}$/, { message: 'Số điện thoại phải 10 số và bắt đầu bằng 0' })
   phone?: string;
 }

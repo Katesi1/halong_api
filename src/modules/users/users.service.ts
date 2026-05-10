@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -17,6 +18,8 @@ const SELF_EDITABLE_FIELDS = ['name', 'phone', 'email', 'gender', 'dateOfBirth']
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(private prisma: PrismaService) {}
 
   async findAll(msg: Messages, role?: number) {
@@ -139,6 +142,44 @@ export class UsersService {
     });
 
     return { message: msg.users.disableSuccess, data: null };
+  }
+
+  /**
+   * Self-delete account (Apple/Google Store + GDPR compliance).
+   * - Soft-delete user (`deletedAt = now`)
+   * - Rename email/phone để giải phóng unique constraint → user có thể re-register ngay
+   * - Revoke refresh token + xoá tất cả device tokens
+   * - Lưu lý do (optional)
+   */
+  async selfDelete(userId: string, reason: string | undefined, msg: Messages) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!user) throw new NotFoundException(msg.users.notFound);
+
+    const now = new Date();
+    const stamp = now.getTime();
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          deletedAt: now,
+          isActive: false,
+          refreshToken: null,
+          // Free up unique fields cho re-register
+          email: `deleted-${stamp}-${user.email}`,
+          phone: user.phone ? `deleted-${stamp}-${user.phone}` : null,
+          googleSub: null,
+          appleSub: null,
+        },
+      }),
+      this.prisma.userDevice.deleteMany({ where: { userId } }),
+    ]);
+
+    if (reason) {
+      this.logger.log(`Self-delete user ${userId} reason: ${reason.slice(0, 200)}`);
+    }
+
+    return { message: msg.users.selfDeleteSuccess, data: null };
   }
 
   // ─── KYC Bypass (ADMIN only) ────────────────────────────────────────────────

@@ -24,6 +24,8 @@ export const vi = {
     googleRoleInvalid: 'Role không hợp lệ',
     googleEmailNotVerified: 'Email Google chưa được xác thực',
     googleNewUserPrompt: 'Vui lòng chọn vai trò',
+    appleTokenInvalid: 'Token Apple không hợp lệ',
+    appleEmailRequired: 'Apple không trả email — vui lòng cho phép chia sẻ email khi đăng nhập',
     accountInactive: 'Tài khoản đã bị vô hiệu hoá',
     tooManyRegisters: 'Đã đăng ký quá nhiều tài khoản từ thiết bị/mạng này. Thử lại sau 24 giờ.',
     forgotPasswordSuccess: 'Đã gửi mã xác nhận',
@@ -48,6 +50,7 @@ export const vi = {
     phoneDuplicate: 'Số điện thoại đã được sử dụng',
     emailDuplicate: 'Email đã được sử dụng',
     cannotDeleteSelf: 'Không thể xoá tài khoản của chính mình',
+    selfDeleteSuccess: 'Tài khoản đã được xoá thành công',
     adminNotFound: 'Không tìm thấy admin',
     listSuccess: 'Lấy danh sách người dùng thành công',
     getSuccess: 'Lấy thông tin người dùng thành công',
@@ -146,6 +149,12 @@ export const vi = {
     markReadSuccess: 'Đánh dấu đã đọc thành công',
     markAllReadSuccess: 'Đánh dấu tất cả đã đọc thành công',
     notFound: 'Thông báo không tồn tại',
+  },
+
+  // ─── App Version ────────────────────────────────────────────────────────────
+  appVersion: {
+    success: 'Lấy thông tin phiên bản thành công',
+    updateSuccess: 'Cập nhật phiên bản app thành công',
   },
 
   // ─── Devices (FCM push tokens) ──────────────────────────────────────────────

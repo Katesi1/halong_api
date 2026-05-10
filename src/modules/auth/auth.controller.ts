@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
+import { AppleAuthDto } from './dto/apple-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -63,6 +64,22 @@ export class AuthController {
   }
 
   @Public()
+  @Post('apple')
+  @Throttle({ default: { limit: 10, ttl: 3600_000 } })
+  @ApiHeader({ name: 'X-Device-Id', required: false, description: 'Device ID (chống spam register Apple)' })
+  @ApiOperation({ summary: 'Đăng nhập Apple (iOS)', description: 'Đăng nhập/đăng ký bằng Apple ID Token. Apple chỉ trả email/name lần đầu — FE phải cache + gửi kèm.' })
+  @ApiResponse({ status: 200, type: LoginResponse })
+  @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng ký mới' })
+  appleAuth(
+    @Body() dto: AppleAuthDto,
+    @Headers('x-device-id') deviceId: string | undefined,
+    @Ip() ip: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.appleAuth(dto, msg, { deviceId: deviceId || null, ip: ip || null });
+  }
+
+  @Public()
   @Post('refresh')
   @ApiOperation({ summary: 'Làm mới token', description: 'Đổi refreshToken lấy accessToken mới' })
   @ApiResponse({ status: 200, type: LoginResponse })
@@ -72,7 +89,8 @@ export class AuthController {
 
   @Public()
   @Post('forgot-password')
-  @ApiOperation({ summary: 'Quên mật khẩu', description: 'Gửi mã xác nhận qua SMS/email' })
+  @Throttle({ default: { limit: 5, ttl: 3600_000 } }) // 5 req / giờ / IP
+  @ApiOperation({ summary: 'Quên mật khẩu', description: 'Gửi mã xác nhận qua SMS/email (rate limit 5/h/IP)' })
   @ApiResponse({ status: 200, type: MessageResponse })
   forgotPassword(@Body() dto: ForgotPasswordDto, @Lang() msg: Messages) {
     return this.authService.forgotPassword(dto, msg);

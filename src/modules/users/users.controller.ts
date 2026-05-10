@@ -9,6 +9,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AddStaffDto } from './dto/add-staff.dto';
 import { ToggleKycBypassDto } from './dto/toggle-kyc-bypass.dto';
+import { SelfDeleteDto } from './dto/self-delete.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -48,6 +49,20 @@ export class UsersController {
   @ApiResponse({ status: 200, type: UserListResponse })
   getMyStaff(@CurrentUser('id') ownerId: string, @Lang() msg: Messages) {
     return this.usersService.getMyStaff(ownerId, msg);
+  }
+
+  @Delete('me')
+  @ApiOperation({
+    summary: 'Self-delete tài khoản (compliance Apple/Google/GDPR)',
+    description: 'User xoá account của chính mình. Soft-delete + giải phóng email/phone unique. User có thể re-register ngay với email cũ.',
+  })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  selfDelete(
+    @CurrentUser('id') userId: string,
+    @Body() dto: SelfDeleteDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.usersService.selfDelete(userId, dto.reason, msg);
   }
 
   @Get(':id')

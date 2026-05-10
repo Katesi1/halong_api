@@ -20,6 +20,7 @@ model User {
   isActive      Boolean   @default(true)
   refreshToken  String?
   googleSub     String?   @unique // Google's sub claim — stable user ID
+  appleSub      String?   @unique // Apple's sub claim — stable user ID
   emailVerified Boolean   @default(false)
   avatar        String?   // URL ảnh đại diện (từ Google picture hoặc upload)
   registerDeviceId String? // Device ID lúc tạo account — chống spam register
@@ -216,6 +217,19 @@ model CalendarLock {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("calendar_locks")
+}
+
+model AppVersion {
+  id                  String   @id @default(uuid())
+  platform            String   @unique // ios | android
+  latestVersion       String   // e.g. "1.2.0"
+  minSupportedVersion String   // e.g. "1.0.0"
+  releaseNotes        String?
+  storeUrl            String   // App Store / Play Store URL
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("app_versions")
 }
 
 model PartnerKey {

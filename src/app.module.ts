@@ -26,6 +26,7 @@ import { EmailModule } from './modules/email/email.module';
 import { StaffModule } from './modules/staff/staff.module';
 import { FirebaseModule } from './modules/firebase/firebase.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { AppVersionModule } from './modules/app-version/app-version.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -59,6 +60,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     StaffModule,
     FirebaseModule,
     DevicesModule,
+    AppVersionModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
