@@ -1004,6 +1004,1013 @@ VNPAY_IPN_URL=https://api.halong24h.com/payments/vnpay/ipn
 
 ---
 
+# PHẦN II — CHI TIẾT ENDPOINT CHO FE WEB (CUSTOMER)
+
+> Phần này viết riêng cho dev FE web đang làm giao diện **khách hàng (CUSTOMER, role=3)**.
+> Mỗi endpoint có đủ: mục đích, khi nào FE gọi, headers, request, response mẫu, lỗi, ghi chú.
+> Các endpoint đánh dấu ⭐ là endpoint chính cho luồng customer.
+>
+> **Quy ước response** (mọi endpoint dưới đây đều được `ResponseInterceptor` wrap):
+> ```json
+> { "success": true, "message": "...", "data": <body bên dưới> }
+> ```
+> Phần `data: { ... }` ở mỗi mục là **giá trị nằm trong `data`** sau khi wrap.
+
+---
+
+## 24. AUTH cho Customer
+
+### 24.1 ⭐ POST `/auth/register` — Đăng ký CUSTOMER
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Tạo tài khoản CUSTOMER mới bằng email + password |
+| **Khi nào gọi** | Form "Đăng ký" trên web |
+| **Auth** | Public, rate limit `5 req / 1h / IP` + `3 account / 24h / deviceId` + `10 account / 24h / IP` |
+
+**Headers**:
+- `Content-Type: application/json`
+- `X-Device-Id: <uuid>` *(khuyến nghị — anti-spam)*
+- `Accept-Language: vi | en` *(optional)*
+
+**Request body**:
+```json
+{
+  "name": "Nguyen Van A",
+  "email": "a@example.com",
+  "password": "matkhau123",
+  "role": 3,
+  "phone": "0901234567"
+}
+```
+
+| Field | Validate | Bắt buộc |
+|---|---|:---:|
+| `name` | string, 2–100 ký tự | ✅ |
+| `email` | định dạng email, unique | ✅ |
+| `password` | min 6 ký tự | ✅ |
+| `role` | `1` (OWNER) hoặc `3` (CUSTOMER) — FE customer luôn gửi `3` | ✅ |
+| `phone` | regex `^0\d{9}$` (10 số, bắt đầu 0) | ❌ |
+
+**Response 201**:
+```json
+{
+  "accessToken": "eyJhbGciOi...",
+  "refreshToken": "eyJhbGciOi...",
+  "user": {
+    "id": "uuid",
+    "name": "Nguyen Van A",
+    "email": "a@example.com",
+    "phone": "0901234567",
+    "role": 3,
+    "avatar": null,
+    "isActive": true,
+    "emailVerified": false,
+    "kycStatus": "none",
+    "subscriptionStatus": "none",
+    "createdAt": "2026-05-14T03:00:00.000Z",
+    "updatedAt": "2026-05-14T03:00:00.000Z"
+  }
+}
+```
+
+**Lỗi**:
+- `400` — email/password sai định dạng, role không thuộc `{1,3}`
+- `409` — email/phone đã tồn tại
+- `429` — quá ngưỡng rate limit
+
+**Ghi chú FE**:
+- Lưu `accessToken` + `refreshToken` ngay sau response (LocalStorage / cookie HttpOnly tuỳ chiến lược).
+- Sau register có thể gọi luôn `POST /devices` để đăng ký FCM token nhận push.
+
+---
+
+### 24.2 ⭐ POST `/auth/login` — Đăng nhập bằng email HOẶC số điện thoại
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Đăng nhập tài khoản đã có — chấp nhận **email hoặc SĐT** |
+| **Khi nào gọi** | Form đăng nhập |
+| **Auth** | Public |
+
+**Request body** (chuẩn mới — dùng `identifier`):
+```json
+{ "identifier": "a@example.com", "password": "matkhau123" }
+```
+hoặc đăng nhập bằng SĐT:
+```json
+{ "identifier": "0912345678", "password": "matkhau123" }
+```
+
+| Field | Validate | Bắt buộc |
+|---|---|:---:|
+| `identifier` | string không rỗng — BE tự detect email vs SĐT: SĐT match regex `^0\d{9}$` hoặc `^\+84\d{9}$` (auto-normalize `+84xxx` → `0xxx`), còn lại coi là email | ✅ |
+| `password` | min 6 ký tự | ✅ |
+
+**Backward-compat**: nếu FE cũ còn gửi `{ "email": "..." }` hoặc `{ "phone": "..." }` — BE vẫn nhận (auto-map sang `identifier`).
+
+**Response 200**: giống `/auth/register` — trả `{ accessToken, refreshToken, user }`.
+
+**Lỗi**:
+- `400` — `identifier` rỗng hoặc không hợp lệ
+- `401` — email/SĐT không tồn tại, sai password, hoặc account đã bị xoá / `isActive=false`. Message duy nhất: `"Email/số điện thoại hoặc mật khẩu không đúng"` (không leak account tồn tại)
+
+**Ghi chú**:
+- BE so khớp **case-insensitive** với email; với phone phải khớp chính xác sau khi normalize.
+- User phải có `password` (account Google/Apple-only chưa set password sẽ login fail → hướng dẫn dùng nút "Đăng nhập Google/Apple").
+
+---
+
+### 24.3 ⭐ POST `/auth/google` — Đăng nhập / Đăng ký Google
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Login/register bằng Google ID token (web dùng Google Identity Services hoặc OAuth2 popup) |
+| **Khi nào gọi** | Sau khi FE lấy được `idToken` từ Google |
+| **Auth** | Public, rate limit `10 req / 1h / IP` |
+
+**Headers**: `X-Device-Id: <uuid>` *(khuyến nghị)*
+
+**Request body**:
+```json
+{
+  "idToken": "eyJhbGciOi...",
+  "role": 3
+}
+```
+
+| Field | Bắt buộc | Ghi chú |
+|---|:---:|---|
+| `idToken` | ✅ | Google ID token, BE verify audience = `GOOGLE_OAUTH_WEB_CLIENT_ID` |
+| `role` | conditional | Bỏ trống nếu user đã có account; với user mới phải gửi `1` hoặc `3` (`0`/`2` bị reject 403) |
+
+**Response 200 — 4 case**:
+
+1. **User đã tồn tại** → trả tokens như login thường:
+   ```json
+   { "accessToken": "...", "refreshToken": "...", "user": { ... } }
+   ```
+
+2. **User mới + có gửi role hợp lệ** → BE tự tạo user, trả tokens.
+
+3. **User mới + KHÔNG gửi role** → BE không tạo user, trả profile để FE bật màn role-picker:
+   ```json
+   {
+     "isNewUser": true,
+     "googleProfile": {
+       "email": "a@gmail.com",
+       "name": "Nguyen Van A",
+       "avatar": "https://lh3.googleusercontent.com/...",
+       "sub": "1234567890"
+     }
+   }
+   ```
+   ➜ FE hiện popup chọn vai trò (Customer/Owner), rồi **gọi lại** `/auth/google` với cùng `idToken` + `role` đã chọn.
+
+4. **Lỗi**: `401` (token sai / email chưa verified), `403` (role=0/2 hoặc account disabled), `400` (role ngoài `{0,1,2,3}`).
+
+---
+
+### 24.4 POST `/auth/refresh` — Lấy access token mới
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Sau 15 phút access token hết hạn, dùng refresh token đổi cặp mới |
+| **Khi nào gọi** | Khi nhận `401` từ bất kỳ endpoint nào (interceptor FE retry) |
+| **Auth** | Public |
+
+**Request body**:
+```json
+{ "refreshToken": "eyJhbGciOi..." }
+```
+
+**Response 200**:
+```json
+{ "accessToken": "...", "refreshToken": "..." }
+```
+> Refresh cũ **bị invalidate** sau khi rotate — FE PHẢI overwrite cả 2 token.
+
+**Lỗi**: `401` token sai/hết hạn → FE force logout, quay về màn login.
+
+---
+
+### 24.5 POST `/auth/forgot-password` — Quên mật khẩu
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Gửi email/SMS reset password |
+| **Auth** | Public, rate limit `5 req / 1h / IP` |
+
+**Request body**:
+```json
+{ "identifier": "a@example.com" }
+```
+`identifier` chấp nhận **email hoặc phone**.
+
+**Response 200**:
+```json
+{ "message": "Đã gửi hướng dẫn đặt lại mật khẩu" }
+```
+
+**Lỗi**: `404` user không tồn tại, `429` rate limited.
+
+**Ghi chú FE**: vì lý do bảo mật, nên hiện cùng thông báo dù 200 hay 404 (tránh leak email tồn tại).
+
+---
+
+### 24.6 POST `/auth/reset-password` — Đặt lại mật khẩu
+
+**Request body**:
+```json
+{
+  "token": "<reset token từ email>",
+  "newPassword": "matkhauMoi123"
+}
+```
+
+**Response 200**: `{ "message": "Đặt lại mật khẩu thành công" }`
+
+**Lỗi**: `400` token sai/expired, `401` chưa verify OTP.
+
+> Sau khi reset, **tất cả refresh token cũ bị invalidate** → user bị logout tất cả thiết bị, phải login lại.
+
+---
+
+### 24.7 ⭐ GET `/auth/profile` — Lấy thông tin user hiện tại
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Lấy full profile của user đang đăng nhập (header avatar, trang "Tài khoản của tôi", v.v.) |
+| **Khi nào gọi** | Sau login, hoặc khi vào trang account |
+| **Auth** | Bearer token |
+
+**Response 200**:
+```json
+{
+  "id": "uuid",
+  "name": "Nguyen Van A",
+  "email": "a@example.com",
+  "avatar": "https://...",
+  "phone": "0901234567",
+  "role": 3,
+  "ownerId": null,
+  "isActive": true,
+  "emailVerified": true,
+  "gender": 0,
+  "dateOfBirth": "1995-06-15",
+  "kycStatus": "none",
+  "kycBypass": false,
+  "subscriptionStatus": "none",
+  "subscriptionPlanId": null,
+  "subscriptionCycle": null,
+  "trialEndsAt": null,
+  "nextChargeAt": null,
+  "permissions": [],
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+---
+
+### 24.8 POST `/auth/change-password` — Đổi mật khẩu khi đã login
+
+**Auth**: Bearer.
+**Request**:
+```json
+{ "currentPassword": "matkhau123", "newPassword": "matkhauMoi456" }
+```
+**Response 200**: `{ "message": "Đổi mật khẩu thành công" }`
+**Lỗi**: `401` `currentPassword` sai.
+> Không invalidate session — user vẫn giữ login hiện tại.
+
+---
+
+### 24.9 POST `/auth/logout` — Đăng xuất
+
+**Auth**: Bearer.
+**Body**: không.
+**Response 200**: `{ "message": "Đăng xuất thành công" }`
+
+> BE clear `refreshToken` trong DB. Access token vẫn còn hiệu lực đến hết TTL (≤15 phút) — FE phải **xoá token ở local** ngay.
+> FE nên gọi kèm `DELETE /devices/:token` trước/sau logout để gỡ FCM token (xem 27.2).
+
+---
+
+### 24.10 ⭐ DELETE `/users/me` — Xoá tài khoản (compliance Apple/Google/GDPR)
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Cho user tự xoá vĩnh viễn account (soft-delete, email/phone được giải phóng) |
+| **Khi nào gọi** | Setting → "Xoá tài khoản" (BẮT BUỘC có nếu app lên store) |
+| **Auth** | Bearer |
+
+**Request body** (optional):
+```json
+{ "reason": "Không còn sử dụng" }
+```
+`reason` ≤ 200 ký tự.
+
+**Response 200**: `{ "message": "Tài khoản đã được xoá" }`
+
+**Ghi chú FE**:
+- FE nên hiện modal confirm 2 bước (kèm cảnh báo "không thể khôi phục").
+- Sau khi 200, FE clear toàn bộ token + redirect về trang chủ.
+- Booking history vẫn được giữ ở BE (audit), nhưng email/phone unique được mở khoá → user có thể register lại với email cũ.
+
+---
+
+## 25. APP VERSION — Check force update
+
+### 25.1 ⭐ GET `/app/version` — Lấy thông tin version
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | App launch check: hiện popup "force update" / "soft update" |
+| **Khi nào gọi** | Mỗi lần mở app (mobile) — web có thể dùng để check banner thông báo bản web mới |
+| **Auth** | Public |
+
+**Query**:
+- `platform` *(optional)* — `ios` | `android` | `web`. Nếu bỏ trống → trả cả 3.
+- `currentVersion` *(optional)* — version hiện tại, BE không dùng để verify, chỉ để FE so sánh local.
+
+**Response 200** (1 platform):
+```json
+{
+  "latestVersion": "1.2.0",
+  "minSupportedVersion": "1.0.0",
+  "releaseNotes": "- Fix bug X\n- Cải thiện performance",
+  "storeUrl": "https://apps.apple.com/app/...",
+  "forceUpdate": false
+}
+```
+
+**Response 200** (không truyền `platform`):
+```json
+{
+  "ios": { "latestVersion": "...", "minSupportedVersion": "...", "releaseNotes": "...", "storeUrl": "..." },
+  "android": { ... },
+  "web": null
+}
+```
+
+**Logic FE**:
+- Nếu `currentVersion < minSupportedVersion` → bắt buộc update (chặn UI).
+- Nếu `currentVersion < latestVersion` → khuyến nghị update (banner đóng được).
+- Nếu DB BE chưa có row platform đó → tất cả null → coi như up-to-date.
+
+---
+
+## 26. PUBLIC DISCOVERY — Trang chủ, listing, detail, calendar
+
+### 26.1 ⭐ GET `/properties/public` — List property công khai (homepage / search)
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Trang chủ + trang tìm kiếm — hiện danh sách homestay/villa/hotel |
+| **Auth** | Public |
+
+**Query params** (tất cả optional):
+
+| Param | Loại | Mô tả |
+|---|---|---|
+| `checkinDate` | `YYYY-MM-DD` | Lọc property còn trống trong khoảng |
+| `checkoutDate` | `YYYY-MM-DD` | Cặp với `checkinDate` |
+| `guests` | int | Số khách (lọc theo `maxGuests`) |
+| `minPrice` | int (VND) | Lọc giá tối thiểu |
+| `maxPrice` | int (VND) | Lọc giá tối đa |
+| `type` | `0` (VILLA) / `1` (HOMESTAY) / `2` (HOTEL) | Loại |
+| `view` | `sea` / `city` | Hướng view |
+
+**Response 200**:
+```json
+{
+  "properties": [
+    {
+      "id": "uuid",
+      "name": "Villa Sea View 01",
+      "code": "VL-001",
+      "type": 0,
+      "view": "sea",
+      "address": "Hạ Long, Quảng Ninh",
+      "bedrooms": 3,
+      "bathrooms": 2,
+      "standardGuests": 6,
+      "maxGuests": 8,
+      "weekdayPrice": 2500000,
+      "weekendPrice": 3500000,
+      "holidayPrice": 5000000,
+      "cancellationPolicy": 1,
+      "amenities": ["wifi","pool","bbq"],
+      "coverImage": "https://res.cloudinary.com/.../cover.jpg",
+      "images": [
+        { "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }
+      ],
+      "avgRating": 4.6,
+      "reviewCount": 24
+    }
+  ],
+  "total": 42
+}
+```
+
+**Ghi chú FE**:
+- Khi user **chưa chọn ngày**, giá có thể chỉ trả `weekdayPrice/weekendPrice/holidayPrice` để FE hiện "Từ X₫/đêm".
+- Khi user **đã chọn ngày**, BE filter conflict — chỉ trả property còn trống.
+
+---
+
+### 26.2 ⭐ GET `/properties/share/:id` — Detail share link (không cần login)
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Link share Zalo/FB — user chưa login vẫn xem được property |
+| **Auth** | Public |
+
+**Path**: `:id` — UUID property.
+
+**Response 200**: giống `26.3` nhưng **không có giá chi tiết** (chỉ giá hiển thị, không có internal pricing fields).
+
+**Lỗi**: `404` không tìm thấy / đã ngưng hoạt động.
+
+---
+
+### 26.3 ⭐ GET `/properties/:id` — Detail property (cần login)
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Trang chi tiết property — đầy đủ thông tin để booking |
+| **Auth** | Bearer (mọi user đã login) |
+
+**Response 200**:
+```json
+{
+  "id": "uuid",
+  "name": "Villa Sea View 01",
+  "code": "VL-001",
+  "type": 0,
+  "view": "sea",
+  "address": "Hạ Long, Quảng Ninh",
+  "latitude": 20.95,
+  "longitude": 107.08,
+  "mapLink": "https://maps.google.com/...",
+  "bedrooms": 3,
+  "bathrooms": 2,
+  "standardGuests": 6,
+  "maxGuests": 8,
+  "weekdayPrice": 2500000,
+  "weekendPrice": 3500000,
+  "holidayPrice": 5000000,
+  "adultSurcharge": 200000,
+  "childSurcharge": 100000,
+  "amenities": ["wifi","pool","bbq","aircon"],
+  "cancellationPolicy": 1,
+  "rules": "Không hút thuốc, không pet...",
+  "services": ["breakfast","airport_pickup"],
+  "description": "Villa view biển, gần bãi tắm...",
+  "checkInTime": "14:00",
+  "checkOutTime": "12:00",
+  "images": [
+    { "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }
+  ],
+  "avgRating": 4.6,
+  "reviewCount": 24,
+  "owner": { "id": "uuid", "name": "Owner A", "avatar": "https://..." }
+}
+```
+
+**Lỗi**: `404` không tồn tại.
+
+---
+
+### 26.4 ⭐ GET `/calendar/public-grid` — Lịch trống công khai
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Hiện calendar trên trang detail property (user chưa login vẫn xem được ngày nào trống) |
+| **Auth** | Public |
+
+**Query**:
+- `startDate` *(required)* — `YYYY-MM-DD`
+- `endDate` *(required)* — `YYYY-MM-DD`
+- `propertyId` *(optional)* — lọc 1 property
+- `type` *(optional)* — `0/1/2` loại property
+
+**Response 200**:
+```json
+{
+  "properties": [
+    {
+      "id": "uuid",
+      "name": "Villa Sea View 01",
+      "type": 0,
+      "days": [
+        { "date": "2026-05-15", "status": 0 },
+        { "date": "2026-05-16", "status": 2 },
+        { "date": "2026-05-17", "status": 3 }
+      ]
+    }
+  ]
+}
+```
+
+| `status` | Ý nghĩa | FE hiển thị |
+|:---:|---|---|
+| `0` | AVAILABLE | Trắng, click được |
+| `1` | LOCKED (admin/owner khoá) | Xám, disable |
+| `2` | HOLD (đang có booking giữ chỗ) | Vàng, disable |
+| `3` | BOOKED (đã được đặt) | Đỏ, disable |
+
+> Endpoint public **không trả tên khách** (`note`). Chỉ endpoint `/calendar/grid` (auth staff) mới có.
+
+---
+
+### 26.5 GET `/calendar/admin-contact` — Thông tin liên hệ admin
+
+**Auth**: Public.
+**Response 200**:
+```json
+{
+  "phone": "0912345678",
+  "email": "support@halong24h.com",
+  "address": "Hạ Long, Quảng Ninh",
+  "zalo": "https://zalo.me/...",
+  "facebook": "https://fb.com/...",
+  "website": "https://halong24h.com"
+}
+```
+Dùng cho footer / nút "Liên hệ ngay".
+
+---
+
+### 26.6 ⭐ GET `/properties/:id/reviews` — List reviews của property
+
+**Auth**: Public.
+
+**Query**:
+| Param | Loại | Default |
+|---|---|---|
+| `page` | int | `1` |
+| `pageSize` | int (max 50) | `20` |
+| `sort` | `newest` / `oldest` / `highest` / `lowest` | `newest` |
+| `minRating` | int 1–5 | (không filter) |
+
+**Response 200**:
+```json
+{
+  "reviews": [
+    {
+      "id": "uuid",
+      "user": { "name": "Khách Nguyễn A", "avatar": "https://..." },
+      "cleanliness": 5,
+      "location": 5,
+      "amenities": 4,
+      "service": 5,
+      "value": 4,
+      "accuracy": 5,
+      "avgRating": 4.67,
+      "comment": "Villa rất đẹp, view biển tuyệt vời...",
+      "photos": ["https://...","https://..."],
+      "ownerReply": "Cảm ơn anh/chị đã ghé...",
+      "ownerReplyAt": "2026-05-10T08:00:00.000Z",
+      "createdAt": "2026-05-09T10:00:00.000Z"
+    }
+  ],
+  "total": 24,
+  "page": 1,
+  "pageSize": 20,
+  "summary": {
+    "avgScore": 4.6,
+    "totalReviews": 24,
+    "breakdown": { "5": 18, "4": 4, "3": 1, "2": 1, "1": 0 }
+  }
+}
+```
+
+---
+
+## 27. DEVICES — Đăng ký Push Notification (Web Push / FCM)
+
+### 27.1 ⭐ POST `/devices` — Đăng ký FCM token
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Sau khi user login, FE lấy FCM token (Firebase Web SDK) và gửi BE để nhận push |
+| **Khi nào gọi** | Sau mỗi lần login thành công, và sau khi user cấp quyền notification |
+| **Auth** | Bearer |
+
+**Request body**:
+```json
+{
+  "fcmToken": "fXKnT4...:APA91b...",
+  "platform": "android",
+  "deviceModel": "Chrome Desktop",
+  "osVersion": "Windows 10",
+  "appVersion": "1.0.0",
+  "locale": "vi"
+}
+```
+
+| Field | Validate | Bắt buộc |
+|---|---|:---:|
+| `fcmToken` | string | ✅ |
+| `platform` | `ios` / `android` (web dùng `android` vì FCM Web Push gắn nhóm Android) | ✅ |
+| `deviceModel`, `osVersion`, `appVersion`, `locale` | string ≤ 100/20/20/10 ký tự | ❌ |
+
+**Response 200**:
+```json
+{ "id": "uuid", "platform": "android", "lastActiveAt": "2026-05-14T03:10:00.000Z" }
+```
+
+**Ghi chú**:
+- **Idempotent**: gọi lại với cùng `fcmToken` → cập nhật ownership sang user hiện tại.
+- 1 user có thể có nhiều device (web + mobile).
+
+---
+
+### 27.2 DELETE `/devices/:token` — Gỡ FCM token
+
+**Auth**: Bearer.
+**Path**: `:token` — **PHẢI URL-encode** vì FCM token chứa ký tự `:`.
+
+**Response 200**: `{ "message": "Đã gỡ thiết bị" }` (idempotent — không tồn tại cũng trả 200).
+
+Gọi khi: user logout, user revoke quyền notification.
+
+---
+
+### 27.3 GET `/devices` — List thiết bị của user
+
+**Auth**: Bearer.
+**Response 200**:
+```json
+{
+  "devices": [
+    { "id": "uuid", "platform": "android", "deviceModel": "Chrome Desktop", "osVersion": "Windows 10", "lastActiveAt": "..." },
+    { "id": "uuid", "platform": "ios", "deviceModel": "iPhone 13", "lastActiveAt": "..." }
+  ]
+}
+```
+Dùng cho màn "Quản lý thiết bị đăng nhập" — UX cho user thấy đang login ở đâu.
+
+---
+
+## 28. NOTIFICATIONS — Thông báo trong app
+
+### 28.1 ⭐ GET `/notifications` — List thông báo
+
+**Auth**: Bearer.
+
+**Response 200**:
+```json
+{
+  "notifications": [
+    {
+      "id": "uuid",
+      "type": "booking",
+      "title": "Đặt phòng được xác nhận",
+      "body": "Booking #ABC của bạn cho Villa Sea View 01 đã được xác nhận.",
+      "data": { "deepLink": "/my-bookings", "targetId": "<bookingId>" },
+      "isRead": false,
+      "createdAt": "2026-05-14T03:00:00.000Z",
+      "readAt": null
+    }
+  ],
+  "total": 5
+}
+```
+
+`type`: `booking` / `payment` / `system`.
+
+---
+
+### 28.2 ⭐ GET `/notifications/unread-count` — Đếm số chưa đọc
+
+**Auth**: Bearer.
+**Response 200**: `{ "unreadCount": 3 }`
+
+Dùng cho **badge** ở icon chuông trên header.
+
+---
+
+### 28.3 PATCH `/notifications/:id/read` — Đánh dấu 1 thông báo đã đọc
+
+**Auth**: Bearer.
+**Response 200**: `{ "message": "OK" }`
+
+---
+
+### 28.4 PATCH `/notifications/read-all` — Đánh dấu tất cả đã đọc
+
+**Auth**: Bearer.
+**Response 200**: `{ "message": "OK" }`
+
+---
+
+## 29. BOOKING — Luồng đặt phòng cho Customer
+
+Luồng chuẩn:
+```
+[Detail property] → POST /bookings/customer-hold   (giữ chỗ 24h)
+                  → User vào /my-bookings để theo dõi
+                  → Staff confirm → status CONFIRMED
+                  → Hoặc user tự huỷ → PATCH /customer-cancel
+```
+
+### 29.1 ⭐ POST `/bookings/customer-hold` — Customer giữ chỗ 24 giờ
+
+| Mục | Giá trị |
+|---|---|
+| **Mục đích** | Customer click "Đặt phòng" → BE giữ chỗ 24h chờ confirm/thanh toán |
+| **Auth** | Bearer (mọi user đã login) |
+
+**Request body**:
+```json
+{
+  "propertyId": "uuid",
+  "checkinDate": "2026-06-01",
+  "checkoutDate": "2026-06-03",
+  "guestCount": 4,
+  "notes": "Cần thêm 1 giường phụ"
+}
+```
+
+| Field | Validate | Bắt buộc |
+|---|---|:---:|
+| `propertyId` | UUID | ✅ |
+| `checkinDate` | `YYYY-MM-DD`, **>= hôm nay** | ✅ |
+| `checkoutDate` | `YYYY-MM-DD`, **> checkinDate** | ✅ |
+| `guestCount` | int ≥ 1, ≤ `property.maxGuests` | ❌ |
+| `notes` | string | ❌ |
+
+**Response 201**:
+```json
+{
+  "id": "uuid",
+  "propertyId": "uuid",
+  "customerId": "uuid",
+  "checkinDate": "2026-06-01",
+  "checkoutDate": "2026-06-03",
+  "status": 0,
+  "holdExpireAt": "2026-05-15T03:00:00.000Z",
+  "holdRemainingSeconds": 86400,
+  "guestCount": 4,
+  "notes": "Cần thêm 1 giường phụ",
+  "depositAmount": 0,
+  "createdAt": "2026-05-14T03:00:00.000Z"
+}
+```
+
+**Lỗi**:
+- `400` — `checkinDate < hôm nay`, `checkoutDate <= checkinDate`, `guestCount > maxGuests`
+- `409` — Conflict: ngày đã bị booking khác (HOLD/CONFIRMED) hoặc admin lock
+
+**Ghi chú FE**:
+- `holdRemainingSeconds`: dùng để **countdown** trên UI (`max(0, holdExpireAt - now) / 1000`).
+- Cron BE mỗi phút sẽ auto-set CANCELLED nếu hết 24h chưa confirm.
+- Sau khi hold, push notification gửi tới OWNER → OWNER vào confirm.
+
+---
+
+### 29.2 ⭐ GET `/bookings/my-bookings` — Booking của tôi
+
+**Auth**: Bearer.
+
+**Query** (optional):
+- `status` — `0` HOLD / `1` CONFIRMED / `2` CANCELLED / `3` COMPLETED. Bỏ trống = tất cả.
+
+**Response 200**:
+```json
+{
+  "bookings": [
+    {
+      "id": "uuid",
+      "property": {
+        "id": "uuid",
+        "name": "Villa Sea View 01",
+        "coverImage": "https://...",
+        "address": "Hạ Long, Quảng Ninh"
+      },
+      "checkinDate": "2026-06-01",
+      "checkoutDate": "2026-06-03",
+      "status": 0,
+      "holdExpireAt": "2026-05-15T03:00:00.000Z",
+      "holdRemainingSeconds": 86200,
+      "guestCount": 4,
+      "depositAmount": 0,
+      "totalAmount": 5000000,
+      "notes": "...",
+      "createdAt": "2026-05-14T03:00:00.000Z",
+      "canCancel": true,
+      "canReview": false
+    }
+  ],
+  "total": 3
+}
+```
+
+**Ghi chú**:
+- `canCancel`: chỉ `true` khi status = `HOLD`.
+- `canReview`: chỉ `true` khi status = `COMPLETED` và user chưa review.
+
+---
+
+### 29.3 ⭐ GET `/bookings/:id` — Chi tiết 1 booking
+
+**Auth**: Bearer.
+
+**Response 200**: object đơn lẻ giống item trong `my-bookings` + thêm:
+- `customerName`, `customerPhone`
+- `cancellationPolicy` của property
+- Full property detail (image array, amenities...)
+
+**Lỗi**: `403` nếu không phải booking của user, `404` không tồn tại.
+
+---
+
+### 29.4 ⭐ PATCH `/bookings/:id/customer-cancel` — Customer huỷ booking
+
+**Auth**: Bearer.
+**Body**: không cần.
+
+**Response 200**: `{ "message": "Đã huỷ booking" }`
+
+**Lỗi**:
+- `400` — Booking không ở status `HOLD` (không huỷ được `CONFIRMED` — phải liên hệ chủ nhà)
+- `403` — Không phải booking của user
+
+**Ghi chú FE**: Hiện confirm modal trước khi gọi. Sau khi 200, refresh `/my-bookings`.
+
+---
+
+## 30. REVIEWS — Customer viết đánh giá
+
+### 30.1 ⭐ POST `/properties/:id/reviews` — Viết review
+
+| Mục | Giá trị |
+|---|---|
+| **Điều kiện** | User có booking COMPLETED cho property này VÀ chưa review |
+| **Auth** | Bearer, role = `CUSTOMER` |
+
+**Path**: `:id` — UUID property.
+
+**Request body**:
+```json
+{
+  "bookingId": "uuid",
+  "cleanliness": 5,
+  "location": 5,
+  "amenities": 4,
+  "service": 5,
+  "value": 4,
+  "accuracy": 5,
+  "comment": "Villa rất đẹp, view biển tuyệt vời...",
+  "photos": ["https://...", "https://..."]
+}
+```
+
+| Field | Validate | Bắt buộc |
+|---|---|:---:|
+| `bookingId` | UUID | ✅ |
+| `cleanliness`, `location`, `amenities`, `service`, `value`, `accuracy` | int 1–5 | ✅ (cả 6) |
+| `comment` | string ≤ 1000 ký tự | ❌ |
+| `photos` | mảng URL (FE phải upload Cloudinary trước rồi gửi URL) | ❌ |
+
+**Response 201**:
+```json
+{
+  "id": "uuid",
+  "propertyId": "uuid",
+  "bookingId": "uuid",
+  "cleanliness": 5,
+  "location": 5,
+  "amenities": 4,
+  "service": 5,
+  "value": 4,
+  "accuracy": 5,
+  "avgRating": 4.67,
+  "comment": "...",
+  "photos": ["..."],
+  "createdAt": "..."
+}
+```
+
+**Lỗi**:
+- `400` — score ngoài 1–5
+- `403` — `bookingId` không phải của user, hoặc booking chưa `COMPLETED`
+- `409` — Đã review booking này rồi
+
+---
+
+### 30.2 GET `/properties/:id/reviews`
+Đã viết ở **26.6**.
+
+---
+
+## 31. BILLING — Plans (nếu có UI nâng cấp)
+
+### 31.1 GET `/billing/plans` — List gói subscription
+
+**Auth**: Public.
+**Response 200**:
+```json
+{
+  "plans": [
+    {
+      "id": "starter",
+      "name": "Starter",
+      "pricePerRoom": 100000,
+      "minCharge": 500000,
+      "maxRooms": 5,
+      "yearlyDiscountPct": 20,
+      "vatPct": 8,
+      "features": ["Quản lý booking","Lịch tổng","Báo cáo cơ bản"],
+      "active": true
+    }
+  ]
+}
+```
+
+> Endpoint này chủ yếu cho OWNER. Customer thường không thấy. Nếu web có trang giới thiệu giá cho chủ nhà → dùng endpoint này.
+
+---
+
+## 32. ERROR CODES & RECOVERY (cho FE interceptor)
+
+| HTTP | Hành động FE khuyến nghị |
+|---|---|
+| `400` | Hiện validation error inline (đọc `message` + `errors` từ response) |
+| `401` | Thử refresh token một lần. Nếu refresh cũng 401 → clear token + redirect login |
+| `403` | Hiện toast "Bạn không có quyền". Không retry |
+| `404` | Hiện trang "Không tìm thấy" |
+| `409` | Hiện toast conflict — vd "Email đã tồn tại", "Phòng đã được đặt" |
+| `410` | Token/invite/session expire — yêu cầu thao tác lại từ đầu |
+| `429` | Hiện toast "Quá nhiều yêu cầu, thử lại sau X phút" |
+| `500` | Hiện toast "Lỗi hệ thống, vui lòng thử lại". Log Sentry |
+
+**Shape lỗi BE trả về**:
+```json
+{
+  "success": false,
+  "statusCode": 400,
+  "message": "Email không hợp lệ",
+  "errors": null,
+  "path": "/auth/register",
+  "timestamp": "2026-05-14T03:00:00.000Z"
+}
+```
+
+---
+
+## 33. AUTH FLOW — Recommended interceptor logic (FE)
+
+```
+1. Mỗi request gắn Authorization: Bearer <accessToken>
+2. Nếu response 401:
+   a. Đang có refreshToken? → call POST /auth/refresh
+      - 200: update cả accessToken + refreshToken, retry request gốc 1 lần
+      - !200: clear tokens, redirect /login
+   b. Không có refreshToken: redirect /login
+3. Nếu response 403/404/409/410/429: KHÔNG retry, hiện error theo bảng 32
+4. Token storage: khuyến nghị accessToken ở memory + refreshToken ở cookie HttpOnly Secure (nếu dùng được)
+```
+
+---
+
+## 34. PUSH NOTIFICATION TYPES (cho web push)
+
+Khi FE đăng ký FCM, BE sẽ gửi push với `data.type` + `data.deepLink`. FE handle:
+
+| `data.type` | `data.deepLink` | Người nhận | Action FE |
+|---|---|---|---|
+| `booking_created` | `/bookings/:id` | OWNER (không phải Customer) | — |
+| `booking_confirmed` | `/my-bookings` | CUSTOMER | Toast + click → vào my-bookings |
+| `booking_cancelled` | `/my-bookings` | CUSTOMER | Toast |
+| `payment_succeeded` | `/my-bookings` | User | Toast success |
+| `payment_failed` | `/my-bookings` | User | Toast error |
+
+(Các loại `kyc_*`, `staff_*` chỉ dành cho OWNER/SALE, customer không nhận.)
+
+---
+
+## 35. CHECKLIST FE WEB CUSTOMER
+
+Khi tích hợp API, đảm bảo:
+
+- [ ] Lưu `accessToken` + `refreshToken` đúng cách, có interceptor refresh khi 401
+- [ ] Sau login: gọi `POST /devices` để đăng ký FCM token web
+- [ ] Sau logout: clear local token + gọi `DELETE /devices/:token`
+- [ ] Mỗi request có `Accept-Language` để BE trả message đúng ngôn ngữ
+- [ ] Gửi `X-Device-Id` (uuid persist localStorage) ở các endpoint auth — giảm rate-limit collision
+- [ ] Trang detail property: load song song `/properties/:id` + `/properties/:id/reviews` + `/calendar/public-grid`
+- [ ] Trang my-bookings: hiện countdown từ `holdRemainingSeconds`, auto-refresh khi hết
+- [ ] Trang review: chỉ enable nút "Đánh giá" khi `canReview = true`
+- [ ] Notification badge: poll `/notifications/unread-count` mỗi 30s HOẶC dựa hoàn toàn vào FCM push
+- [ ] Setting "Xoá tài khoản": gọi `DELETE /users/me` với confirm 2 bước
+- [ ] App version: gọi `GET /app/version?platform=web&currentVersion=...` ở splash, hiện banner update nếu cần
+
+---
+
 ## Phụ lục — Kiến trúc files
 
 ```

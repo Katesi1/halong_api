@@ -38,6 +38,7 @@ describe('AuthService', () => {
           useValue: {
             user: {
               findUnique: jest.fn(),
+              findFirst: jest.fn(),
               update: jest.fn(),
             },
           },
@@ -64,11 +65,11 @@ describe('AuthService', () => {
   });
 
   describe('login', () => {
-    it('should return tokens on valid credentials', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+    it('should return tokens when login by email', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
       (prisma.user.update as jest.Mock).mockResolvedValue(mockUser);
 
-      const result = await service.login({ email: 'test@example.com', password: 'Test@123' }, msg);
+      const result = await service.login({ identifier: 'test@example.com', password: 'Test@123' }, msg);
 
       expect(result.data.accessToken).toBeDefined();
       expect(result.data.refreshToken).toBeDefined();
@@ -77,27 +78,56 @@ describe('AuthService', () => {
       expect((result.data.user as any).password).toBeUndefined();
     });
 
+    it('should return tokens when login by phone (0xxxxxxxxx)', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.update as jest.Mock).mockResolvedValue(mockUser);
+
+      const result = await service.login({ identifier: '0912345678', password: 'Test@123' }, msg);
+
+      expect(result.data.accessToken).toBeDefined();
+      expect((prisma.user.findFirst as jest.Mock).mock.calls[0][0]).toEqual({
+        where: { phone: '0912345678' },
+      });
+    });
+
+    it('should normalize +84xxxxxxxxx to 0xxxxxxxxx when login by phone', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.update as jest.Mock).mockResolvedValue(mockUser);
+
+      await service.login({ identifier: '+84912345678', password: 'Test@123' }, msg);
+
+      expect((prisma.user.findFirst as jest.Mock).mock.calls[0][0]).toEqual({
+        where: { phone: '0912345678' },
+      });
+    });
+
     it('should throw UnauthorizedException on wrong password', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
 
       await expect(
-        service.login({ email: 'test@example.com', password: 'wrong-pass' }, msg),
+        service.login({ identifier: 'test@example.com', password: 'wrong-pass' }, msg),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException when user not found', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(null);
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(null);
 
       await expect(
-        service.login({ email: 'notfound@example.com', password: 'Test@123' }, msg),
+        service.login({ identifier: 'notfound@example.com', password: 'Test@123' }, msg),
       ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException when user is inactive', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ ...mockUser, isActive: false });
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue({ ...mockUser, isActive: false });
 
       await expect(
-        service.login({ email: 'test@example.com', password: 'Test@123' }, msg),
+        service.login({ identifier: 'test@example.com', password: 'Test@123' }, msg),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException when identifier is empty', async () => {
+      await expect(
+        service.login({ identifier: '   ', password: 'Test@123' }, msg),
       ).rejects.toThrow(UnauthorizedException);
     });
   });
@@ -117,13 +147,64 @@ describe('AuthService', () => {
       expect(result.data.refreshToken).toBeDefined();
     });
 
-    it('should throw ForbiddenException on expired/invalid token', async () => {
+    it('should throw ForbiddenException on expired/invalid JWT signature', async () => {
       (jwtService.verify as jest.Mock).mockImplementation(() => {
         throw new Error('jwt expired');
       });
 
+      await expect(service.refreshToken('expired-token', msg)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('should throw ForbiddenException when user was soft-deleted', async () => {
+      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...mockUser,
+        deletedAt: new Date(),
+        refreshToken: bcrypt.hashSync('valid-refresh-token', 10),
+      });
+
       await expect(
-        service.refreshToken('expired-token', msg),
+        service.refreshToken('valid-refresh-token', msg),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException when user is disabled', async () => {
+      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...mockUser,
+        isActive: false,
+        refreshToken: bcrypt.hashSync('valid-refresh-token', 10),
+      });
+
+      await expect(
+        service.refreshToken('valid-refresh-token', msg),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException when DB refresh token has been rotated (re-use of old token)', async () => {
+      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...mockUser,
+        // DB lưu hash của token MỚI; user gửi token CŨ → bcrypt.compare fail
+        refreshToken: bcrypt.hashSync('rotated-new-token', 10),
+      });
+
+      await expect(
+        service.refreshToken('old-stale-token', msg),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException when user has logged out (refreshToken=null)', async () => {
+      (jwtService.verify as jest.Mock).mockReturnValue({ sub: 'user-1' });
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+        ...mockUser,
+        refreshToken: null,
+      });
+
+      await expect(
+        service.refreshToken('any-token', msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });

@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationError, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
@@ -29,12 +29,43 @@ async function bootstrap() {
   app.useGlobalInterceptors(new LoggingInterceptor());
 
   // Validation pipe toàn cục
+  // exceptionFactory: tách lỗi validate theo field thay vì concat 1 string.
+  // FE web/mobile có thể đọc `errors[field]` để hiện inline error per-field.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,        // Tự loại bỏ fields không có trong DTO
       forbidNonWhitelisted: false,
       transform: true,        // Auto transform types
       transformOptions: { enableImplicitConversion: true },
+      stopAtFirstError: false, // Trả về toàn bộ lỗi của 1 field (không dừng ở lỗi đầu)
+      exceptionFactory: (errors: ValidationError[]) => {
+        // Build payload dạng { firstMessage, errors: { field: [msg, msg], ... } }
+        const fieldErrors: Record<string, string[]> = {};
+        let firstMessage = 'Validation failed';
+
+        const collect = (err: ValidationError, path: string) => {
+          const key = path ? `${path}.${err.property}` : err.property;
+          if (err.constraints) {
+            const messages = Object.values(err.constraints);
+            if (messages.length > 0) {
+              fieldErrors[key] = messages;
+              if (firstMessage === 'Validation failed') {
+                firstMessage = messages[0];
+              }
+            }
+          }
+          if (err.children && err.children.length > 0) {
+            for (const child of err.children) collect(child, key);
+          }
+        };
+
+        for (const err of errors) collect(err, '');
+
+        return new BadRequestException({
+          message: firstMessage,
+          errors: fieldErrors,
+        });
+      },
     }),
   );
 

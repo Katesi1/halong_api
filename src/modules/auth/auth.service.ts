@@ -86,8 +86,24 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, msg: Messages) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase().trim() },
+    const raw = (dto.identifier || '').trim();
+    if (!raw) {
+      throw new UnauthorizedException(msg.auth.invalidCredentials);
+    }
+
+    // Detect identifier: email vs phone
+    // Phone VN: 0xxxxxxxxx hoặc +84xxxxxxxxx → chuẩn hoá về 0xxxxxxxxx (cách lưu DB)
+    const phoneRegex = /^(0\d{9}|\+84\d{9})$/;
+    const isPhone = phoneRegex.test(raw);
+    const normalizedPhone = isPhone
+      ? raw.startsWith('+84')
+        ? '0' + raw.slice(3)
+        : raw
+      : null;
+    const normalizedEmail = !isPhone ? raw.toLowerCase() : null;
+
+    const user = await this.prisma.user.findFirst({
+      where: isPhone ? { phone: normalizedPhone! } : { email: normalizedEmail! },
     });
 
     if (!user || !user.isActive || user.deletedAt || !user.password) {
@@ -273,6 +289,7 @@ export class AuthService {
           },
         };
       }
+      // Apple chia sẻ business rule với Google: ADMIN/SALE không tự đăng ký được
       if (dto.role === ROLE.ADMIN) {
         throw new ForbiddenException(msg.auth.googleAdminForbidden);
       }
@@ -352,37 +369,40 @@ export class AuthService {
   }
 
   async refreshToken(refreshToken: string, msg: Messages) {
+    // Verify chữ ký + hạn JWT. Chỉ block try/catch quanh verify để không nuốt
+    // các ForbiddenException ném ở dưới (vd: user bị xoá, token DB không khớp).
+    let payload: { sub: string };
     try {
-      const payload = this.jwtService.verify(refreshToken, {
+      payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
-
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-      });
-
-      if (!user || !user.refreshToken || !user.isActive) {
-        throw new ForbiddenException(msg.auth.invalidRefreshToken);
-      }
-
-      const isRefreshTokenValid = await bcrypt.compare(
-        refreshToken,
-        user.refreshToken,
-      );
-      if (!isRefreshTokenValid) {
-        throw new ForbiddenException(msg.auth.invalidRefreshToken);
-      }
-
-      const tokens = await this.generateTokens(user.id, user.email, user.role);
-      await this.updateRefreshToken(user.id, tokens.refreshToken);
-
-      return {
-        message: msg.auth.refreshSuccess,
-        data: tokens,
-      };
     } catch {
+      // JWT malformed / sai chữ ký / quá hạn
       throw new ForbiddenException(msg.auth.expiredRefreshToken);
     }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+
+    // Reject nếu: user không tồn tại / đã soft-delete / bị disable / đã logout (refreshToken=null)
+    if (!user || user.deletedAt || !user.isActive || !user.refreshToken) {
+      throw new ForbiddenException(msg.auth.invalidRefreshToken);
+    }
+
+    // Compare với hash trong DB để chống dùng lại token cũ đã rotate
+    const isRefreshTokenValid = await bcrypt.compare(refreshToken, user.refreshToken);
+    if (!isRefreshTokenValid) {
+      throw new ForbiddenException(msg.auth.invalidRefreshToken);
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    return {
+      message: msg.auth.refreshSuccess,
+      data: tokens,
+    };
   }
 
   async logout(userId: string, msg: Messages) {
