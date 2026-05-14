@@ -86,7 +86,8 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, msg: Messages) {
-    const raw = (dto.identifier || '').trim();
+    // Ưu tiên identifier (chuẩn mới), fallback email/phone (backward-compat FE cũ)
+    const raw = (dto.identifier || dto.email || dto.phone || '').trim();
     if (!raw) {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
     }
