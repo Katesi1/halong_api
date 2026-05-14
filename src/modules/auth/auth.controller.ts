@@ -1,12 +1,16 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Headers, Ip, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { LoginResponse, MessageResponse, ProfileResponse } from '../../common/dto/api-response.dto';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
+import { AppleAuthDto } from './dto/apple-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
@@ -21,35 +25,73 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  @ApiOperation({ summary: 'Đăng ký', description: 'Đăng ký tài khoản STAFF hoặc CUSTOMER. Trả token luôn (auto-login)' })
-  register(@Body() dto: RegisterDto, @Lang() msg: Messages) {
-    return this.authService.register(dto, msg);
+  @Throttle({ default: { limit: 5, ttl: 3600_000 } }) // 5 req / giờ / IP
+  @ApiHeader({ name: 'X-Device-Id', required: false, description: 'Device ID (chống spam register)' })
+  @ApiOperation({ summary: 'Đăng ký', description: 'Đăng ký tài khoản OWNER hoặc CUSTOMER. Trả token luôn (auto-login). Tối đa 3 account / device / 24h.' })
+  @ApiResponse({ status: 201, type: LoginResponse })
+  @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng ký từ device/IP này' })
+  register(
+    @Body() dto: RegisterDto,
+    @Headers('x-device-id') deviceId: string | undefined,
+    @Ip() ip: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.register(dto, msg, { deviceId: deviceId || null, ip: ip || null });
   }
 
   @Public()
   @Post('login')
   @ApiOperation({ summary: 'Đăng nhập', description: 'Trả về accessToken và refreshToken' })
+  @ApiResponse({ status: 200, type: LoginResponse })
   login(@Body() dto: LoginDto, @Lang() msg: Messages) {
     return this.authService.login(dto, msg);
   }
 
   @Public()
   @Post('google')
-  @ApiOperation({ summary: 'Đăng nhập Google', description: 'Đăng nhập/đăng ký bằng Google ID Token. User mới cần field role.' })
-  googleAuth(@Body() dto: GoogleAuthDto, @Lang() msg: Messages) {
-    return this.authService.googleAuth(dto, msg);
+  @Throttle({ default: { limit: 10, ttl: 3600_000 } }) // 10 req / giờ / IP (Google còn dùng cho login lại nhiều)
+  @ApiHeader({ name: 'X-Device-Id', required: false, description: 'Device ID (chống spam register Google)' })
+  @ApiOperation({ summary: 'Đăng nhập Google', description: 'Đăng nhập/đăng ký bằng Google ID Token. User mới cần field role. Tối đa 3 account / device / 24h khi tạo mới.' })
+  @ApiResponse({ status: 200, type: LoginResponse })
+  @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng ký mới từ device/IP này' })
+  googleAuth(
+    @Body() dto: GoogleAuthDto,
+    @Headers('x-device-id') deviceId: string | undefined,
+    @Ip() ip: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.googleAuth(dto, msg, { deviceId: deviceId || null, ip: ip || null });
+  }
+
+  @Public()
+  @Post('apple')
+  @Throttle({ default: { limit: 10, ttl: 3600_000 } })
+  @ApiHeader({ name: 'X-Device-Id', required: false, description: 'Device ID (chống spam register Apple)' })
+  @ApiOperation({ summary: 'Đăng nhập Apple (iOS)', description: 'Đăng nhập/đăng ký bằng Apple ID Token. Apple chỉ trả email/name lần đầu — FE phải cache + gửi kèm.' })
+  @ApiResponse({ status: 200, type: LoginResponse })
+  @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng ký mới' })
+  appleAuth(
+    @Body() dto: AppleAuthDto,
+    @Headers('x-device-id') deviceId: string | undefined,
+    @Ip() ip: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.appleAuth(dto, msg, { deviceId: deviceId || null, ip: ip || null });
   }
 
   @Public()
   @Post('refresh')
   @ApiOperation({ summary: 'Làm mới token', description: 'Đổi refreshToken lấy accessToken mới' })
+  @ApiResponse({ status: 200, type: LoginResponse })
   refresh(@Body() dto: RefreshTokenDto, @Lang() msg: Messages) {
     return this.authService.refreshToken(dto.refreshToken, msg);
   }
 
   @Public()
   @Post('forgot-password')
-  @ApiOperation({ summary: 'Quên mật khẩu', description: 'Gửi mã xác nhận qua SMS/email' })
+  @Throttle({ default: { limit: 5, ttl: 3600_000 } }) // 5 req / giờ / IP
+  @ApiOperation({ summary: 'Quên mật khẩu', description: 'Gửi mã xác nhận qua SMS/email (rate limit 5/h/IP)' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   forgotPassword(@Body() dto: ForgotPasswordDto, @Lang() msg: Messages) {
     return this.authService.forgotPassword(dto, msg);
   }
@@ -57,6 +99,7 @@ export class AuthController {
   @Public()
   @Post('reset-password')
   @ApiOperation({ summary: 'Đặt lại mật khẩu', description: 'Đặt lại mật khẩu bằng token' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   resetPassword(@Body() dto: ResetPasswordDto, @Lang() msg: Messages) {
     return this.authService.resetPassword(dto, msg);
   }
@@ -65,6 +108,7 @@ export class AuthController {
   @Post('logout')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Đăng xuất', description: 'Vô hiệu hóa refresh token' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   logout(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
     return this.authService.logout(userId, msg);
   }
@@ -73,7 +117,21 @@ export class AuthController {
   @Get('profile')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Lấy thông tin user đăng nhập' })
+  @ApiResponse({ status: 200, type: ProfileResponse })
   getProfile(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
     return this.authService.getProfile(userId, msg);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Đổi mật khẩu', description: 'Đổi mật khẩu khi đang đăng nhập' })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.changePassword(userId, dto, msg);
   }
 }

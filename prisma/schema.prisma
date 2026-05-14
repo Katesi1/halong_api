@@ -7,127 +7,229 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  ADMIN
-  STAFF
-  CUSTOMER
-}
-
-enum BookingStatus {
-  HOLD
-  CONFIRMED
-  CANCELLED
-  COMPLETED
-}
-
 model User {
-  id           String    @id @default(uuid())
-  name         String
-  phone        String    @unique
-  email        String?   @unique
-  password     String
-  role         Role      @default(STAFF)
-  isActive     Boolean   @default(true)
-  refreshToken String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  name          String
+  phone         String?   @unique
+  email         String    @unique
+  password      String?   // null nếu user chỉ login Google
+  role          Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
+  ownerId       String?   // SALE → trỏ về User có role OWNER (chủ của mình)
+  gender        Int?      // 0=MALE, 1=FEMALE, 2=OTHER
+  dateOfBirth   DateTime?
+  isActive      Boolean   @default(true)
+  refreshToken  String?
+  googleSub     String?   @unique // Google's sub claim — stable user ID
+  appleSub      String?   @unique // Apple's sub claim — stable user ID
+  emailVerified Boolean   @default(false)
+  avatar        String?   // URL ảnh đại diện (từ Google picture hoặc upload)
+  registerDeviceId String? // Device ID lúc tạo account — chống spam register
+  registerIp       String? // IP lúc tạo account — chống spam register
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
 
-  homestays        Homestay[]
+  // KYC & Subscription
+  kycBypass          Boolean  @default(false)  // ADMIN grant: skip KYC to manage properties
+  kycStatus          String   @default("none") // none | pending | approved | rejected
+  kycSubmissionId    String?
+  subscriptionStatus String   @default("none") // none | trial | active | past_due | cancelled
+  subscriptionPlanId String?
+  subscriptionCycle  String?  // monthly | yearly
+  trialEndsAt        DateTime?
+  nextChargeAt       DateTime?
+
+  owner            User?    @relation("OwnerStaff", fields: [ownerId], references: [id])
+  staffMembers     User[]   @relation("OwnerStaff")
+  properties       Property[]
+  notifications    Notification[]
   saleBookings     Booking[]  @relation("SaleBookings")
   customerBookings Booking[]  @relation("CustomerBookings")
+  kycSubmissions   KycSubmission[]
+  approvedSubmissions KycSubmission[] @relation("ApprovedBy")
+  reviews          PropertyReview[]
+
+  permissions      UserPermission[]
+  subscriptions    Subscription[]
+  paymentSessions  PaymentSession[]
+  sentInvites      StaffInvite[]   @relation("InviteOwner")
+  acceptedInvite   StaffInvite?    @relation("InviteAcceptedUser")
+  devices          UserDevice[]
 
   @@map("users")
 }
 
-model Homestay {
-  id        String   @id @default(uuid())
-  ownerId   String
-  name      String
-  address   String
-  latitude  Float?
-  longitude Float?
-  mapLink   String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model UserDevice {
+  id           String   @id @default(uuid())
+  userId       String
+  fcmToken     String   @unique // FCM registration token
+  platform     String   // ios | android
+  deviceModel  String?  // iPhone 13, Galaxy S21, ...
+  osVersion    String?  // 17.4
+  appVersion   String?  // 1.0.2
+  locale       String?  // vi | en
+  lastActiveAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
-  owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  rooms Room[]
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("homestays")
+  @@index([userId])
+  @@map("user_devices")
 }
 
-model Room {
-  id          String   @id @default(uuid())
-  homestayId  String
-  name        String
-  code        String   @unique
-  bedrooms    Int      @default(1)
-  maxGuests   Int      @default(2)
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model StaffInvite {
+  id              String    @id @default(uuid())
+  ownerId         String
+  email           String
+  token           String    @unique // 64 hex chars (32 bytes random)
+  shortCode       String    @unique // "HL-XXXXXX" — dùng cho UX nhập tay
+  status          String    @default("pending") // pending | accepted | expired | cancelled
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  acceptedUserId  String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  homestay Homestay    @relation(fields: [homestayId], references: [id], onDelete: Cascade)
-  images   RoomImage[]
-  price    RoomPrice?
-  bookings Booking[]
+  owner        User  @relation("InviteOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  acceptedUser User? @relation("InviteAcceptedUser", fields: [acceptedUserId], references: [id])
 
-  @@map("rooms")
+  @@index([ownerId, status])
+  @@index([email, status])
+  @@map("staff_invites")
 }
 
-model RoomImage {
+model UserPermission {
+  id        String  @id @default(uuid())
+  userId    String
+  module    String  // properties | bookings | calendar | reviews
+  canCreate Boolean @default(false)
+  canRead   Boolean @default(true)
+  canUpdate Boolean @default(false)
+  canDelete Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module])
+  @@index([userId])
+  @@map("user_permissions")
+}
+
+model Property {
+  id                 String   @id @default(uuid())
+  ownerId            String
+  name               String
+  type               Int      @default(1) // 0=VILLA, 1=HOMESTAY, 2=HOTEL
+  code               String   @unique
+  isActive           Boolean  @default(true)
+
+  // View
+  view               String?  // "sea", "city", null
+
+  // Location
+  address            String?
+  latitude           Float?
+  longitude          Float?
+  mapLink            String?
+
+  // Specs
+  bedrooms           Int      @default(1)
+  bathrooms          Int      @default(1)
+  standardGuests     Int      @default(2)
+  maxGuests          Int      @default(2)
+
+  // Pricing
+  weekdayPrice       Float?
+  weekendPrice       Float?
+  holidayPrice       Float?
+  adultSurcharge     Float?
+  childSurcharge     Float?
+
+  // Content
+  amenities          String[] @default([])
+  cancellationPolicy Int      @default(0) // 0=FLEXIBLE, 1=MODERATE, 2=STRICT
+  rules              String?
+  services           String[] @default([])
+  description        String?
+
+  // Check in/out
+  checkInTime        String?  @default("14:00")
+  checkOutTime       String?  @default("12:00")
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  deletedAt          DateTime?
+
+  owner         User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  images        PropertyImage[]
+  bookings      Booking[]
+  calendarLocks CalendarLock[]
+  reviews       PropertyReview[]
+
+  @@map("properties")
+}
+
+model PropertyImage {
   id         String   @id @default(uuid())
-  roomId     String
+  propertyId String
   imageUrl   String
-  publicId   String   // Cloudinary public_id để xoá ảnh
+  publicId   String
   isCover    Boolean  @default(false)
   order      Int      @default(0)
   createdAt  DateTime @default(now())
 
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
-  @@map("room_images")
-}
-
-model RoomPrice {
-  id             String   @id @default(uuid())
-  roomId         String   @unique
-  weekdayPrice   Float    @default(0)
-  fridayPrice    Float    @default(0)
-  saturdayPrice  Float    @default(0)
-  holidayPrice   Float    @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
-
-  @@map("room_prices")
+  @@map("property_images")
 }
 
 model Booking {
-  id             String        @id @default(uuid())
-  roomId         String
+  id             String    @id @default(uuid())
+  propertyId     String
   saleId         String?
   customerId     String?
-  checkinDate    DateTime
-  checkoutDate   DateTime
-  status         BookingStatus @default(HOLD)
-  holdExpireAt   DateTime?
   customerName   String?
   customerPhone  String?
+  checkinDate    DateTime
+  checkoutDate   DateTime
+  status         Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED
+  holdExpireAt   DateTime?
   depositAmount  Float?
-  guestCount     Int           @default(2)
+  guestCount     Int       @default(2)
   notes          String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  room     Room  @relation(fields: [roomId], references: [id])
-  sale     User? @relation("SaleBookings", fields: [saleId], references: [id])
-  customer User? @relation("CustomerBookings", fields: [customerId], references: [id])
+  property Property        @relation(fields: [propertyId], references: [id])
+  sale     User?           @relation("SaleBookings", fields: [saleId], references: [id])
+  customer User?           @relation("CustomerBookings", fields: [customerId], references: [id])
+  review   PropertyReview?
 
   @@map("bookings")
+}
+
+model CalendarLock {
+  id         String   @id @default(uuid())
+  propertyId String
+  date       DateTime
+  status     Int      @default(0) // 0=LOCKED, 1=BOOKED
+  createdAt  DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("calendar_locks")
+}
+
+model AppVersion {
+  id                  String   @id @default(uuid())
+  platform            String   @unique // ios | android
+  latestVersion       String   // e.g. "1.2.0"
+  minSupportedVersion String   // e.g. "1.0.0"
+  releaseNotes        String?
+  storeUrl            String   // App Store / Play Store URL
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("app_versions")
 }
 
 model PartnerKey {
@@ -140,4 +242,196 @@ model PartnerKey {
   updatedAt   DateTime @updatedAt
 
   @@map("partner_keys")
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  userId     String
+  title      String
+  subtitle   String?
+  type       Int      @default(2) // 0=BOOKING, 1=PAYMENT, 2=SYSTEM
+  isRead     Boolean  @default(false)
+  targetId   String?
+  targetType String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+
+model PropertyReview {
+  id          String    @id @default(uuid())
+  propertyId  String
+  bookingId   String    @unique
+  customerId  String
+
+  // 6 score (1-5)
+  cleanliness Int
+  location    Int
+  amenities   Int
+  service     Int
+  value       Int
+  accuracy    Int
+
+  // Avg pre-computed = (c+l+a+s+v+ac) / 6.0
+  avgRating   Float
+
+  comment     String?
+  photos      Json?     // ["url1", "url2", ...]
+
+  // Owner reply
+  ownerReply   String?
+  ownerReplyAt DateTime?
+
+  // Admin moderation
+  isHidden     Boolean  @default(false)
+  hiddenReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  booking  Booking  @relation(fields: [bookingId], references: [id])
+  customer User     @relation(fields: [customerId], references: [id])
+
+  @@index([propertyId])
+  @@index([customerId])
+  @@map("property_reviews")
+}
+
+// ─── KYC ──────────────────────────────────────────────────────────────────────
+
+model KycSubmission {
+  id             String    @id @default(uuid())
+  userId         String
+  status         String    @default("draft") // draft | kyc_submitted | payment_pending | awaiting_approval | approved | rejected | refunded
+  rejectReason   String?
+  rejectedItems  String[]  @default([]) // ["cccdFront","cccdBack","selfie"]
+  approvedAt     DateTime?
+  approvedById   String?
+  trialEndsAt    DateTime?
+  chargeStartsAt DateTime?
+  expectedRooms  Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User?         @relation("ApprovedBy", fields: [approvedById], references: [id])
+  uploads    KycUpload[]
+  payments   PaymentSession[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_submissions")
+}
+
+model KycUpload {
+  id               String   @id @default(uuid())
+  submissionId     String
+  type             String   // cccd_front | cccd_back | selfie
+  imageUrl         String
+  imageUrlThumb    String?
+  publicId         String?
+  ocrResult        Json?
+  ocrConfidence    Float?
+  faceMatchScore   Float?
+  livenessScore    Float?
+  provider         String?  // fpt_ai | vnpt_ekyc | manual
+  providerRequestId String?
+  uploadedAt       DateTime @default(now())
+
+  submission KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, type])
+  @@index([submissionId])
+  @@map("kyc_uploads")
+}
+
+// ─── Billing ──────────────────────────────────────────────────────────────────
+
+model BillingPlan {
+  id                String   @id // starter | professional | enterprise
+  name              String
+  pricePerRoom      Int      // VND/month
+  minCharge         Int      // VND/month (floor)
+  maxRooms          Int?     // null = unlimited
+  yearlyDiscountPct Float    @default(20)
+  vatPct            Float    @default(10)
+  features          String[] @default([])
+  active            Boolean  @default(true)
+  sortOrder         Int      @default(0)
+
+  payments      PaymentSession[]
+  subscriptions Subscription[]
+
+  @@map("billing_plans")
+}
+
+// ─── Subscription ─────────────────────────────────────────────────────────────
+
+model Subscription {
+  id        String    @id @default(uuid())
+  userId    String
+  planId    String
+  cycle     String    // monthly | yearly
+  rooms     Int       @default(1)
+  status    String    @default("trial") // trial | active | past_due | cancelled
+  startsAt  DateTime  @default(now())
+  endsAt    DateTime
+  cancelledAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan BillingPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId])
+  @@index([status, endsAt])
+  @@map("subscriptions")
+}
+
+// ─── Payment ──────────────────────────────────────────────────────────────────
+
+model PaymentSession {
+  id              String    @id @default(uuid())
+  userId          String
+  submissionId    String?                       // null for renew/upgrade payments
+  kind            String    @default("subscription") // subscription | renew | upgrade | refund
+  planId          String
+  planLabel       String?                       // denormalized for history display
+  cycle           String    // monthly | yearly
+  rooms           Int
+  totalAmount     Int       // VND, includes VAT
+  method          String    // vnpay_qr | bank_transfer | card
+  status          String    @default("pending") // pending | paid | failed | expired | refunded
+  qrCode          String?                       // EMV payload string
+  bankInfo        Json?
+  redirectUrl     String?
+  payUrl          String?                       // VNPay gateway URL
+  provider        String?                       // vnpay | momo | manual_bank | casso | sepay
+  providerTxnId   String?
+  providerPayload Json?
+  referenceCode   String?                       // VNPay TxnNo / bank tid
+  invoiceNumber   String?   @unique             // INV-YYYY-NNNN
+  settledAt       DateTime?                     // alias for paidAt for clearer history field
+  paidAt          DateTime?
+  refundedAt      DateTime?
+  refundedAmount  Int?
+  refundOfId      String?                       // links refund row → original payment row
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submission KycSubmission? @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  plan       BillingPlan    @relation(fields: [planId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([submissionId])
+  @@index([status, expiresAt])
+  @@map("payment_sessions")
 }

@@ -1,4 +1,10 @@
 export const vi = {
+  // ─── Common ─────────────────────────────────────────────────────────────────
+  common: {
+    serverError: 'Lỗi server',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
+  },
+
   // ─── Auth ───────────────────────────────────────────────────────────────────
   auth: {
     invalidCredentials: 'Số điện thoại hoặc mật khẩu không đúng',
@@ -8,17 +14,28 @@ export const vi = {
     accountDisabled: 'Tài khoản không tồn tại hoặc đã bị vô hiệu hóa',
     loginSuccess: 'Đăng nhập thành công',
     registerSuccess: 'Đăng ký thành công',
-    invalidRole: 'Role không hợp lệ. Chỉ chấp nhận STAFF hoặc CUSTOMER',
+    invalidRole: 'Role không hợp lệ. Chỉ chấp nhận OWNER, SALE hoặc CUSTOMER',
     phoneDuplicate: 'Số điện thoại đã được đăng ký',
     emailDuplicate: 'Email đã được sử dụng',
-    googleTokenInvalid: 'Google token không hợp lệ',
-    googleRoleRequired: 'Vui lòng chọn role khi đăng ký lần đầu bằng Google',
+    googleTokenInvalid: 'Token Google không hợp lệ',
+    googleRoleRequired: 'Thiếu role cho user mới',
+    googleAdminForbidden: 'Không thể đăng ký role admin qua Google',
+    googleSaleForbidden: 'Nhân viên (SALE) phải accept invite từ chủ homestay, không thể tự đăng ký. Liên hệ chủ homestay của bạn để được mời.',
+    googleRoleInvalid: 'Role không hợp lệ',
+    googleEmailNotVerified: 'Email Google chưa được xác thực',
+    googleNewUserPrompt: 'Vui lòng chọn vai trò',
+    appleTokenInvalid: 'Token Apple không hợp lệ',
+    appleEmailRequired: 'Apple không trả email — vui lòng cho phép chia sẻ email khi đăng nhập',
+    accountInactive: 'Tài khoản đã bị vô hiệu hoá',
+    tooManyRegisters: 'Đã đăng ký quá nhiều tài khoản từ thiết bị/mạng này. Thử lại sau 24 giờ.',
     forgotPasswordSuccess: 'Đã gửi mã xác nhận',
     resetPasswordSuccess: 'Đặt lại mật khẩu thành công',
     resetTokenInvalid: 'Token đặt lại mật khẩu không hợp lệ',
     refreshSuccess: 'Refresh token thành công',
     logoutSuccess: 'Đăng xuất thành công',
     profileSuccess: 'Lấy thông tin thành công',
+    changePasswordSuccess: 'Đổi mật khẩu thành công',
+    currentPasswordIncorrect: 'Mật khẩu hiện tại không đúng',
   },
 
   // ─── API Key ─────────────────────────────────────────────────────────────────
@@ -31,53 +48,48 @@ export const vi = {
   users: {
     notFound: 'Người dùng không tồn tại',
     phoneDuplicate: 'Số điện thoại đã được sử dụng',
+    emailDuplicate: 'Email đã được sử dụng',
     cannotDeleteSelf: 'Không thể xoá tài khoản của chính mình',
+    selfDeleteSuccess: 'Tài khoản đã được xoá thành công',
     adminNotFound: 'Không tìm thấy admin',
     listSuccess: 'Lấy danh sách người dùng thành công',
     getSuccess: 'Lấy thông tin người dùng thành công',
     createSuccess: 'Tạo người dùng thành công',
     updateSuccess: 'Cập nhật người dùng thành công',
     disableSuccess: 'Vô hiệu hóa người dùng thành công',
+    staffListSuccess: 'Lấy danh sách nhân viên thành công',
+    staffAddSuccess: 'Thêm nhân viên thành công',
+    staffRemoveSuccess: 'Đã gỡ nhân viên khỏi đội của bạn',
+    staffNotFound: 'Nhân viên không tồn tại hoặc không thuộc đội của bạn',
+    staffAlreadyAssigned: 'Người dùng này đã thuộc về một chủ nhà khác',
+    staffOnlySaleRole: 'Chỉ tài khoản có role SALE mới được thêm làm nhân viên',
+    staffUserNotFound: 'Không tìm thấy người dùng với số điện thoại này',
+    onlyOwnerCanManageStaff: 'Chỉ chủ nhà (OWNER) mới có thể quản lý nhân viên',
+    saleNotAssigned: 'Bạn chưa được gán cho chủ nhà nào',
+    kycBypassGranted: 'Đã cấp quyền bỏ qua KYC — người dùng có thể quản lý cơ sở mà không cần KYC',
+    kycBypassRevoked: 'Đã thu hồi quyền bỏ qua KYC — người dùng cần hoàn thành KYC để quản lý cơ sở',
   },
 
-  // ─── Homestays ───────────────────────────────────────────────────────────────
-  homestays: {
-    notFound: 'Homestay không tồn tại',
-    ownerNotFound: 'Owner không tồn tại',
-    forbidden: 'Bạn không có quyền truy cập homestay này',
-    listSuccess: 'Lấy danh sách homestay thành công',
-    getSuccess: 'Lấy thông tin homestay thành công',
-    createSuccess: 'Tạo homestay thành công',
-    updateSuccess: 'Cập nhật homestay thành công',
-    deleteSuccess: 'Xoá homestay thành công',
-  },
-
-  // ─── Rooms ───────────────────────────────────────────────────────────────────
-  rooms: {
-    notFound: 'Phòng không tồn tại',
-    codeDuplicate: 'Mã phòng đã tồn tại',
+  // ─── Properties ──────────────────────────────────────────────────────────────
+  properties: {
+    notFound: 'Cơ sở không tồn tại',
+    ownerNotFound: 'Chủ cơ sở không tồn tại',
+    codeDuplicate: 'Mã cơ sở đã tồn tại',
+    forbidden: 'Bạn không có quyền truy cập cơ sở này',
     imageNotFound: 'Ảnh không tồn tại',
-    maxImages: (max: number) => `Tối đa ${max} ảnh mỗi phòng`,
+    noFiles: 'Không có file ảnh. Field name phải là "images"',
+    maxImages: (max: number) => `Tối đa ${max} ảnh mỗi cơ sở`,
     uploadSuccess: (count: number) => `Upload ${count} ảnh thành công`,
-    forbiddenAdd: 'Bạn không có quyền thêm phòng vào homestay này',
-    forbidden: 'Bạn không có quyền thao tác phòng này',
-    listSuccess: 'Lấy danh sách phòng thành công',
-    publicListSuccess: 'Lấy danh sách phòng công khai thành công',
-    getSuccess: 'Lấy thông tin phòng thành công',
-    createSuccess: 'Tạo phòng thành công',
-    updateSuccess: 'Cập nhật phòng thành công',
-    deleteSuccess: 'Xoá phòng thành công',
+    listSuccess: 'Lấy danh sách cơ sở thành công',
+    publicListSuccess: 'Lấy danh sách cơ sở công khai thành công',
+    getSuccess: 'Lấy thông tin cơ sở thành công',
+    createSuccess: 'Tạo cơ sở thành công',
+    updateSuccess: 'Cập nhật cơ sở thành công',
+    deleteSuccess: 'Xoá cơ sở thành công',
     deleteImageSuccess: 'Xoá ảnh thành công',
     setCoverSuccess: 'Đặt ảnh cover thành công',
-    calendarSuccess: 'Lấy lịch phòng thành công',
-  },
-
-  // ─── Prices ──────────────────────────────────────────────────────────────────
-  prices: {
-    notFound: 'Chưa có giá cho phòng này',
-    forbidden: 'Bạn không có quyền cập nhật giá phòng này',
-    getSuccess: 'Lấy giá phòng thành công',
-    upsertSuccess: 'Cập nhật giá phòng thành công',
+    updatePricesSuccess: 'Cập nhật giá cơ sở thành công',
+    shareSuccess: 'Lấy thông tin chia sẻ cơ sở thành công',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -85,8 +97,8 @@ export const vi = {
     notFound: 'Booking không tồn tại',
     checkoutBeforeCheckin: 'Ngày check-out phải sau ngày check-in',
     checkinInPast: 'Ngày check-in không thể trong quá khứ',
-    roomAlreadyBooked: 'Phòng đã được đặt trong khoảng thời gian này',
-    roomOnHold: (minutes: number) => `Phòng đang được giữ, còn ${minutes} phút nữa sẽ tự động huỷ`,
+    propertyAlreadyBooked: 'Cơ sở đã được đặt trong khoảng thời gian này',
+    propertyOnHold: (minutes: number) => `Cơ sở đang được giữ, còn ${minutes} phút nữa sẽ tự động huỷ`,
     onlyConfirmHold: 'Chỉ có thể xác nhận booking đang ở trạng thái HOLD',
     alreadyCancelled: 'Booking đã bị huỷ trước đó',
     forbiddenConfirm: 'Bạn không có quyền xác nhận booking này',
@@ -94,14 +106,15 @@ export const vi = {
     forbidden: 'Bạn không có quyền thực hiện thao tác này',
     listSuccess: 'Lấy danh sách booking thành công',
     getSuccess: 'Lấy thông tin booking thành công',
-    holdSuccess: 'Giữ phòng thành công (30 phút)',
-    customerHoldSuccess: 'Đặt phòng thành công, chờ xác nhận trong 24 giờ',
+    holdSuccess: 'Giữ chỗ thành công (30 phút)',
+    customerHoldSuccess: 'Đặt chỗ thành công, chờ xác nhận trong 24 giờ',
     myListSuccess: 'Lấy danh sách booking của bạn thành công',
-    customerCancelSuccess: 'Đã huỷ đặt phòng',
+    customerCancelSuccess: 'Đã huỷ đặt chỗ',
     cannotCancelConfirmed: 'Không thể huỷ booking đã xác nhận, vui lòng liên hệ nhân viên',
     notYourBooking: 'Booking này không thuộc về bạn',
     onlyCancelHold: 'Chỉ có thể huỷ booking đang ở trạng thái HOLD',
-    roomNotAvailable: 'Phòng đã được đặt trong khoảng thời gian này',
+    propertyNotAvailable: 'Cơ sở đã được đặt trong khoảng thời gian này',
+    dateLocked: 'Một số ngày trong khoảng này đã bị khoá, giữ chỗ hoặc đã bán',
     confirmSuccess: 'Xác nhận booking thành công',
     cancelSuccess: 'Huỷ booking thành công',
     updateSuccess: 'Cập nhật booking thành công',
@@ -109,10 +122,165 @@ export const vi = {
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
   partner: {
-    listSuccess: 'Lấy danh sách phòng thành công',
-    getSuccess: 'Lấy thông tin phòng thành công',
+    listSuccess: 'Lấy danh sách cơ sở thành công',
+    getSuccess: 'Lấy thông tin cơ sở thành công',
     availabilitySuccess: 'Lấy lịch trống thành công',
     bookingSuccess: 'Tạo booking thành công, chờ xác nhận',
     cancelSuccess: 'Huỷ booking thành công',
+  },
+
+  // ─── Calendar ───────────────────────────────────────────────────────────────
+  calendar: {
+    propertyListSuccess: 'Lấy danh sách property cho calendar thành công',
+    gridSuccess: 'Lấy dữ liệu lịch thành công',
+    lockSuccess: 'Khoá ngày thành công',
+    unlockSuccess: 'Mở khoá ngày thành công',
+    adminContactSuccess: 'Lấy thông tin liên hệ admin thành công',
+    soldSuccess: 'Đánh dấu đã bán thành công',
+    dateAlreadyLocked: 'Ngày này đã được khoá hoặc đặt',
+    lockNotFound: 'Không tìm thấy ngày bị khoá',
+    propertyNotFound: 'Cơ sở không tồn tại',
+  },
+
+  // ─── Notifications ──────────────────────────────────────────────────────────
+  notifications: {
+    listSuccess: 'Lấy danh sách thông báo thành công',
+    unreadCountSuccess: 'Lấy số thông báo chưa đọc thành công',
+    markReadSuccess: 'Đánh dấu đã đọc thành công',
+    markAllReadSuccess: 'Đánh dấu tất cả đã đọc thành công',
+    notFound: 'Thông báo không tồn tại',
+  },
+
+  // ─── App Version ────────────────────────────────────────────────────────────
+  appVersion: {
+    success: 'Lấy thông tin phiên bản thành công',
+    updateSuccess: 'Cập nhật phiên bản app thành công',
+  },
+
+  // ─── Devices (FCM push tokens) ──────────────────────────────────────────────
+  devices: {
+    registerSuccess: 'Đăng ký thiết bị nhận thông báo thành công',
+    unregisterSuccess: 'Đã huỷ đăng ký thiết bị',
+    listSuccess: 'Lấy danh sách thiết bị thành công',
+  },
+
+  // ─── Dashboard ──────────────────────────────────────────────────────────────
+  dashboard: {
+    statsSuccess: 'Lấy thống kê dashboard thành công',
+    reportsSuccess: 'Lấy dữ liệu báo cáo thành công',
+    missingDateRange: 'Vui lòng cung cấp from và to khi dùng period=custom',
+    invalidDateRange: 'Ngày from phải trước ngày to',
+  },
+
+  // ─── Reviews ───────────────────────────────────────────────────────────────
+  reviews: {
+    createSuccess: 'Đánh giá đã được gửi',
+    listSuccess: 'Lấy danh sách đánh giá thành công',
+    replySuccess: 'Đã trả lời đánh giá',
+    hideSuccess: 'Đã ẩn đánh giá',
+    notFound: 'Đánh giá không tồn tại',
+    propertyNotFound: 'Cơ sở không tồn tại',
+    notYourBooking: 'Booking này không thuộc về bạn',
+    bookingNotCompleted: 'Booking chưa hoàn thành, không thể đánh giá',
+    alreadyReviewed: 'Booking này đã được đánh giá rồi',
+    invalidScore: 'Điểm đánh giá phải là số nguyên từ 1 đến 5',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
+  },
+
+  // ─── KYC ───────────────────────────────────────────────────────────────────
+  kyc: {
+    submissionNotFound: 'Không tìm thấy hồ sơ xác minh',
+    submissionNotOwned: 'Bạn không có quyền truy cập hồ sơ này',
+    uploadSuccess: 'Upload ảnh thành công',
+    ocrFailed: 'Không nhận diện được CCCD. Hãy chụp lại với ánh sáng tốt hơn.',
+    faceDetectionFailed: 'Không phát hiện khuôn mặt trong ảnh selfie.',
+    incompleteKyc: 'Cần upload đủ CCCD trước, sau và selfie trước khi gửi.',
+    submitSuccess: 'Gửi hồ sơ xác minh chờ duyệt thành công',
+    cannotSubmit: 'Không thể gửi hồ sơ ở trạng thái hiện tại',
+    resubmitSuccess: 'Gửi lại thành công, vui lòng upload lại các mục bị từ chối',
+    cannotResubmit: 'Không thể gửi lại hồ sơ ở trạng thái hiện tại',
+    getSuccess: 'Lấy thông tin hồ sơ xác minh thành công',
+    statusSuccess: 'Lấy trạng thái KYC thành công',
+    ownerNotVerified: 'Chủ nhà chưa hoàn thành xác minh danh tính',
+    kycRequired: 'Bạn cần hoàn thành xác minh KYC trước khi quản lý cơ sở',
+  },
+
+  // ─── Billing ───────────────────────────────────────────────────────────────
+  billing: {
+    listSuccess: 'Lấy danh sách gói dịch vụ thành công',
+    planNotFound: 'Gói không tồn tại hoặc đã ngừng cung cấp',
+    roomCountExceedsPlan: 'Số phòng vượt quá giới hạn của gói',
+  },
+
+  // ─── Payment ───────────────────────────────────────────────────────────────
+  payment: {
+    initiateSuccess: 'Tạo phiên thanh toán thành công',
+    statusSuccess: 'Lấy trạng thái thanh toán thành công',
+    amountMismatch: 'Số tiền thanh toán không khớp với gói đã chọn',
+    invalidPlan: 'Gói không tồn tại hoặc đã ngừng cung cấp',
+    sessionNotFound: 'Không tìm thấy phiên thanh toán',
+    sessionExpired: 'Phiên thanh toán đã hết hạn. Vui lòng tạo mới.',
+    alreadyPaid: 'Hồ sơ này đã thanh toán rồi',
+    refundSuccess: 'Yêu cầu hoàn tiền đã được gửi',
+    alreadyRefunded: 'Giao dịch này đã được hoàn tiền',
+    cannotRefund: 'Không thể hoàn tiền ở trạng thái hiện tại',
+    webhookSuccess: 'Webhook xử lý thành công',
+    historySuccess: 'Lấy lịch sử thanh toán thành công',
+    renewSuccess: 'Tạo phiên gia hạn thành công',
+    noActiveSubscription: 'Bạn chưa có gói đăng ký để gia hạn',
+    invalidWebhookSecret: 'Webhook secret không hợp lệ',
+    invalidSignature: 'Chữ ký không hợp lệ',
+    cannotMatchTransfer: 'Không xác định được phiên thanh toán từ nội dung chuyển khoản',
+  },
+
+  // ─── Permissions ───────────────────────────────────────────────────────────
+  permissions: {
+    getSuccess: 'Lấy quyền thành công',
+    setSuccess: 'Cập nhật quyền thành công',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    invalidModule: (mod: string) => `Module quyền không hợp lệ: ${mod}`,
+  },
+
+  // ─── Staff Invites ─────────────────────────────────────────────────────────
+  staff: {
+    ownerOnly: 'Chỉ chủ homestay (OWNER) được mời nhân viên',
+    kycRequired: 'Cần hoàn tất KYC trước khi mời nhân viên',
+    subscriptionRequired: 'Cần subscription đang hoạt động để mời nhân viên',
+    emailInvalid: 'Email không hợp lệ',
+    inviteSelf: 'Không thể tự mời chính mình',
+    emailHasAccount: 'Email đã có tài khoản. Liên hệ chủ tài khoản đó.',
+    invitePendingDuplicate: 'Đã có lời mời chờ accept cho email này',
+    inviteCreateSuccess: (email: string) => `Đã gửi lời mời tới ${email}`,
+    inviteListSuccess: 'Lấy danh sách lời mời thành công',
+    inviteCancelSuccess: 'Đã huỷ lời mời',
+    inviteVerifySuccess: 'Mã mời hợp lệ',
+    inviteAcceptSuccess: 'Chấp nhận lời mời thành công',
+    inviteNotFound: 'Mã mời không hợp lệ',
+    inviteExpired: 'Mã mời đã hết hạn. Đề nghị OWNER gửi lại.',
+    inviteAlreadyAccepted: 'Mã mời đã được sử dụng',
+    inviteCancelled: 'Mã mời đã bị huỷ',
+    inviteOnlyPendingCancel: 'Chỉ huỷ được lời mời chưa được chấp nhận',
+    inviteForbidden: 'Lời mời không thuộc về bạn',
+    methodInvalid: 'Phương thức đăng ký không hợp lệ',
+    emailMismatch: 'Email Google không khớp với email được mời',
+    passwordTooShort: 'Mật khẩu tối thiểu 8 ký tự',
+    nameRequired: 'Cần điền họ tên',
+    phoneInvalid: 'Số điện thoại không hợp lệ',
+    emailFailedToSend: 'Gửi email thất bại — kiểm tra cấu hình SMTP',
+    listSuccess: 'Lấy danh sách nhân viên thành công',
+    removeSuccess: 'Đã gỡ nhân viên khỏi đội của bạn',
+    notFound: 'Nhân viên không tồn tại hoặc không thuộc đội của bạn',
+    cannotRemoveSelf: 'Không thể xoá tài khoản của chính mình',
+    notifyInviteAcceptedTitle: 'Nhân viên mới đã tham gia',
+    notifyInviteAcceptedBody: (name: string, email: string) => `${name} (${email}) đã chấp nhận lời mời và gia nhập đội của bạn`,
+  },
+
+  // ─── Admin KYC ─────────────────────────────────────────────────────────────
+  adminKyc: {
+    queueSuccess: 'Lấy danh sách chờ duyệt thành công',
+    approveSuccess: 'Duyệt hồ sơ xác minh thành công',
+    rejectSuccess: 'Từ chối hồ sơ xác minh thành công',
+    alreadyProcessed: 'Hồ sơ này đã được xử lý rồi',
+    invalidStatus: 'Hồ sơ không ở trạng thái chờ duyệt',
   },
 };

@@ -12,7 +12,8 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
-import { BookingStatus, Role } from '@prisma/client';
+import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
@@ -22,27 +23,35 @@ export class BookingsService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private notifications: NotificationsService,
   ) {}
 
   // ─── Staff/Admin Methods ──────────────────────────────────────────────────
 
-  async findAll(user: { id: string; role: Role }, msg: Messages, roomId?: string) {
+  async findAll(
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+    propertyId?: string,
+    status?: number,
+  ) {
     const where: any = {};
 
-    if (roomId) where.roomId = roomId;
+    if (propertyId) where.propertyId = propertyId;
+    if (status !== undefined) where.status = status;
 
-    // Staff only sees bookings they created
-    if (user.role === Role.STAFF) {
-      where.saleId = user.id;
+    // Scope by property ownership
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId) {
+      where.property = { ownerId: effectiveOwnerId };
     }
 
     const bookings = await this.prisma.booking.findMany({
       where,
       include: {
-        room: {
+        property: {
           select: {
-            id: true, name: true, code: true,
-            homestay: { select: { id: true, name: true } },
+            id: true, name: true, code: true, type: true,
+            images: { where: { isCover: true }, take: 1 },
           },
         },
         sale: { select: { id: true, name: true, phone: true } },
@@ -52,7 +61,7 @@ export class BookingsService {
 
     const bookingsWithHoldTtl = bookings.map((booking) => {
       let holdRemainingSeconds = 0;
-      if (booking.status === BookingStatus.HOLD && booking.holdExpireAt) {
+      if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
         holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
       }
       return { ...booking, holdRemainingSeconds };
@@ -61,15 +70,14 @@ export class BookingsService {
     return { message: msg.bookings.listSuccess, data: bookingsWithHoldTtl };
   }
 
-  async findOne(id: string, user: { id: string; role: Role }, msg: Messages) {
+  async findOne(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: {
-        room: {
+        property: {
           include: {
-            homestay: true,
             images: { orderBy: { order: 'asc' }, take: 5 },
-            price: true,
+            owner: { select: { id: true, name: true, phone: true } },
           },
         },
         sale: { select: { id: true, name: true, phone: true } },
@@ -77,10 +85,10 @@ export class BookingsService {
     });
 
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
-    await this.checkBookingAccess(booking, user, msg);
+    this.checkBookingAccess(booking, user, msg);
 
     let holdRemainingSeconds = 0;
-    if (booking.status === BookingStatus.HOLD && booking.holdExpireAt) {
+    if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
       holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
     }
 
@@ -90,11 +98,16 @@ export class BookingsService {
     };
   }
 
-  async holdRoom(dto: CreateBookingDto, user: { id: string; role: Role }, msg: Messages) {
-    const { roomId, checkinDate, checkoutDate } = dto;
+  /** Parse 'YYYY-MM-DD' → UTC midnight Date */
+  private toUTCDate(dateStr: string): Date {
+    return new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+  }
 
-    const checkin = new Date(checkinDate);
-    const checkout = new Date(checkoutDate);
+  async holdProperty(dto: CreateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const { propertyId, checkinDate, checkoutDate } = dto;
+
+    const checkin = this.toUTCDate(checkinDate);
+    const checkout = this.toUTCDate(checkoutDate);
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
@@ -102,62 +115,93 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.checkinInPast);
     }
 
-    const room = await this.prisma.room.findUnique({ where: { id: roomId } });
-    if (!room || !room.isActive) throw new NotFoundException(msg.rooms.notFound);
+    const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
-    // Check Redis hold
-    const existingHold = await this.redis.getHold(roomId);
-    if (existingHold) {
-      const holdBooking = await this.prisma.booking.findFirst({
-        where: { id: existingHold, status: BookingStatus.HOLD },
-        select: { saleId: true },
-      });
-      if (holdBooking && holdBooking.saleId !== user.id) {
-        const ttl = await this.redis.getHoldTtl(roomId);
-        throw new BadRequestException(msg.bookings.roomOnHold(Math.ceil(ttl / 60)));
-      }
-    }
-
-    // Check date conflicts
+    // Check date conflicts (both HOLD and CONFIRMED)
     const conflict = await this.prisma.booking.findFirst({
       where: {
-        roomId,
-        status: { in: [BookingStatus.CONFIRMED] },
+        propertyId,
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
         checkinDate: { lt: checkout },
         checkoutDate: { gt: checkin },
       },
     });
     if (conflict) {
-      throw new BadRequestException(msg.bookings.roomAlreadyBooked);
+      if (conflict.status === BOOKING_STATUS.CONFIRMED) {
+        throw new BadRequestException(msg.bookings.propertyAlreadyBooked);
+      }
+      // HOLD by another user → block
+      if (conflict.saleId !== user.id) {
+        const holdRemaining = conflict.holdExpireAt
+          ? Math.max(0, Math.ceil((conflict.holdExpireAt.getTime() - Date.now()) / 60000))
+          : 30;
+        throw new BadRequestException(msg.bookings.propertyOnHold(holdRemaining));
+      }
     }
 
-    // Cancel existing holds for this room
-    await this.prisma.booking.updateMany({
-      where: { roomId, status: BookingStatus.HOLD },
-      data: { status: BookingStatus.CANCELLED },
+    // Check calendar lock conflicts (locked/hold/booked dates)
+    const lockConflict = await this.prisma.calendarLock.findFirst({
+      where: {
+        propertyId,
+        date: { gte: checkin, lt: checkout },
+      },
     });
+    if (lockConflict) {
+      throw new BadRequestException(msg.bookings.dateLocked);
+    }
+
+    // Cancel only overlapping holds for this property
+    const overlappingHolds = await this.prisma.booking.findMany({
+      where: {
+        propertyId,
+        status: BOOKING_STATUS.HOLD,
+        checkinDate: { lt: checkout },
+        checkoutDate: { gt: checkin },
+      },
+      select: { id: true },
+    });
+    if (overlappingHolds.length > 0) {
+      await this.prisma.booking.updateMany({
+        where: { id: { in: overlappingHolds.map(h => h.id) } },
+        data: { status: BOOKING_STATUS.CANCELLED },
+      });
+      await Promise.all(overlappingHolds.map(h => this.redis.delHold(h.id)));
+    }
 
     const holdExpireAt = new Date(Date.now() + STAFF_HOLD_DURATION_SECONDS * 1000);
     const booking = await this.prisma.booking.create({
       data: {
-        roomId,
+        propertyId,
         saleId: user.id,
         checkinDate: checkin,
         checkoutDate: checkout,
-        status: BookingStatus.HOLD,
+        status: BOOKING_STATUS.HOLD,
         holdExpireAt,
         customerName: dto.customerName,
         customerPhone: dto.customerPhone,
         depositAmount: dto.depositAmount,
+        guestCount: dto.guestCount || 2,
         notes: dto.notes,
       },
       include: {
-        room: { select: { id: true, name: true, code: true } },
+        property: { select: { id: true, name: true, code: true } },
         sale: { select: { id: true, name: true } },
       },
     });
 
-    await this.redis.setHold(roomId, booking.id, STAFF_HOLD_DURATION_SECONDS);
+    await this.redis.setHold(booking.id, STAFF_HOLD_DURATION_SECONDS);
+
+    // Notify owner
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Booking mới — Giữ chỗ',
+      `${booking.property.name} (${booking.property.code}) được giữ chỗ bởi ${booking.sale?.name || 'Staff'}`,
+      NOTIFICATION_TYPE.BOOKING,
+      booking.id,
+      'booking',
+      { pushType: 'booking_created', deepLink: `/bookings/${booking.id}` },
+    );
 
     return {
       message: msg.bookings.holdSuccess,
@@ -165,94 +209,126 @@ export class BookingsService {
     };
   }
 
-  async confirmBooking(id: string, user: { id: string; role: Role }, msg: Messages) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async confirmBooking(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { ownerId: true } } },
+    });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
-    if (booking.status !== BookingStatus.HOLD) {
+    this.checkBookingAccess(booking, user, msg);
+
+    if (booking.status !== BOOKING_STATUS.HOLD) {
       throw new BadRequestException(msg.bookings.onlyConfirmHold);
     }
 
     const confirmed = await this.prisma.booking.update({
       where: { id },
-      data: { status: BookingStatus.CONFIRMED, holdExpireAt: null },
+      data: { status: BOOKING_STATUS.CONFIRMED, holdExpireAt: null },
+      include: {
+        property: { select: { id: true, name: true, code: true } },
+      },
     });
 
-    await this.redis.delHold(booking.roomId);
+    await this.redis.delHold(id);
+
+    // Notify owner + customer
+    await this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Booking được xác nhận',
+      `${confirmed.property.name} (${confirmed.property.code}) — booking đã xác nhận`,
+      NOTIFICATION_TYPE.BOOKING,
+      id,
+      'booking',
+      { pushType: 'booking_confirmed', deepLink: `/bookings/${id}` },
+    );
+    if (booking.customerId) {
+      await this.notifications.notifyUser(
+        booking.customerId,
+        'Đặt phòng được xác nhận',
+        `Phòng ${confirmed.property.name} đã được xác nhận`,
+        NOTIFICATION_TYPE.BOOKING,
+        id,
+        'booking',
+        { pushType: 'booking_confirmed', deepLink: '/my-bookings' },
+      );
+    }
 
     return { message: msg.bookings.confirmSuccess, data: confirmed };
   }
 
-  async cancelBooking(id: string, user: { id: string; role: Role }, msg: Messages) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async cancelBooking(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { ownerId: true } } },
+    });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
-    await this.checkBookingAccess(booking, user, msg);
+    this.checkBookingAccess(booking, user, msg);
 
-    if (booking.status === BookingStatus.CANCELLED) {
+    if (booking.status === BOOKING_STATUS.CANCELLED) {
       throw new BadRequestException(msg.bookings.alreadyCancelled);
     }
 
-    await this.prisma.booking.update({
+    const cancelled = await this.prisma.booking.update({
       where: { id },
-      data: { status: BookingStatus.CANCELLED },
+      data: { status: BOOKING_STATUS.CANCELLED },
+      include: { property: { select: { name: true, code: true } } },
     });
 
-    await this.redis.delHold(booking.roomId);
+    await this.redis.delHold(id);
+
+    // Notify owner + customer (if any)
+    await this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Booking đã bị hủy',
+      `${cancelled.property.name} (${cancelled.property.code}) — booking đã hủy`,
+      NOTIFICATION_TYPE.BOOKING,
+      id,
+      'booking',
+      { pushType: 'booking_cancelled', deepLink: `/bookings/${id}` },
+    );
+    if (booking.customerId) {
+      await this.notifications.notifyUser(
+        booking.customerId,
+        'Đặt phòng đã huỷ',
+        `${cancelled.property.name} đã được huỷ`,
+        NOTIFICATION_TYPE.BOOKING,
+        id,
+        'booking',
+        { pushType: 'booking_cancelled', deepLink: '/my-bookings' },
+      );
+    }
 
     return { message: msg.bookings.cancelSuccess, data: null };
   }
 
-  async update(id: string, dto: UpdateBookingDto, user: { id: string; role: Role }, msg: Messages) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { ownerId: true } } },
+    });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
-    await this.checkBookingAccess(booking, user, msg);
+    this.checkBookingAccess(booking, user, msg);
 
     const updated = await this.prisma.booking.update({
       where: { id },
       data: dto,
+      include: {
+        property: { select: { id: true, name: true, code: true } },
+      },
     });
 
     return { message: msg.bookings.updateSuccess, data: updated };
   }
 
-  async getRoomCalendar(roomId: string, year: number, month: number, msg: Messages) {
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0, 23, 59, 59);
-
-    const bookings = await this.prisma.booking.findMany({
-      where: {
-        roomId,
-        status: { in: [BookingStatus.HOLD, BookingStatus.CONFIRMED] },
-        checkinDate: { lte: endDate },
-        checkoutDate: { gte: startDate },
-      },
-      select: {
-        id: true, checkinDate: true, checkoutDate: true, status: true,
-        customerName: true, holdExpireAt: true,
-        sale: { select: { name: true } },
-      },
-    });
-
-    const result = bookings.map((b) => {
-      let holdRemainingSeconds = 0;
-      if (b.status === BookingStatus.HOLD && b.holdExpireAt) {
-        holdRemainingSeconds = Math.max(0, Math.floor((b.holdExpireAt.getTime() - Date.now()) / 1000));
-      }
-      const { holdExpireAt, ...rest } = b;
-      return { ...rest, holdRemainingSeconds };
-    });
-
-    return { message: msg.rooms.calendarSuccess, data: result };
-  }
-
   // ─── Customer Methods ─────────────────────────────────────────────────────
 
-  async customerHold(dto: CustomerHoldBookingDto, user: { id: string; role: Role }, msg: Messages) {
-    const { roomId, checkinDate, checkoutDate } = dto;
+  async customerHold(dto: CustomerHoldBookingDto, user: { id: string; role: number }, msg: Messages) {
+    const { propertyId, checkinDate, checkoutDate } = dto;
 
-    const checkin = new Date(checkinDate);
-    const checkout = new Date(checkoutDate);
+    const checkin = this.toUTCDate(checkinDate);
+    const checkout = this.toUTCDate(checkoutDate);
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
@@ -260,49 +336,61 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.checkinInPast);
     }
 
-    // Check room exists and is active
-    const room = await this.prisma.room.findUnique({
-      where: { id: roomId },
-      include: { homestay: { select: { name: true } } },
-    });
-    if (!room || !room.isActive) throw new NotFoundException(msg.rooms.notFound);
+    const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
     // Check date conflicts (HOLD + CONFIRMED)
     const conflict = await this.prisma.booking.findFirst({
       where: {
-        roomId,
-        status: { in: [BookingStatus.HOLD, BookingStatus.CONFIRMED] },
+        propertyId,
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
         checkinDate: { lt: checkout },
         checkoutDate: { gt: checkin },
       },
     });
     if (conflict) {
-      throw new ConflictException(msg.bookings.roomNotAvailable);
+      throw new ConflictException(msg.bookings.propertyNotAvailable);
+    }
+
+    // Check calendar lock conflicts (locked/hold/booked dates)
+    const lockConflict = await this.prisma.calendarLock.findFirst({
+      where: {
+        propertyId,
+        date: { gte: checkin, lt: checkout },
+      },
+    });
+    if (lockConflict) {
+      throw new ConflictException(msg.bookings.dateLocked);
     }
 
     const holdExpireAt = new Date(Date.now() + CUSTOMER_HOLD_DURATION_SECONDS * 1000);
     const booking = await this.prisma.booking.create({
       data: {
-        roomId,
+        propertyId,
         customerId: user.id,
         checkinDate: checkin,
         checkoutDate: checkout,
-        status: BookingStatus.HOLD,
+        status: BOOKING_STATUS.HOLD,
         holdExpireAt,
-        customerName: dto.customerName,
-        customerPhone: dto.customerPhone,
         guestCount: dto.guestCount || 2,
         notes: dto.notes,
       },
       include: {
-        room: {
-          select: {
-            name: true,
-            homestay: { select: { name: true } },
-          },
-        },
+        property: { select: { id: true, name: true, code: true } },
       },
     });
+
+    // Notify owner
+    const customer = await this.prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+    await this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Khách đặt phòng mới',
+      `${booking.property.name} (${booking.property.code}) — khách ${customer?.name || 'Ẩn danh'} giữ chỗ`,
+      NOTIFICATION_TYPE.BOOKING,
+      booking.id,
+      'booking',
+      { pushType: 'booking_created', deepLink: `/bookings/${booking.id}` },
+    );
 
     return {
       message: msg.bookings.customerHoldSuccess,
@@ -310,19 +398,19 @@ export class BookingsService {
     };
   }
 
-  async getMyBookings(user: { id: string; role: Role }, msg: Messages, status?: string) {
+  async getMyBookings(user: { id: string; role: number }, msg: Messages, status?: number) {
     const where: any = { customerId: user.id };
-    if (status) {
-      where.status = status as BookingStatus;
+    if (status !== undefined) {
+      where.status = status;
     }
 
     const bookings = await this.prisma.booking.findMany({
       where,
       include: {
-        room: {
+        property: {
           select: {
-            id: true, name: true, code: true,
-            homestay: { select: { id: true, name: true } },
+            id: true, name: true, code: true, type: true,
+            images: { where: { isCover: true }, take: 1 },
           },
         },
       },
@@ -331,7 +419,7 @@ export class BookingsService {
 
     const bookingsWithHoldTtl = bookings.map((booking) => {
       let holdRemainingSeconds = 0;
-      if (booking.status === BookingStatus.HOLD && booking.holdExpireAt) {
+      if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
         holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
       }
       return { ...booking, holdRemainingSeconds };
@@ -340,41 +428,134 @@ export class BookingsService {
     return { message: msg.bookings.myListSuccess, data: bookingsWithHoldTtl };
   }
 
-  async customerCancel(id: string, user: { id: string; role: Role }, msg: Messages) {
+  async customerCancel(id: string, user: { id: string; role: number }, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({ where: { id } });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
-    // Must belong to this customer
     if (booking.customerId !== user.id) {
       throw new ForbiddenException(msg.bookings.notYourBooking);
     }
 
-    // Can only cancel HOLD status
-    if (booking.status === BookingStatus.CONFIRMED) {
+    if (booking.status === BOOKING_STATUS.CONFIRMED) {
       throw new BadRequestException(msg.bookings.cannotCancelConfirmed);
     }
-    if (booking.status !== BookingStatus.HOLD) {
+    if (booking.status !== BOOKING_STATUS.HOLD) {
       throw new BadRequestException(msg.bookings.onlyCancelHold);
     }
 
-    await this.prisma.booking.update({
+    const cancelled = await this.prisma.booking.update({
       where: { id },
-      data: { status: BookingStatus.CANCELLED },
+      data: { status: BOOKING_STATUS.CANCELLED },
+      include: { property: { select: { name: true, code: true } } },
     });
 
-    await this.redis.delHold(booking.roomId);
+    await this.redis.delHold(id);
+
+    // Notify owner
+    await this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Khách hủy đặt phòng',
+      `${cancelled.property.name} (${cancelled.property.code}) — khách đã hủy giữ chỗ`,
+      NOTIFICATION_TYPE.BOOKING,
+      id,
+      'booking',
+      { pushType: 'booking_cancelled', deepLink: `/bookings/${id}` },
+    );
 
     return { message: msg.bookings.customerCancelSuccess, data: null };
   }
 
   // ─── Cron Job ─────────────────────────────────────────────────────────────
 
+  /**
+   * Calendar grid cho 1 property theo year + month.
+   * Trả mỗi ngày: status (available/locked/hold/booked) + bookingId + customerName.
+   * Scope theo getEffectiveOwnerId — SALE chỉ thấy property của OWNER mình.
+   */
+  async getCalendarForProperty(
+    propertyId: string,
+    year: number,
+    month: number,
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findFirst({
+      where: { id: propertyId, deletedAt: null },
+      select: { id: true, name: true, code: true, ownerId: true },
+    });
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId && property.ownerId !== effectiveOwnerId) {
+      throw new ForbiddenException(msg.properties.forbidden);
+    }
+
+    // Range: ngày đầu tháng → ngày đầu tháng kế (UTC)
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const end = new Date(Date.UTC(year, month, 1));
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    const [bookings, locks] = await Promise.all([
+      this.prisma.booking.findMany({
+        where: {
+          propertyId,
+          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          checkinDate: { lt: end },
+          checkoutDate: { gt: start },
+        },
+        select: {
+          id: true, checkinDate: true, checkoutDate: true, status: true,
+          customerName: true, customer: { select: { name: true } },
+        },
+      }),
+      this.prisma.calendarLock.findMany({
+        where: { propertyId, date: { gte: start, lt: end } },
+      }),
+    ]);
+
+    const days: any[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(Date.UTC(year, month - 1, d));
+      const dateStr = date.toISOString().slice(0, 10);
+
+      let status: 'available' | 'locked' | 'hold' | 'booked' = 'available';
+      let bookingId: string | null = null;
+      let note: string | null = null;
+
+      const lock = locks.find((l) => l.date.toISOString().slice(0, 10) === dateStr);
+      if (lock) {
+        status = 'locked';
+      }
+
+      const booking = bookings.find(
+        (b) => b.checkinDate <= date && b.checkoutDate > date,
+      );
+      if (booking) {
+        status = booking.status === BOOKING_STATUS.CONFIRMED ? 'booked' : 'hold';
+        bookingId = booking.id;
+        note = booking.customer?.name || booking.customerName || null;
+      }
+
+      days.push({ date: dateStr, status, bookingId, note });
+    }
+
+    return {
+      message: msg.bookings.listSuccess,
+      data: {
+        property: { id: property.id, name: property.name, code: property.code },
+        year,
+        month,
+        days,
+      },
+    };
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
   async expireHoldBookings() {
     const now = new Date();
     const expired = await this.prisma.booking.findMany({
       where: {
-        status: BookingStatus.HOLD,
+        status: BOOKING_STATUS.HOLD,
         holdExpireAt: { lte: now },
       },
     });
@@ -382,10 +563,10 @@ export class BookingsService {
     if (expired.length > 0) {
       await this.prisma.booking.updateMany({
         where: { id: { in: expired.map((b) => b.id) } },
-        data: { status: BookingStatus.CANCELLED },
+        data: { status: BOOKING_STATUS.CANCELLED },
       });
 
-      await Promise.all(expired.map((b) => this.redis.delHold(b.roomId)));
+      await Promise.all(expired.map((b) => this.redis.delHold(b.id)));
     }
 
     return expired.length;
@@ -393,8 +574,9 @@ export class BookingsService {
 
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
-  private async checkBookingAccess(booking: any, user: { id: string; role: Role }, msg: Messages) {
-    if (user.role === Role.STAFF && booking.saleId !== user.id) {
+  private checkBookingAccess(booking: any, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    const effectiveOwnerId = getEffectiveOwnerId(user);
+    if (effectiveOwnerId && booking.property?.ownerId !== effectiveOwnerId) {
       throw new ForbiddenException(msg.bookings.forbiddenAccess);
     }
   }

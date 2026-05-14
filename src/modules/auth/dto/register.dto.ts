@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, MinLength, MaxLength, Matches, IsOptional, IsEmail, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, MinLength, MaxLength, Matches, IsOptional, IsEmail, IsInt, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class RegisterDto {
   @ApiProperty({ example: 'Nguyễn Văn A', description: 'Họ tên (2-100 ký tự)' })
@@ -9,11 +10,10 @@ export class RegisterDto {
   @MaxLength(100, { message: 'Tên tối đa 100 ký tự' })
   name: string;
 
-  @ApiProperty({ example: '0912345678', description: 'Số điện thoại (10-11 số, bắt đầu bằng 0)' })
-  @IsString()
-  @IsNotEmpty({ message: 'Số điện thoại không được để trống' })
-  @Matches(/^0\d{9,10}$/, { message: 'Số điện thoại phải 10-11 số và bắt đầu bằng 0' })
-  phone: string;
+  @ApiProperty({ example: 'a@example.com', description: 'Email (bắt buộc, unique)' })
+  @IsEmail({}, { message: 'Email không hợp lệ' })
+  @IsNotEmpty({ message: 'Email không được để trống' })
+  email: string;
 
   @ApiProperty({ example: 'matkhau123', description: 'Mật khẩu (tối thiểu 6 ký tự)' })
   @IsString()
@@ -21,14 +21,14 @@ export class RegisterDto {
   @MinLength(6, { message: 'Mật khẩu tối thiểu 6 ký tự' })
   password: string;
 
-  @ApiProperty({ example: 'CUSTOMER', description: 'Role: STAFF hoặc CUSTOMER', enum: ['STAFF', 'CUSTOMER'] })
-  @IsString()
-  @IsNotEmpty({ message: 'Role không được để trống' })
-  @IsIn(['STAFF', 'CUSTOMER'], { message: 'Role chỉ chấp nhận STAFF hoặc CUSTOMER' })
-  role: 'STAFF' | 'CUSTOMER';
+  @ApiProperty({ example: 3, description: 'Role: 1=OWNER, 2=SALE, 3=CUSTOMER' })
+  @IsInt()
+  @IsIn([1, 2, 3], { message: 'Role chỉ chấp nhận 1 (OWNER), 2 (SALE) hoặc 3 (CUSTOMER)' })
+  @Type(() => Number)
+  role: number;
 
-  @ApiPropertyOptional({ example: 'a@example.com', description: 'Email (optional)' })
+  @ApiPropertyOptional({ example: '0912345678', description: 'Số điện thoại VN — 10 số, bắt đầu 0' })
   @IsOptional()
-  @IsEmail({}, { message: 'Email không hợp lệ' })
-  email?: string;
+  @Matches(/^0\d{9}$/, { message: 'Số điện thoại phải 10 số và bắt đầu bằng 0' })
+  phone?: string;
 }

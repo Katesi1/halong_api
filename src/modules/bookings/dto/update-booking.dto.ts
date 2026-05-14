@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional, IsNumber, Min, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateBookingDto {
@@ -19,6 +19,13 @@ export class UpdateBookingDto {
   @Min(0)
   @Type(() => Number)
   depositAmount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  guestCount?: number;
 
   @ApiPropertyOptional()
   @IsOptional()

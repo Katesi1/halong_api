@@ -15,7 +15,7 @@ export class CloudinaryService {
 
   async uploadImage(
     file: Express.Multer.File,
-    folder = 'homestay/rooms',
+    folder = 'property/rooms',
   ): Promise<UploadApiResponse> {
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(

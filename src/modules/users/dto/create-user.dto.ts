@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, MinLength, IsEnum, IsOptional, IsEmail, Matches } from 'class-validator';
-import { Role } from '@prisma/client';
+import { IsString, IsNotEmpty, MinLength, IsOptional, IsEmail, Matches, IsInt, IsIn } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateUserDto {
   @ApiProperty()
@@ -8,16 +8,15 @@ export class CreateUserDto {
   @IsNotEmpty({ message: 'Tên không được để trống' })
   name: string;
 
-  @ApiProperty({ example: '0900000000', description: 'SĐT định dạng 0xxxxxxxxx hoặc +84...' })
-  @IsString()
-  @IsNotEmpty({ message: 'Số điện thoại không được để trống' })
-  @Matches(/^(0|\+84)[0-9]{9}$/, { message: 'Số điện thoại không hợp lệ' })
-  phone: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ example: 'user@example.com', description: 'Email (bắt buộc, unique)' })
   @IsEmail({}, { message: 'Email không hợp lệ' })
-  email?: string;
+  @IsNotEmpty({ message: 'Email không được để trống' })
+  email: string;
+
+  @ApiPropertyOptional({ example: '0900000000', description: 'SĐT (optional)' })
+  @IsOptional()
+  @Matches(/^(0|\+84)[0-9]{9}$/, { message: 'Số điện thoại không hợp lệ' })
+  phone?: string;
 
   @ApiProperty({ minLength: 6 })
   @IsString()
@@ -25,7 +24,9 @@ export class CreateUserDto {
   @MinLength(6, { message: 'Mật khẩu tối thiểu 6 ký tự' })
   password: string;
 
-  @ApiProperty({ enum: Role })
-  @IsEnum(Role, { message: 'Role không hợp lệ (ADMIN, STAFF, CUSTOMER)' })
-  role: Role;
+  @ApiProperty({ example: 1, description: '0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER' })
+  @IsInt()
+  @IsIn([0, 1, 2, 3], { message: 'Role không hợp lệ (0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)' })
+  @Type(() => Number)
+  role: number;
 }

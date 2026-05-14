@@ -2,63 +2,60 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePartnerBookingDto } from './dto/create-partner-booking.dto';
 import { Messages } from '../../i18n';
-import { BookingStatus } from '@prisma/client';
+import { ROLE, BOOKING_STATUS } from '../../common/constants';
 
 @Injectable()
 export class PartnerService {
   constructor(private prisma: PrismaService) {}
 
-  async getRooms(query: { homestayId?: string; page?: number; limit?: number }, msg: Messages) {
-    const { homestayId, page = 1, limit = 20 } = query;
+  async getProperties(query: { page?: number; limit?: number; type?: number }, msg: Messages) {
+    const { page = 1, limit = 20, type } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = { isActive: true };
-    if (homestayId) where.homestayId = homestayId;
+    const where: any = { isActive: true, deletedAt: null };
+    if (type !== undefined) where.type = type;
 
-    const [rooms, total] = await Promise.all([
-      this.prisma.room.findMany({
+    const [properties, total] = await Promise.all([
+      this.prisma.property.findMany({
         where,
         include: {
-          homestay: { select: { id: true, name: true, address: true } },
           images: { where: { isCover: true }, take: 1 },
-          price: true,
         },
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.room.count({ where }),
+      this.prisma.property.count({ where }),
     ]);
 
     return {
       message: msg.partner.listSuccess,
-      data: rooms,
+      data: properties,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
-  async getRoomDetail(id: string, msg: Messages) {
-    const room = await this.prisma.room.findUnique({
-      where: { id, isActive: true },
+  async getPropertyDetail(id: string, msg: Messages) {
+    const property = await this.prisma.property.findUnique({
+      where: { id, isActive: true, deletedAt: null },
       include: {
-        homestay: { select: { id: true, name: true, address: true, latitude: true, longitude: true, mapLink: true } },
         images: { orderBy: { order: 'asc' } },
-        price: true,
       },
     });
-    if (!room) throw new NotFoundException(msg.rooms.notFound);
-    return { message: msg.partner.getSuccess, data: room };
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+    return { message: msg.partner.getSuccess, data: property };
   }
 
-  async getRoomAvailability(roomId: string, year: number, month: number, msg: Messages) {
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0, 23, 59, 59);
+  async getPropertyAvailability(propertyId: string, year: number, month: number, msg: Messages) {
+    const startDate = new Date(Date.UTC(year, month - 1, 1));
+    const endDate = new Date(Date.UTC(year, month, 0, 23, 59, 59));
 
     const bookings = await this.prisma.booking.findMany({
       where: {
-        roomId,
-        status: { in: [BookingStatus.CONFIRMED] },
-        OR: [{ checkinDate: { lte: endDate }, checkoutDate: { gte: startDate } }],
+        propertyId,
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+        checkinDate: { lte: endDate },
+        checkoutDate: { gte: startDate },
       },
       select: { checkinDate: true, checkoutDate: true, status: true },
     });
@@ -67,35 +64,36 @@ export class PartnerService {
   }
 
   async createBooking(data: CreatePartnerBookingDto, msg: Messages) {
-    const room = await this.prisma.room.findUnique({ where: { id: data.roomId } });
-    if (!room) throw new NotFoundException(msg.rooms.notFound);
+    const property = await this.prisma.property.findUnique({ where: { id: data.propertyId, deletedAt: null } });
+    if (!property) throw new NotFoundException(msg.properties.notFound);
 
-    const checkin = new Date(data.checkinDate);
-    const checkout = new Date(data.checkoutDate);
+    const checkin = new Date(data.checkinDate.split('T')[0] + 'T00:00:00.000Z');
+    const checkout = new Date(data.checkoutDate.split('T')[0] + 'T00:00:00.000Z');
 
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
 
-    const admin = await this.prisma.user.findFirst({ where: { role: 'ADMIN' } });
+    const admin = await this.prisma.user.findFirst({ where: { role: ROLE.ADMIN, deletedAt: null } });
     if (!admin) throw new BadRequestException(msg.users.adminNotFound);
 
     const conflict = await this.prisma.booking.findFirst({
       where: {
-        roomId: data.roomId,
-        status: { in: [BookingStatus.CONFIRMED] },
-        OR: [{ checkinDate: { lte: checkout }, checkoutDate: { gte: checkin } }],
+        propertyId: data.propertyId,
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+        checkinDate: { lt: checkout },
+        checkoutDate: { gt: checkin },
       },
     });
-    if (conflict) throw new BadRequestException(msg.bookings.roomAlreadyBooked);
+    if (conflict) throw new BadRequestException(msg.bookings.propertyAlreadyBooked);
 
     const booking = await this.prisma.booking.create({
       data: {
-        roomId: data.roomId,
+        propertyId: data.propertyId,
         saleId: admin.id,
         checkinDate: checkin,
         checkoutDate: checkout,
-        status: BookingStatus.HOLD,
+        status: BOOKING_STATUS.HOLD,
         holdExpireAt: new Date(Date.now() + 30 * 60 * 1000),
         customerName: data.customerName,
         customerPhone: data.customerPhone,
@@ -109,13 +107,13 @@ export class PartnerService {
   async cancelBooking(bookingId: string, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({ where: { id: bookingId } });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
-    if (booking.status === BookingStatus.CANCELLED) {
+    if (booking.status === BOOKING_STATUS.CANCELLED) {
       throw new BadRequestException(msg.bookings.alreadyCancelled);
     }
 
     const updated = await this.prisma.booking.update({
       where: { id: bookingId },
-      data: { status: BookingStatus.CANCELLED },
+      data: { status: BOOKING_STATUS.CANCELLED },
     });
 
     return { message: msg.partner.cancelSuccess, data: updated };

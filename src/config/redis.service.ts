@@ -50,20 +50,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return result === 1;
   }
 
-  // Dùng cho hold room: key = hold:{roomId}
-  async setHold(roomId: string, bookingId: string, ttlSeconds = 1800): Promise<void> {
-    await this.set(`hold:${roomId}`, bookingId, ttlSeconds);
+  // Hold booking: key = hold:booking:{bookingId}
+  async setHold(bookingId: string, ttlSeconds = 1800): Promise<void> {
+    await this.set(`hold:booking:${bookingId}`, '1', ttlSeconds);
   }
 
-  async getHold(roomId: string): Promise<string | null> {
-    return this.get(`hold:${roomId}`);
+  async getHoldTtl(bookingId: string): Promise<number> {
+    return this.ttl(`hold:booking:${bookingId}`);
   }
 
-  async delHold(roomId: string): Promise<void> {
-    await this.del(`hold:${roomId}`);
-  }
-
-  async getHoldTtl(roomId: string): Promise<number> {
-    return this.ttl(`hold:${roomId}`);
+  async delHold(bookingId: string): Promise<void> {
+    await this.del(`hold:booking:${bookingId}`);
   }
 }

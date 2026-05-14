@@ -4,6 +4,8 @@ import {
   ForbiddenException,
   ConflictException,
   BadRequestException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -13,49 +15,64 @@ import { RegisterDto } from './dto/register.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Messages } from '../../i18n';
+import { ROLE } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
+import { OAuth2Client, TokenPayload } from 'google-auth-library';
+import * as appleSignin from 'apple-signin-auth';
+import { AppleAuthDto } from './dto/apple-auth.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly googleClient = new OAuth2Client();
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
   ) {}
 
-  async register(dto: RegisterDto, msg: Messages) {
-    // Check phone uniqueness
-    const existingPhone = await this.prisma.user.findUnique({
-      where: { phone: dto.phone },
+  async register(
+    dto: RegisterDto,
+    msg: Messages,
+    meta: { deviceId?: string | null; ip?: string | null } = {},
+  ) {
+    const email = dto.email.toLowerCase().trim();
+
+    const existingEmail = await this.prisma.user.findUnique({
+      where: { email },
     });
-    if (existingPhone) {
-      throw new ConflictException(msg.auth.phoneDuplicate);
+    if (existingEmail) {
+      throw new ConflictException(msg.auth.emailDuplicate);
     }
 
-    // Check email uniqueness if provided
-    if (dto.email) {
-      const existingEmail = await this.prisma.user.findUnique({
-        where: { email: dto.email },
+    if (dto.phone) {
+      const existingPhone = await this.prisma.user.findUnique({
+        where: { phone: dto.phone },
       });
-      if (existingEmail) {
-        throw new ConflictException(msg.auth.emailDuplicate);
+      if (existingPhone) {
+        throw new ConflictException(msg.auth.phoneDuplicate);
       }
     }
+
+    await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
-        phone: dto.phone,
+        email,
         password: hashedPassword,
-        role: dto.role as any,
-        email: dto.email || null,
+        role: dto.role,
+        phone: dto.phone || null,
+        registerDeviceId: meta.deviceId || null,
+        registerIp: meta.ip || null,
       },
     });
 
-    const tokens = await this.generateTokens(user.id, user.phone, user.role);
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
@@ -63,27 +80,17 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          email: user.email,
-          role: user.role,
-          isActive: user.isActive,
-        },
+        user: this.serializeAuthUser(user),
       },
     };
   }
 
   async login(dto: LoginDto, msg: Messages) {
-    const identifier = dto.phone.trim();
-    const isEmail = identifier.includes('@');
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase().trim() },
+    });
 
-    const user = isEmail
-      ? await this.prisma.user.findUnique({ where: { email: identifier } })
-      : await this.prisma.user.findUnique({ where: { phone: identifier } });
-
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || user.deletedAt || !user.password) {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
     }
 
@@ -92,7 +99,7 @@ export class AuthService {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
     }
 
-    const tokens = await this.generateTokens(user.id, user.phone, user.role);
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
@@ -100,62 +107,99 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          email: user.email,
-          role: user.role,
-          isActive: user.isActive,
-        },
+        user: this.serializeAuthUser(user),
       },
     };
   }
 
-  async googleAuth(dto: GoogleAuthDto, msg: Messages) {
-    // Verify Google token - in production, use google-auth-library
-    // For now, decode the token payload (JWT)
-    let googlePayload: { email: string; name: string; sub: string };
-    try {
-      // In production: use OAuth2Client.verifyIdToken()
-      const decoded = this.jwtService.decode(dto.idToken) as any;
-      if (!decoded || !decoded.email) {
-        throw new Error('Invalid token');
-      }
-      googlePayload = { email: decoded.email, name: decoded.name || decoded.email, sub: decoded.sub };
-    } catch {
-      throw new BadRequestException(msg.auth.googleTokenInvalid);
+  async googleAuth(
+    dto: GoogleAuthDto,
+    msg: Messages,
+    meta: { deviceId?: string | null; ip?: string | null } = {},
+  ) {
+    const audience = this.configService.get<string>('GOOGLE_OAUTH_WEB_CLIENT_ID');
+    if (!audience) {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
     }
 
-    // Find existing user by email
-    let user = await this.prisma.user.findUnique({
-      where: { email: googlePayload.email },
-    });
+    let payload: TokenPayload | undefined;
+    try {
+      const ticket = await this.googleClient.verifyIdToken({
+        idToken: dto.idToken,
+        audience,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+
+    if (!payload || !payload.email || !payload.sub) {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+    if (payload.email_verified !== true) {
+      throw new UnauthorizedException(msg.auth.googleEmailNotVerified);
+    }
+
+    const email = payload.email.toLowerCase();
+    const googleSub = payload.sub;
+    const name = payload.name || email;
+    const picture = payload.picture || null;
+
+    let user = await this.prisma.user.findUnique({ where: { googleSub } });
+    if (!user) {
+      user = await this.prisma.user.findUnique({ where: { email } });
+    }
 
     if (user) {
-      // Existing user — login, ignore role field
-      if (!user.isActive) {
-        throw new UnauthorizedException(msg.auth.accountDisabled);
+      if (!user.isActive || user.deletedAt) {
+        throw new ForbiddenException(msg.auth.accountInactive);
+      }
+      const updateData: Record<string, any> = {};
+      if (!user.googleSub) updateData.googleSub = googleSub;
+      if (!user.emailVerified) updateData.emailVerified = true;
+      if (!user.avatar && picture) updateData.avatar = picture;
+      if (Object.keys(updateData).length > 0) {
+        user = await this.prisma.user.update({ where: { id: user.id }, data: updateData });
       }
     } else {
-      // New user — role is required
-      if (!dto.role) {
-        throw new BadRequestException(msg.auth.googleRoleRequired);
+      // First-time Google login → cần role
+      if (dto.role === undefined || dto.role === null) {
+        return {
+          message: msg.auth.googleNewUserPrompt,
+          data: {
+            isNewUser: true,
+            googleProfile: { email, name, avatar: picture, sub: googleSub },
+          },
+        };
+      }
+      if (dto.role === ROLE.ADMIN) {
+        throw new ForbiddenException(msg.auth.googleAdminForbidden);
+      }
+      if (dto.role === ROLE.SALE) {
+        throw new ForbiddenException(msg.auth.googleSaleForbidden);
+      }
+      if (dto.role !== ROLE.OWNER && dto.role !== ROLE.CUSTOMER) {
+        throw new BadRequestException(msg.auth.googleRoleInvalid);
       }
 
-      const randomPassword = await bcrypt.hash(Math.random().toString(36), 10);
+      await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
+
       user = await this.prisma.user.create({
         data: {
-          name: googlePayload.name,
-          phone: `google_${googlePayload.sub}`,
-          email: googlePayload.email,
-          password: randomPassword,
-          role: dto.role as any,
+          name,
+          email,
+          password: null,
+          role: dto.role,
+          googleSub,
+          emailVerified: true,
+          avatar: picture,
+          registerDeviceId: meta.deviceId || null,
+          registerIp: meta.ip || null,
         },
       });
     }
 
-    const tokens = await this.generateTokens(user.id, user.phone, user.role);
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
@@ -163,20 +207,116 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          email: user.email,
-          role: user.role,
-          isActive: user.isActive,
+        user: this.serializeAuthUser(user),
+      },
+    };
+  }
+
+  /**
+   * Apple Sign-In flow (iOS Apple Guideline 4.8).
+   * Logic giống googleAuth: 4 case (existing/new+role/new-no-role/error).
+   * KHÁC: Apple chỉ trả email + name ở LẦN ĐẦU user authorize → BE phải cache.
+   * FE phải lưu email/name từ lần đầu và gửi kèm các lần sau (best-effort).
+   */
+  async appleAuth(
+    dto: AppleAuthDto,
+    msg: Messages,
+    meta: { deviceId?: string | null; ip?: string | null } = {},
+  ) {
+    const audience = this.configService.get<string>('APPLE_CLIENT_ID');
+    if (!audience) throw new UnauthorizedException(msg.auth.appleTokenInvalid);
+
+    let payload: appleSignin.AppleIdTokenType;
+    try {
+      payload = await appleSignin.verifyIdToken(dto.idToken, {
+        audience,
+        ignoreExpiration: false,
+      });
+    } catch {
+      throw new UnauthorizedException(msg.auth.appleTokenInvalid);
+    }
+
+    if (!payload?.sub) {
+      throw new UnauthorizedException(msg.auth.appleTokenInvalid);
+    }
+
+    const appleSub = payload.sub;
+    // Apple email_verified có thể là 'true' (string) hoặc true (boolean) tuỳ payload
+    const emailFromToken = payload.email?.toLowerCase() || null;
+    // FE gửi kèm email/name từ first-consent — ưu tiên token, fallback DTO
+    const email = emailFromToken || dto.email?.toLowerCase() || null;
+    const name = dto.name || (email ? email.split('@')[0] : 'Apple User');
+
+    let user = await this.prisma.user.findUnique({ where: { appleSub } });
+    if (!user && email) {
+      user = await this.prisma.user.findUnique({ where: { email } });
+    }
+
+    if (user) {
+      if (!user.isActive || user.deletedAt) {
+        throw new ForbiddenException(msg.auth.accountInactive);
+      }
+      const updateData: Record<string, any> = {};
+      if (!user.appleSub) updateData.appleSub = appleSub;
+      if (!user.emailVerified && payload.email_verified === true) updateData.emailVerified = true;
+      if (Object.keys(updateData).length > 0) {
+        user = await this.prisma.user.update({ where: { id: user.id }, data: updateData });
+      }
+    } else {
+      // First-time Apple login → cần role
+      if (dto.role === undefined || dto.role === null) {
+        return {
+          message: msg.auth.googleNewUserPrompt,
+          data: {
+            isNewUser: true,
+            appleProfile: { email, name, sub: appleSub },
+          },
+        };
+      }
+      if (dto.role === ROLE.ADMIN) {
+        throw new ForbiddenException(msg.auth.googleAdminForbidden);
+      }
+      if (dto.role === ROLE.SALE) {
+        throw new ForbiddenException(msg.auth.googleSaleForbidden);
+      }
+      if (dto.role !== ROLE.OWNER && dto.role !== ROLE.CUSTOMER) {
+        throw new BadRequestException(msg.auth.googleRoleInvalid);
+      }
+      // Apple yêu cầu email để tạo account; nếu user hide email và không cache → reject
+      if (!email) {
+        throw new BadRequestException(msg.auth.appleEmailRequired);
+      }
+
+      await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
+
+      user = await this.prisma.user.create({
+        data: {
+          name,
+          email,
+          password: null,
+          role: dto.role,
+          appleSub,
+          emailVerified: payload.email_verified === true,
+          registerDeviceId: meta.deviceId || null,
+          registerIp: meta.ip || null,
         },
+      });
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    return {
+      message: msg.auth.loginSuccess,
+      data: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: this.serializeAuthUser(user),
       },
     };
   }
 
   async forgotPassword(dto: ForgotPasswordDto, msg: Messages) {
-    // Find user by phone or email
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -186,19 +326,14 @@ export class AuthService {
       },
     });
 
-    // Always return success to prevent user enumeration
     if (!user) {
       return { message: msg.auth.forgotPasswordSuccess, data: null };
     }
 
-    // TODO: Send verification code via SMS/email
-    // For now, just return success
     return { message: msg.auth.forgotPasswordSuccess, data: null };
   }
 
   async resetPassword(dto: ResetPasswordDto, msg: Messages) {
-    // TODO: Verify token and find user
-    // For now, basic implementation
     try {
       const payload = this.jwtService.verify(dto.token, {
         secret: this.configService.get<string>('JWT_SECRET'),
@@ -226,7 +361,7 @@ export class AuthService {
         where: { id: payload.sub },
       });
 
-      if (!user || !user.refreshToken) {
+      if (!user || !user.refreshToken || !user.isActive) {
         throw new ForbiddenException(msg.auth.invalidRefreshToken);
       }
 
@@ -238,7 +373,7 @@ export class AuthService {
         throw new ForbiddenException(msg.auth.invalidRefreshToken);
       }
 
-      const tokens = await this.generateTokens(user.id, user.phone, user.role);
+      const tokens = await this.generateTokens(user.id, user.email, user.role);
       await this.updateRefreshToken(user.id, tokens.refreshToken);
 
       return {
@@ -261,13 +396,135 @@ export class AuthService {
   async getProfile(userId: string, msg: Messages) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, phone: true, email: true, role: true, isActive: true, createdAt: true },
+      select: {
+        id: true, name: true, phone: true, email: true, avatar: true,
+        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
+        emailVerified: true, createdAt: true, updatedAt: true,
+        kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
+        subscriptionCycle: true, trialEndsAt: true, nextChargeAt: true,
+        permissions: {
+          select: { module: true, canCreate: true, canRead: true, canUpdate: true, canDelete: true },
+        },
+      },
     });
     return { message: msg.auth.profileSuccess, data: user };
   }
 
-  private async generateTokens(userId: string, phone: string, role: string) {
-    const payload = { sub: userId, phone, role };
+  async changePassword(userId: string, dto: ChangePasswordDto, msg: Messages) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException(msg.auth.accountDisabled);
+    if (!user.password) {
+      throw new BadRequestException(msg.auth.currentPasswordIncorrect);
+    }
+
+    const isPasswordValid = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!isPasswordValid) {
+      throw new BadRequestException(msg.auth.currentPasswordIncorrect);
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    return { message: msg.auth.changePasswordSuccess, data: null };
+  }
+
+  /**
+   * Anti-spam check: trong 24h vừa qua, 1 deviceId chỉ được tạo tối đa 3 account
+   * và 1 IP tối đa 10 account (cho phép share network gia đình/văn phòng).
+   * Throw 429 nếu vượt threshold.
+   */
+  private async assertRegisterAllowed(
+    deviceId: string | null,
+    ip: string | null,
+    msg: Messages,
+  ): Promise<void> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const limits: Array<Promise<number>> = [];
+
+    if (deviceId) {
+      limits.push(
+        this.prisma.user.count({
+          where: { registerDeviceId: deviceId, createdAt: { gt: since } },
+        }).then((n) => (n >= 3 ? -1 : n)),
+      );
+    }
+    if (ip) {
+      limits.push(
+        this.prisma.user.count({
+          where: { registerIp: ip, createdAt: { gt: since } },
+        }).then((n) => (n >= 10 ? -2 : n)),
+      );
+    }
+
+    const results = await Promise.all(limits);
+    if (results.some((r) => r === -1 || r === -2)) {
+      throw new HttpException(msg.auth.tooManyRegisters, HttpStatus.TOO_MANY_REQUESTS);
+    }
+  }
+
+  /**
+   * Shape user object dùng chung cho mọi auth response (login/register/google/profile).
+   */
+  private serializeAuthUser(user: any) {
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar ?? null,
+      phone: user.phone ?? null,
+      role: user.role,
+      ownerId: user.ownerId ?? null,
+      isActive: user.isActive,
+      emailVerified: user.emailVerified ?? false,
+      kycStatus: user.kycStatus ?? null,
+      subscriptionStatus: user.subscriptionStatus ?? null,
+      trialEndsAt: user.trialEndsAt ?? null,
+      createdAt: user.createdAt ?? null,
+      updatedAt: user.updatedAt ?? null,
+    };
+  }
+
+  /**
+   * Verify Google idToken (audience = GOOGLE_OAUTH_WEB_CLIENT_ID).
+   * Throws UnauthorizedException nếu invalid / email chưa verified.
+   * Public để các module khác (staff invite accept) dùng lại.
+   */
+  async verifyGoogleIdToken(idToken: string, msg: Messages): Promise<TokenPayload> {
+    const audience = this.configService.get<string>('GOOGLE_OAUTH_WEB_CLIENT_ID');
+    if (!audience) throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+
+    let payload: TokenPayload | undefined;
+    try {
+      const ticket = await this.googleClient.verifyIdToken({ idToken, audience });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+
+    if (!payload || !payload.email || !payload.sub) {
+      throw new UnauthorizedException(msg.auth.googleTokenInvalid);
+    }
+    if (payload.email_verified !== true) {
+      throw new UnauthorizedException(msg.auth.googleEmailNotVerified);
+    }
+    return payload;
+  }
+
+  /**
+   * Issue access + refresh tokens cho user vừa được tạo / login.
+   * Persist hashed refresh token vào DB.
+   */
+  async issueTokensFor(user: { id: string; email: string; role: number }) {
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    return tokens;
+  }
+
+  private async generateTokens(userId: string, email: string, role: number) {
+    const payload = { sub: userId, email, role };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {

@@ -2,7 +2,8 @@ import {
   Controller, Get, Post, Put, Patch,
   Body, Param, Query, UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { BookingListResponse, BookingResponse, MessageResponse } from '../../common/dto/api-response.dto';
 import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
@@ -12,7 +13,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { Role } from '@prisma/client';
+import { ROLE, PERMISSION_MODULE, PERMISSION_ACTION } from '../../common/constants';
+import { Permission } from '../../common/decorators/permission.decorator';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Bookings')
@@ -26,61 +28,101 @@ export class BookingsController {
   // ─── Staff/Admin Endpoints ────────────────────────────────────────────────
 
   @Get()
-  @Roles(Role.ADMIN, Role.STAFF)
-  @ApiOperation({ summary: 'Danh sách booking (Staff/Admin)', description: 'Có thể lọc theo roomId' })
-  findAll(@CurrentUser() user: any, @Query('roomId') roomId: string, @Lang() msg: Messages) {
-    return this.bookingsService.findAll(user, msg, roomId);
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.READ)
+  @ApiOperation({ summary: 'Danh sách booking (Staff/Admin)' })
+  @ApiQuery({ name: 'propertyId', required: false })
+  @ApiQuery({ name: 'status', required: false, description: '0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED' })
+  @ApiResponse({ status: 200, type: BookingListResponse })
+  findAll(
+    @CurrentUser() user: any,
+    @Query('propertyId') propertyId: string,
+    @Query('status') status: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.bookingsService.findAll(
+      user, msg, propertyId,
+      status !== undefined ? parseInt(status) : undefined,
+    );
   }
 
-  @Get('calendar/:roomId')
-  @Roles(Role.ADMIN, Role.STAFF)
-  @ApiOperation({ summary: 'Lịch đặt phòng theo tháng (year, month query)' })
-  getCalendar(
-    @Param('roomId') roomId: string,
+  @Get('my-bookings')
+  @ApiOperation({ summary: 'Booking của customer hiện tại' })
+  @ApiQuery({ name: 'status', required: false, description: '0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED' })
+  @ApiResponse({ status: 200, type: BookingListResponse })
+  getMyBookings(@CurrentUser() user: any, @Query('status') status: string, @Lang() msg: Messages) {
+    return this.bookingsService.getMyBookings(
+      user, msg,
+      status !== undefined ? parseInt(status) : undefined,
+    );
+  }
+
+  @Get('calendar/:propertyId')
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.READ)
+  @ApiOperation({
+    summary: 'Lịch booking 1 property theo tháng',
+    description: 'Trả mảng days[] với status (available/locked/hold/booked) + bookingId + note (tên khách).',
+  })
+  @ApiQuery({ name: 'year', required: true, type: Number, example: 2026 })
+  @ApiQuery({ name: 'month', required: true, type: Number, example: 5 })
+  getPropertyCalendar(
+    @Param('propertyId') propertyId: string,
     @Query('year') year: string,
     @Query('month') month: string,
+    @CurrentUser() user: any,
     @Lang() msg: Messages,
   ) {
     const now = new Date();
-    return this.bookingsService.getRoomCalendar(
-      roomId,
+    return this.bookingsService.getCalendarForProperty(
+      propertyId,
       parseInt(year) || now.getFullYear(),
       parseInt(month) || now.getMonth() + 1,
+      user,
       msg,
     );
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.READ)
   @ApiOperation({ summary: 'Chi tiết booking' })
+  @ApiResponse({ status: 200, type: BookingResponse })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.findOne(id, user, msg);
   }
 
   @Post('hold')
-  @Roles(Role.ADMIN, Role.STAFF)
-  @ApiOperation({ summary: 'Giữ phòng (Admin/Staff) — hold 30 phút' })
-  holdRoom(@Body() dto: CreateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
-    return this.bookingsService.holdRoom(dto, user, msg);
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.CREATE)
+  @ApiOperation({ summary: 'Giữ chỗ — hold 30 phút (mọi authenticated user)' })
+  @ApiResponse({ status: 201, type: BookingResponse })
+  holdProperty(@Body() dto: CreateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
+    return this.bookingsService.holdProperty(dto, user, msg);
   }
 
   @Patch(':id/confirm')
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.UPDATE)
   @ApiOperation({ summary: 'Xác nhận booking (Admin/Staff)' })
+  @ApiResponse({ status: 200, type: BookingResponse })
   confirmBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.confirmBooking(id, user, msg);
   }
 
   @Patch(':id/cancel')
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.DELETE)
   @ApiOperation({ summary: 'Hủy booking (Staff)' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   cancelBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.cancelBooking(id, user, msg);
   }
 
   @Put(':id')
-  @Roles(Role.ADMIN, Role.STAFF)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.UPDATE)
   @ApiOperation({ summary: 'Cập nhật booking' })
+  @ApiResponse({ status: 200, type: BookingResponse })
   update(@Param('id') id: string, @Body() dto: UpdateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.update(id, dto, user, msg);
   }
@@ -88,20 +130,15 @@ export class BookingsController {
   // ─── Customer Endpoints ───────────────────────────────────────────────────
 
   @Post('customer-hold')
-  @ApiOperation({ summary: 'Customer đặt phòng — hold 24 giờ' })
+  @ApiOperation({ summary: 'Customer đặt chỗ — hold 24 giờ' })
+  @ApiResponse({ status: 201, type: BookingResponse })
   customerHold(@Body() dto: CustomerHoldBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.customerHold(dto, user, msg);
   }
 
-  @Get('my')
-  @ApiOperation({ summary: 'Booking của customer hiện tại' })
-  @ApiQuery({ name: 'status', required: false, enum: ['HOLD', 'CONFIRMED', 'CANCELLED', 'COMPLETED'] })
-  getMyBookings(@CurrentUser() user: any, @Query('status') status: string, @Lang() msg: Messages) {
-    return this.bookingsService.getMyBookings(user, msg, status);
-  }
-
   @Patch(':id/customer-cancel')
   @ApiOperation({ summary: 'Customer huỷ booking (chỉ HOLD)' })
+  @ApiResponse({ status: 200, type: MessageResponse })
   customerCancel(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.customerCancel(id, user, msg);
   }

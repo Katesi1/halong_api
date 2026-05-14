@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { getMessages } from '../../i18n';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -18,7 +19,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let message = 'Lỗi server';
+    const msg = getMessages(request.headers?.['accept-language']);
+    let message: string | string[] = msg.common.serverError;
     let errors: any = null;
 
     if (exception instanceof HttpException) {

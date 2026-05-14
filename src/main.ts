@@ -3,23 +3,30 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Trust reverse proxy (nginx) → @Ip() đọc đúng X-Forwarded-For thay vì 127.0.0.1
+  app.set('trust proxy', true);
 
   // Redirect root về Swagger
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.get('/', (_req: any, res: any) => res.redirect('/index.html'));
 
   // Global prefix
-  // No global prefix — endpoints at root: /auth, /users, /homestays, etc.
+  // No global prefix — endpoints at root: /auth, /users, /properties, etc.
 
   // CORS
   app.enableCors({
     origin: '*', // Thay bằng domain cụ thể khi production
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Partner-Key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Partner-Key', 'X-Device-Id', 'Accept-Language'],
   });
+
+  // Logging interceptor toàn cục
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
   // Validation pipe toàn cục
   app.useGlobalPipes(
@@ -33,8 +40,8 @@ async function bootstrap() {
 
   // Swagger
   const config = new DocumentBuilder()
-    .setTitle('Homestay API')
-    .setDescription('API quản lý homestay – đăng nhập, homestay, phòng, giá, đặt phòng, partner')
+    .setTitle('Halong24h API')
+    .setDescription('API quản lý property – đăng nhập, property, phòng, giá, đặt phòng, partner')
     .setVersion('1.0')
     .addBearerAuth(
       {
