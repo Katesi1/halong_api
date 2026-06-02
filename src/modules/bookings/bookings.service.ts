@@ -17,6 +17,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
 
 @Injectable()
 export class BookingsService {
@@ -33,6 +35,8 @@ export class BookingsService {
     msg: Messages,
     propertyId?: string,
     status?: number,
+    page?: number,
+    limit?: number,
   ) {
     const where: any = {};
 
@@ -45,19 +49,28 @@ export class BookingsService {
       where.property = { ownerId: effectiveOwnerId };
     }
 
-    const bookings = await this.prisma.booking.findMany({
-      where,
-      include: {
-        property: {
-          select: {
-            id: true, name: true, code: true, type: true,
-            images: { where: { isCover: true }, take: 1 },
+    const take = Math.min(Math.max(1, Number(limit) || DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const currentPage = Math.max(1, Number(page) || 1);
+    const skip = (currentPage - 1) * take;
+
+    const [bookings, total] = await this.prisma.$transaction([
+      this.prisma.booking.findMany({
+        where,
+        include: {
+          property: {
+            select: {
+              id: true, name: true, code: true, type: true,
+              images: { where: { isCover: true }, take: 1 },
+            },
           },
+          sale: { select: { id: true, name: true, phone: true } },
         },
-        sale: { select: { id: true, name: true, phone: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
 
     const bookingsWithHoldTtl = bookings.map((booking) => {
       let holdRemainingSeconds = 0;
@@ -67,7 +80,11 @@ export class BookingsService {
       return { ...booking, holdRemainingSeconds };
     });
 
-    return { message: msg.bookings.listSuccess, data: bookingsWithHoldTtl };
+    return {
+      message: msg.bookings.listSuccess,
+      data: bookingsWithHoldTtl,
+      meta: { total, page: currentPage, limit: take },
+    };
   }
 
   async findOne(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
@@ -100,7 +117,11 @@ export class BookingsService {
 
   /** Parse 'YYYY-MM-DD' → UTC midnight Date */
   private toUTCDate(dateStr: string): Date {
-    return new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+    const d = new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+    if (isNaN(d.getTime())) {
+      throw new BadRequestException('Invalid date format');
+    }
+    return d;
   }
 
   async holdProperty(dto: CreateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
@@ -118,82 +139,82 @@ export class BookingsService {
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
-    // Check date conflicts (both HOLD and CONFIRMED)
-    const conflict = await this.prisma.booking.findFirst({
-      where: {
-        propertyId,
-        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
-        checkinDate: { lt: checkout },
-        checkoutDate: { gt: checkin },
-      },
-    });
-    if (conflict) {
-      if (conflict.status === BOOKING_STATUS.CONFIRMED) {
-        throw new BadRequestException(msg.bookings.propertyAlreadyBooked);
-      }
-      // HOLD by another user → block
-      if (conflict.saleId !== user.id) {
-        const holdRemaining = conflict.holdExpireAt
-          ? Math.max(0, Math.ceil((conflict.holdExpireAt.getTime() - Date.now()) / 60000))
-          : 30;
-        throw new BadRequestException(msg.bookings.propertyOnHold(holdRemaining));
-      }
-    }
-
-    // Check calendar lock conflicts (locked/hold/booked dates)
-    const lockConflict = await this.prisma.calendarLock.findFirst({
-      where: {
-        propertyId,
-        date: { gte: checkin, lt: checkout },
-      },
-    });
-    if (lockConflict) {
-      throw new BadRequestException(msg.bookings.dateLocked);
-    }
-
-    // Cancel only overlapping holds for this property
-    const overlappingHolds = await this.prisma.booking.findMany({
-      where: {
-        propertyId,
-        status: BOOKING_STATUS.HOLD,
-        checkinDate: { lt: checkout },
-        checkoutDate: { gt: checkin },
-      },
-      select: { id: true },
-    });
-    if (overlappingHolds.length > 0) {
-      await this.prisma.booking.updateMany({
-        where: { id: { in: overlappingHolds.map(h => h.id) } },
-        data: { status: BOOKING_STATUS.CANCELLED },
-      });
-      await Promise.all(overlappingHolds.map(h => this.redis.delHold(h.id)));
-    }
-
     const holdExpireAt = new Date(Date.now() + STAFF_HOLD_DURATION_SECONDS * 1000);
-    const booking = await this.prisma.booking.create({
-      data: {
-        propertyId,
-        saleId: user.id,
-        checkinDate: checkin,
-        checkoutDate: checkout,
-        status: BOOKING_STATUS.HOLD,
-        holdExpireAt,
-        customerName: dto.customerName,
-        customerPhone: dto.customerPhone,
-        depositAmount: dto.depositAmount,
-        guestCount: dto.guestCount || 2,
-        notes: dto.notes,
-      },
-      include: {
-        property: { select: { id: true, name: true, code: true } },
-        sale: { select: { id: true, name: true } },
-      },
+
+    // Wrap conflict-check + holds-cancel + create trong 1 transaction Serializable
+    // để tránh race condition double-booking khi 2 request concurrent.
+    const { booking, cancelledHoldIds } = await this.prisma.$transaction(async (tx) => {
+      const conflict = await tx.booking.findFirst({
+        where: {
+          propertyId,
+          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          checkinDate: { lt: checkout },
+          checkoutDate: { gt: checkin },
+        },
+      });
+      if (conflict) {
+        if (conflict.status === BOOKING_STATUS.CONFIRMED) {
+          throw new BadRequestException(msg.bookings.propertyAlreadyBooked);
+        }
+        if (conflict.saleId !== user.id) {
+          const holdRemaining = conflict.holdExpireAt
+            ? Math.max(0, Math.ceil((conflict.holdExpireAt.getTime() - Date.now()) / 60000))
+            : 30;
+          throw new BadRequestException(msg.bookings.propertyOnHold(holdRemaining));
+        }
+      }
+
+      const lockConflict = await tx.calendarLock.findFirst({
+        where: { propertyId, date: { gte: checkin, lt: checkout } },
+      });
+      if (lockConflict) {
+        throw new BadRequestException(msg.bookings.dateLocked);
+      }
+
+      const overlappingHolds = await tx.booking.findMany({
+        where: {
+          propertyId,
+          status: BOOKING_STATUS.HOLD,
+          checkinDate: { lt: checkout },
+          checkoutDate: { gt: checkin },
+        },
+        select: { id: true },
+      });
+      if (overlappingHolds.length > 0) {
+        await tx.booking.updateMany({
+          where: { id: { in: overlappingHolds.map((h) => h.id) } },
+          data: { status: BOOKING_STATUS.CANCELLED },
+        });
+      }
+
+      const created = await tx.booking.create({
+        data: {
+          propertyId,
+          saleId: user.id,
+          checkinDate: checkin,
+          checkoutDate: checkout,
+          status: BOOKING_STATUS.HOLD,
+          holdExpireAt,
+          customerName: dto.customerName,
+          customerPhone: dto.customerPhone,
+          depositAmount: dto.depositAmount,
+          guestCount: dto.guestCount || 2,
+          notes: dto.notes,
+        },
+        include: {
+          property: { select: { id: true, name: true, code: true } },
+          sale: { select: { id: true, name: true } },
+        },
+      });
+
+      return { booking: created, cancelledHoldIds: overlappingHolds.map((h) => h.id) };
     });
 
+    // Side-effects ngoài transaction: Redis + notifications fire-and-forget
     await this.redis.setHold(booking.id, STAFF_HOLD_DURATION_SECONDS);
+    void Promise.all(cancelledHoldIds.map((id) => this.redis.delHold(id))).catch(() => undefined);
 
-    // Notify owner
-    await this.notifications.notifyPropertyOwner(
+    void this.notifications.notifyPropertyOwner(
       propertyId,
       'Booking mới — Giữ chỗ',
       `${booking.property.name} (${booking.property.code}) được giữ chỗ bởi ${booking.sale?.name || 'Staff'}`,
@@ -201,7 +222,7 @@ export class BookingsService {
       booking.id,
       'booking',
       { pushType: 'booking_created', deepLink: `/bookings/${booking.id}` },
-    );
+    ).catch(() => undefined);
 
     return {
       message: msg.bookings.holdSuccess,
@@ -233,7 +254,7 @@ export class BookingsService {
     await this.redis.delHold(id);
 
     // Notify owner + customer
-    await this.notifications.notifyPropertyOwner(
+    void this.notifications.notifyPropertyOwner(
       booking.propertyId,
       'Booking được xác nhận',
       `${confirmed.property.name} (${confirmed.property.code}) — booking đã xác nhận`,
@@ -241,9 +262,9 @@ export class BookingsService {
       id,
       'booking',
       { pushType: 'booking_confirmed', deepLink: `/bookings/${id}` },
-    );
+    ).catch(() => undefined);
     if (booking.customerId) {
-      await this.notifications.notifyUser(
+      void this.notifications.notifyUser(
         booking.customerId,
         'Đặt phòng được xác nhận',
         `Phòng ${confirmed.property.name} đã được xác nhận`,
@@ -251,7 +272,7 @@ export class BookingsService {
         id,
         'booking',
         { pushType: 'booking_confirmed', deepLink: '/my-bookings' },
-      );
+      ).catch(() => undefined);
     }
 
     return { message: msg.bookings.confirmSuccess, data: confirmed };
@@ -279,7 +300,7 @@ export class BookingsService {
     await this.redis.delHold(id);
 
     // Notify owner + customer (if any)
-    await this.notifications.notifyPropertyOwner(
+    void this.notifications.notifyPropertyOwner(
       booking.propertyId,
       'Booking đã bị hủy',
       `${cancelled.property.name} (${cancelled.property.code}) — booking đã hủy`,
@@ -287,9 +308,9 @@ export class BookingsService {
       id,
       'booking',
       { pushType: 'booking_cancelled', deepLink: `/bookings/${id}` },
-    );
+    ).catch(() => undefined);
     if (booking.customerId) {
-      await this.notifications.notifyUser(
+      void this.notifications.notifyUser(
         booking.customerId,
         'Đặt phòng đã huỷ',
         `${cancelled.property.name} đã được huỷ`,
@@ -297,7 +318,7 @@ export class BookingsService {
         id,
         'booking',
         { pushType: 'booking_cancelled', deepLink: '/my-bookings' },
-      );
+      ).catch(() => undefined);
     }
 
     return { message: msg.bookings.cancelSuccess, data: null };
@@ -339,58 +360,62 @@ export class BookingsService {
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
-    // Check date conflicts (HOLD + CONFIRMED)
-    const conflict = await this.prisma.booking.findFirst({
-      where: {
-        propertyId,
-        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
-        checkinDate: { lt: checkout },
-        checkoutDate: { gt: checkin },
-      },
-    });
-    if (conflict) {
-      throw new ConflictException(msg.bookings.propertyNotAvailable);
-    }
-
-    // Check calendar lock conflicts (locked/hold/booked dates)
-    const lockConflict = await this.prisma.calendarLock.findFirst({
-      where: {
-        propertyId,
-        date: { gte: checkin, lt: checkout },
-      },
-    });
-    if (lockConflict) {
-      throw new ConflictException(msg.bookings.dateLocked);
-    }
-
     const holdExpireAt = new Date(Date.now() + CUSTOMER_HOLD_DURATION_SECONDS * 1000);
-    const booking = await this.prisma.booking.create({
-      data: {
-        propertyId,
-        customerId: user.id,
-        checkinDate: checkin,
-        checkoutDate: checkout,
-        status: BOOKING_STATUS.HOLD,
-        holdExpireAt,
-        guestCount: dto.guestCount || 2,
-        notes: dto.notes,
-      },
-      include: {
-        property: { select: { id: true, name: true, code: true } },
-      },
+
+    const booking = await this.prisma.$transaction(async (tx) => {
+      const conflict = await tx.booking.findFirst({
+        where: {
+          propertyId,
+          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          checkinDate: { lt: checkout },
+          checkoutDate: { gt: checkin },
+        },
+      });
+      if (conflict) {
+        throw new ConflictException(msg.bookings.propertyNotAvailable);
+      }
+
+      const lockConflict = await tx.calendarLock.findFirst({
+        where: { propertyId, date: { gte: checkin, lt: checkout } },
+      });
+      if (lockConflict) {
+        throw new ConflictException(msg.bookings.dateLocked);
+      }
+
+      return tx.booking.create({
+        data: {
+          propertyId,
+          customerId: user.id,
+          checkinDate: checkin,
+          checkoutDate: checkout,
+          status: BOOKING_STATUS.HOLD,
+          holdExpireAt,
+          guestCount: dto.guestCount || 2,
+          notes: dto.notes,
+        },
+        include: {
+          property: { select: { id: true, name: true, code: true } },
+        },
+      });
     });
 
-    // Notify owner
-    const customer = await this.prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
-    await this.notifications.notifyPropertyOwner(
-      propertyId,
-      'Khách đặt phòng mới',
-      `${booking.property.name} (${booking.property.code}) — khách ${customer?.name || 'Ẩn danh'} giữ chỗ`,
-      NOTIFICATION_TYPE.BOOKING,
-      booking.id,
-      'booking',
-      { pushType: 'booking_created', deepLink: `/bookings/${booking.id}` },
-    );
+    // Fire-and-forget side effects
+    void (async () => {
+      try {
+        const customer = await this.prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
+        void this.notifications.notifyPropertyOwner(
+          propertyId,
+          'Khách đặt phòng mới',
+          `${booking.property.name} (${booking.property.code}) — khách ${customer?.name || 'Ẩn danh'} giữ chỗ`,
+          NOTIFICATION_TYPE.BOOKING,
+          booking.id,
+          'booking',
+          { pushType: 'booking_created', deepLink: `/bookings/${booking.id}` },
+        );
+      } catch {
+        /* noop */
+      }
+    })();
 
     return {
       message: msg.bookings.customerHoldSuccess,
@@ -398,24 +423,39 @@ export class BookingsService {
     };
   }
 
-  async getMyBookings(user: { id: string; role: number }, msg: Messages, status?: number) {
+  async getMyBookings(
+    user: { id: string; role: number },
+    msg: Messages,
+    status?: number,
+    page?: number,
+    limit?: number,
+  ) {
     const where: any = { customerId: user.id };
     if (status !== undefined) {
       where.status = status;
     }
 
-    const bookings = await this.prisma.booking.findMany({
-      where,
-      include: {
-        property: {
-          select: {
-            id: true, name: true, code: true, type: true,
-            images: { where: { isCover: true }, take: 1 },
+    const take = Math.min(Math.max(1, Number(limit) || DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+    const currentPage = Math.max(1, Number(page) || 1);
+    const skip = (currentPage - 1) * take;
+
+    const [bookings, total] = await this.prisma.$transaction([
+      this.prisma.booking.findMany({
+        where,
+        include: {
+          property: {
+            select: {
+              id: true, name: true, code: true, type: true,
+              images: { where: { isCover: true }, take: 1 },
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.booking.count({ where }),
+    ]);
 
     const bookingsWithHoldTtl = bookings.map((booking) => {
       let holdRemainingSeconds = 0;
@@ -425,7 +465,11 @@ export class BookingsService {
       return { ...booking, holdRemainingSeconds };
     });
 
-    return { message: msg.bookings.myListSuccess, data: bookingsWithHoldTtl };
+    return {
+      message: msg.bookings.myListSuccess,
+      data: bookingsWithHoldTtl,
+      meta: { total, page: currentPage, limit: take },
+    };
   }
 
   async customerCancel(id: string, user: { id: string; role: number }, msg: Messages) {
@@ -452,7 +496,7 @@ export class BookingsService {
     await this.redis.delHold(id);
 
     // Notify owner
-    await this.notifications.notifyPropertyOwner(
+    void this.notifications.notifyPropertyOwner(
       booking.propertyId,
       'Khách hủy đặt phòng',
       `${cancelled.property.name} (${cancelled.property.code}) — khách đã hủy giữ chỗ`,
@@ -460,7 +504,7 @@ export class BookingsService {
       id,
       'booking',
       { pushType: 'booking_cancelled', deepLink: `/bookings/${id}` },
-    );
+    ).catch(() => undefined);
 
     return { message: msg.bookings.customerCancelSuccess, data: null };
   }
@@ -553,23 +597,28 @@ export class BookingsService {
   @Cron(CronExpression.EVERY_MINUTE)
   async expireHoldBookings() {
     const now = new Date();
+
+    // Lấy id trước cho mục đích cleanup Redis, nhưng update là atomic 1 query
+    // với điều kiện status=HOLD + holdExpireAt<=now → không race với confirm.
     const expired = await this.prisma.booking.findMany({
+      where: { status: BOOKING_STATUS.HOLD, holdExpireAt: { lte: now } },
+      select: { id: true },
+    });
+
+    if (expired.length === 0) return 0;
+
+    const result = await this.prisma.booking.updateMany({
       where: {
+        id: { in: expired.map((b) => b.id) },
         status: BOOKING_STATUS.HOLD,
         holdExpireAt: { lte: now },
       },
+      data: { status: BOOKING_STATUS.CANCELLED },
     });
 
-    if (expired.length > 0) {
-      await this.prisma.booking.updateMany({
-        where: { id: { in: expired.map((b) => b.id) } },
-        data: { status: BOOKING_STATUS.CANCELLED },
-      });
+    await Promise.all(expired.map((b) => this.redis.delHold(b.id).catch(() => undefined)));
 
-      await Promise.all(expired.map((b) => this.redis.delHold(b.id)));
-    }
-
-    return expired.length;
+    return result.count;
   }
 
   // ─── Private Helpers ──────────────────────────────────────────────────────

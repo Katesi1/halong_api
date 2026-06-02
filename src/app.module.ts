@@ -19,7 +19,9 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { KycModule } from './modules/kyc/kyc.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { PaymentModule } from './modules/payment/payment.module';
+import { AppleIapModule } from './modules/apple-iap/apple-iap.module';
 import { AdminKycModule } from './modules/admin-kyc/admin-kyc.module';
+import { AdminSubscriptionModule } from './modules/admin-subscription/admin-subscription.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { EmailModule } from './modules/email/email.module';
@@ -53,7 +55,9 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     KycModule,
     BillingModule,
     PaymentModule,
+    AppleIapModule,
     AdminKycModule,
+    AdminSubscriptionModule,
     ReviewsModule,
     PermissionsModule,
     EmailModule,

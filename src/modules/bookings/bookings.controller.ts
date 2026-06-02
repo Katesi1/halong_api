@@ -38,22 +38,36 @@ export class BookingsController {
     @CurrentUser() user: any,
     @Query('propertyId') propertyId: string,
     @Query('status') status: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
     @Lang() msg: Messages,
   ) {
     return this.bookingsService.findAll(
       user, msg, propertyId,
       status !== undefined ? parseInt(status) : undefined,
+      page ? parseInt(page) : undefined,
+      limit ? parseInt(limit) : undefined,
     );
   }
 
   @Get('my-bookings')
   @ApiOperation({ summary: 'Booking của customer hiện tại' })
   @ApiQuery({ name: 'status', required: false, description: '0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, type: BookingListResponse })
-  getMyBookings(@CurrentUser() user: any, @Query('status') status: string, @Lang() msg: Messages) {
+  getMyBookings(
+    @CurrentUser() user: any,
+    @Query('status') status: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
+    @Lang() msg: Messages,
+  ) {
     return this.bookingsService.getMyBookings(
       user, msg,
       status !== undefined ? parseInt(status) : undefined,
+      page ? parseInt(page) : undefined,
+      limit ? parseInt(limit) : undefined,
     );
   }
 

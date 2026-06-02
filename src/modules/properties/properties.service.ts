@@ -12,6 +12,7 @@ import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
 import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { kycRequired } from '../../common/errors/kyc.errors';
 
 @Injectable()
 export class PropertiesService {
@@ -463,11 +464,11 @@ export class PropertiesService {
       where: { id: userId },
       select: { kycStatus: true, kycBypass: true },
     });
-    if (!owner) throw new ForbiddenException(msg.kyc.kycRequired);
+    if (!owner) throw kycRequired(msg.kyc.propertyRequiresKyc);
     // ADMIN-granted bypass skips KYC requirement
     if (owner.kycBypass) return;
     if (owner.kycStatus !== KYC_STATUS.APPROVED) {
-      throw new ForbiddenException(msg.kyc.kycRequired);
+      throw kycRequired(msg.kyc.propertyRequiresKyc);
     }
   }
 }

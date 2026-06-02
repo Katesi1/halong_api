@@ -205,6 +205,10 @@ export const vi = {
     statusSuccess: 'Lấy trạng thái KYC thành công',
     ownerNotVerified: 'Chủ nhà chưa hoàn thành xác minh danh tính',
     kycRequired: 'Bạn cần hoàn thành xác minh KYC trước khi quản lý cơ sở',
+    alreadyPending: 'Hồ sơ đang chờ duyệt, không thể gửi lại.',
+    alreadyApproved: 'Tài khoản đã được xác thực.',
+    locked: 'Hồ sơ đang chờ duyệt hoặc đã duyệt, không thể chỉnh sửa.',
+    propertyRequiresKyc: 'Cần hoàn tất xác thực trước khi đăng/sửa phòng.',
   },
 
   // ─── Billing ───────────────────────────────────────────────────────────────
@@ -246,6 +250,7 @@ export const vi = {
   // ─── Staff Invites ─────────────────────────────────────────────────────────
   staff: {
     ownerOnly: 'Chỉ chủ homestay (OWNER) được mời nhân viên',
+    ownerIdRequired: 'ADMIN phải truyền ownerId khi tạo invite thay mặt OWNER',
     kycRequired: 'Cần hoàn tất KYC trước khi mời nhân viên',
     subscriptionRequired: 'Cần subscription đang hoạt động để mời nhân viên',
     emailInvalid: 'Email không hợp lệ',
@@ -284,5 +289,38 @@ export const vi = {
     rejectSuccess: 'Từ chối hồ sơ xác minh thành công',
     alreadyProcessed: 'Hồ sơ này đã được xử lý rồi',
     invalidStatus: 'Hồ sơ không ở trạng thái chờ duyệt',
+  },
+
+  // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────
+  adminSubscription: {
+    getSuccess: 'Lấy thông tin subscription thành công',
+    grantSuccess: 'Cấp trial thành công',
+    extendSuccess: 'Gia hạn trial thành công',
+    revokeSuccess: 'Thu hồi trial thành công',
+    onlyOwner: 'Chỉ có thể cấp trial cho tài khoản OWNER',
+    userInactive: 'Tài khoản đã bị vô hiệu hoá',
+    alreadyActive: 'User đang có subscription trả phí (active) — không thể cấp trial',
+    notInTrial: 'User hiện không trong trạng thái trial — không có gì để thu hồi',
+    planRequired: 'planId là bắt buộc khi user chưa từng có subscription',
+    planNotFound: 'Gói cước (planId) không tồn tại',
+    notifyGrantedTitle: 'Bạn được cấp dùng thử miễn phí',
+    notifyGrantedBody: (days: number, endsAt: Date) =>
+      `Tài khoản OWNER của bạn vừa được cấp ${days} ngày dùng thử miễn phí. Hạn dùng đến ${endsAt.toLocaleDateString('vi-VN')}.`,
+    notifyExtendedTitle: 'Trial được gia hạn',
+    notifyExtendedBody: (days: number, endsAt: Date) =>
+      `Trial của bạn vừa được cộng thêm ${days} ngày. Hạn mới đến ${endsAt.toLocaleDateString('vi-VN')}.`,
+    notifyRevokedTitle: 'Trial đã bị thu hồi',
+    notifyRevokedBody: 'Trial trên tài khoản của bạn đã bị thu hồi bởi quản trị viên.',
+  },
+
+  // ─── Apple IAP ─────────────────────────────────────────────────────────────
+  appleIap: {
+    notConfigured: 'Hệ thống chưa cấu hình Apple IAP',
+    invalidReceipt: 'Apple receipt không hợp lệ hoặc đã hết hạn',
+    bundleMismatch: 'Bundle ID Apple không khớp',
+    productMismatch: 'Product ID Apple không khớp với request',
+    expired: 'Subscription Apple đã hết hạn',
+    unknownProduct: 'Apple product ID không hợp lệ',
+    verifySuccess: 'Kích hoạt gói thành công',
   },
 };

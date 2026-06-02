@@ -203,6 +203,10 @@ export const en = {
     cannotResubmit: 'Submission cannot be resubmitted in its current status',
     getSuccess: 'KYC submission retrieved successfully',
     statusSuccess: 'KYC status retrieved successfully',
+    alreadyPending: 'KYC submission is pending review and cannot be re-submitted.',
+    alreadyApproved: 'Account is already verified.',
+    locked: 'KYC documents are locked while pending or approved.',
+    propertyRequiresKyc: 'Complete identity verification before adding or editing properties.',
     ownerNotVerified: 'Owner has not completed identity verification',
     kycRequired: 'You must complete KYC verification before managing properties',
   },
@@ -246,6 +250,7 @@ export const en = {
   // ─── Staff Invites ─────────────────────────────────────────────────────────
   staff: {
     ownerOnly: 'Only homestay owners can invite staff',
+    ownerIdRequired: 'ADMIN must provide ownerId when creating an invite on behalf of an OWNER',
     kycRequired: 'Complete KYC before inviting staff',
     subscriptionRequired: 'An active subscription is required to invite staff',
     emailInvalid: 'Invalid email',
@@ -284,5 +289,38 @@ export const en = {
     rejectSuccess: 'KYC submission rejected successfully',
     alreadyProcessed: 'This submission has already been processed',
     invalidStatus: 'Submission is not in awaiting_approval status',
+  },
+
+  // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────
+  adminSubscription: {
+    getSuccess: 'Subscription retrieved successfully',
+    grantSuccess: 'Trial granted successfully',
+    extendSuccess: 'Trial extended successfully',
+    revokeSuccess: 'Trial revoked successfully',
+    onlyOwner: 'Trial can only be granted to OWNER accounts',
+    userInactive: 'User account is inactive',
+    alreadyActive: 'User has an active paid subscription — cannot grant trial',
+    notInTrial: 'User is not currently in trial — nothing to revoke',
+    planRequired: 'planId is required when the user has no subscription history',
+    planNotFound: 'Billing plan (planId) does not exist',
+    notifyGrantedTitle: 'You received a free trial',
+    notifyGrantedBody: (days: number, endsAt: Date) =>
+      `Your OWNER account was granted a ${days}-day free trial. Valid until ${endsAt.toLocaleDateString('en-GB')}.`,
+    notifyExtendedTitle: 'Trial extended',
+    notifyExtendedBody: (days: number, endsAt: Date) =>
+      `Your trial was extended by ${days} days. New expiry: ${endsAt.toLocaleDateString('en-GB')}.`,
+    notifyRevokedTitle: 'Trial revoked',
+    notifyRevokedBody: 'Your trial was revoked by an administrator.',
+  },
+
+  // ─── Apple IAP ─────────────────────────────────────────────────────────────
+  appleIap: {
+    notConfigured: 'Apple IAP is not configured on this server',
+    invalidReceipt: 'Apple receipt is invalid or expired',
+    bundleMismatch: 'Apple bundle id does not match',
+    productMismatch: 'Apple product id does not match the request',
+    expired: 'Apple subscription has already expired',
+    unknownProduct: 'Unknown Apple product id',
+    verifySuccess: 'Subscription activated successfully',
   },
 };

@@ -22,6 +22,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const msg = getMessages(request.headers?.['accept-language']);
     let message: string | string[] = msg.common.serverError;
     let errors: any = null;
+    let code: string | null = null;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -38,6 +39,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
         }
         // Preserve field-level errors object từ ValidationPipe exceptionFactory
         errors = obj.errors ?? null;
+        // Preserve machine-readable code (e.g. KYC_ALREADY_PENDING)
+        if (typeof obj.code === 'string') code = obj.code;
       }
     } else {
       this.logger.error('Unhandled exception', exception);
@@ -47,6 +50,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       success: false,
       statusCode: status,
       message: Array.isArray(message) ? message.join(', ') : message,
+      code,
       errors,
       path: request.url,
       timestamp: new Date().toISOString(),

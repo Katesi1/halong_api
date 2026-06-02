@@ -1,5 +1,5 @@
-import { Controller, Get, Patch, Param, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Patch, Param, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
@@ -20,9 +20,21 @@ export class NotificationsController {
     summary: 'Danh sách thông báo',
     description: 'Trả về tất cả thông báo của user hiện tại, sắp xếp theo thời gian mới nhất.',
   })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Default 50, max 100' })
   @ApiResponse({ status: 200, type: NotificationListResponse })
-  findAll(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
-    return this.notificationsService.findAll(userId, msg);
+  findAll(
+    @CurrentUser('id') userId: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.notificationsService.findAll(
+      userId,
+      msg,
+      page ? parseInt(page) : undefined,
+      limit ? parseInt(limit) : undefined,
+    );
   }
 
   @Get('unread-count')

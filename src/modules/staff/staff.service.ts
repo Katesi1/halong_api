@@ -16,7 +16,13 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { Messages } from '../../i18n';
-import { ROLE, KYC_STATUS, SUBSCRIPTION_STATUS, NOTIFICATION_TYPE } from '../../common/constants';
+import {
+  ROLE,
+  KYC_STATUS,
+  SUBSCRIPTION_STATUS,
+  NOTIFICATION_TYPE,
+  PERMISSION_MODULE,
+} from '../../common/constants';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 
@@ -36,7 +42,14 @@ export class StaffService {
     private configService: ConfigService,
   ) {}
 
-  async createInvite(ownerId: string, dto: CreateInviteDto, msg: Messages) {
+  async createInvite(caller: { id: string; role: number }, dto: CreateInviteDto, msg: Messages) {
+    const isAdmin = caller.role === ROLE.ADMIN;
+    const resolvedOwnerId = isAdmin ? dto.ownerId : caller.id;
+    if (!resolvedOwnerId) {
+      throw new BadRequestException(msg.staff.ownerIdRequired);
+    }
+    const ownerId: string = resolvedOwnerId;
+
     const owner = await this.prisma.user.findUnique({
       where: { id: ownerId },
       select: { id: true, name: true, email: true, role: true, kycStatus: true, kycBypass: true, subscriptionStatus: true },
@@ -44,13 +57,15 @@ export class StaffService {
     if (!owner || owner.role !== ROLE.OWNER) {
       throw new ForbiddenException(msg.staff.ownerOnly);
     }
-    if (!owner.kycBypass && owner.kycStatus !== KYC_STATUS.APPROVED) {
-      throw new ForbiddenException(msg.staff.kycRequired);
-    }
-    const subOk = owner.subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL
-      || owner.subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE;
-    if (!subOk) {
-      throw new ForbiddenException(msg.staff.subscriptionRequired);
+    if (!isAdmin) {
+      if (!owner.kycBypass && owner.kycStatus !== KYC_STATUS.APPROVED) {
+        throw new ForbiddenException(msg.staff.kycRequired);
+      }
+      const subOk = owner.subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL
+        || owner.subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE;
+      if (!subOk) {
+        throw new ForbiddenException(msg.staff.subscriptionRequired);
+      }
     }
 
     const email = dto.email.toLowerCase().trim();
@@ -121,8 +136,18 @@ export class StaffService {
     };
   }
 
-  async listInvites(ownerId: string, status: string | undefined, msg: Messages) {
-    const where: any = { ownerId };
+  async listInvites(
+    caller: { id: string; role: number },
+    ownerIdFilter: string | undefined,
+    status: string | undefined,
+    msg: Messages,
+  ) {
+    const where: any = {};
+    if (caller.role === ROLE.ADMIN) {
+      if (ownerIdFilter) where.ownerId = ownerIdFilter;
+    } else {
+      where.ownerId = caller.id;
+    }
     if (status && status !== 'all') {
       where.status = status;
     }
@@ -130,17 +155,19 @@ export class StaffService {
       where,
       orderBy: { createdAt: 'desc' },
       select: {
-        id: true, email: true, shortCode: true, status: true,
+        id: true, email: true, shortCode: true, status: true, ownerId: true,
         expiresAt: true, acceptedAt: true, acceptedUserId: true, createdAt: true,
       },
     });
     return { message: msg.staff.inviteListSuccess, data: invites };
   }
 
-  async cancelInvite(ownerId: string, inviteId: string, msg: Messages) {
+  async cancelInvite(caller: { id: string; role: number }, inviteId: string, msg: Messages) {
     const invite = await this.prisma.staffInvite.findUnique({ where: { id: inviteId } });
     if (!invite) throw new NotFoundException(msg.staff.inviteNotFound);
-    if (invite.ownerId !== ownerId) throw new ForbiddenException(msg.staff.inviteForbidden);
+    if (caller.role !== ROLE.ADMIN && invite.ownerId !== caller.id) {
+      throw new ForbiddenException(msg.staff.inviteForbidden);
+    }
     if (invite.status !== 'pending') {
       throw new BadRequestException(msg.staff.inviteOnlyPendingCancel);
     }
@@ -259,6 +286,18 @@ export class StaffService {
       data: { status: 'accepted', acceptedAt: new Date(), acceptedUserId: newUser.id },
     });
 
+    // Default permissions for new SALE: full CRUD on operational modules,
+    // read-only on properties. OWNER can adjust later via PUT /permissions/:userId.
+    await this.prisma.userPermission.createMany({
+      data: [
+        { userId: newUser.id, module: PERMISSION_MODULE.PROPERTIES, canCreate: false, canRead: true,  canUpdate: false, canDelete: false },
+        { userId: newUser.id, module: PERMISSION_MODULE.BOOKINGS,   canCreate: true,  canRead: true,  canUpdate: true,  canDelete: false },
+        { userId: newUser.id, module: PERMISSION_MODULE.CALENDAR,   canCreate: true,  canRead: true,  canUpdate: true,  canDelete: true  },
+        { userId: newUser.id, module: PERMISSION_MODULE.REVIEWS,    canCreate: false, canRead: true,  canUpdate: true,  canDelete: false },
+      ],
+      skipDuplicates: true,
+    });
+
     // Notify OWNER: nhân viên đã accept invite
     await this.notifications.notifyUser(
       invite.ownerId,
@@ -294,8 +333,18 @@ export class StaffService {
     };
   }
 
-  async listStaff(ownerId: string, isActiveFilter: string | undefined, msg: Messages) {
-    const where: any = { ownerId, role: ROLE.SALE, deletedAt: null };
+  async listStaff(
+    caller: { id: string; role: number },
+    ownerIdFilter: string | undefined,
+    isActiveFilter: string | undefined,
+    msg: Messages,
+  ) {
+    const where: any = { role: ROLE.SALE, deletedAt: null };
+    if (caller.role === ROLE.ADMIN) {
+      if (ownerIdFilter) where.ownerId = ownerIdFilter;
+    } else {
+      where.ownerId = caller.id;
+    }
     if (isActiveFilter === 'true') where.isActive = true;
     else if (isActiveFilter === 'false') where.isActive = false;
 
@@ -303,19 +352,19 @@ export class StaffService {
       where,
       select: {
         id: true, name: true, email: true, phone: true, avatar: true,
-        role: true, isActive: true, createdAt: true,
+        role: true, isActive: true, ownerId: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
     return { message: msg.staff.listSuccess, data: staff };
   }
 
-  async removeStaff(ownerId: string, staffId: string, msg: Messages) {
-    if (ownerId === staffId) throw new BadRequestException(msg.staff.cannotRemoveSelf);
+  async removeStaff(caller: { id: string; role: number }, staffId: string, msg: Messages) {
+    if (caller.id === staffId) throw new BadRequestException(msg.staff.cannotRemoveSelf);
 
-    const staff = await this.prisma.user.findFirst({
-      where: { id: staffId, ownerId, role: ROLE.SALE, deletedAt: null },
-    });
+    const where: any = { id: staffId, role: ROLE.SALE, deletedAt: null };
+    if (caller.role !== ROLE.ADMIN) where.ownerId = caller.id;
+    const staff = await this.prisma.user.findFirst({ where });
     if (!staff) throw new NotFoundException(msg.staff.notFound);
 
     await this.prisma.user.update({

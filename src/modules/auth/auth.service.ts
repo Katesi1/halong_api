@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
@@ -25,6 +26,7 @@ import { AppleAuthDto } from './dto/apple-auth.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly googleClient = new OAuth2Client();
 
   constructor(
@@ -334,6 +336,21 @@ export class AuthService {
     };
   }
 
+  /**
+   * Reset-token bí mật riêng (không dùng JWT_SECRET của access-token để tránh
+   * dùng access-token làm reset-token). Fallback JWT_SECRET chỉ khi env chưa
+   * có — dev convenience; prod phải set rõ JWT_RESET_SECRET.
+   */
+  private getResetSecret(): string {
+    const secret =
+      this.configService.get<string>('JWT_RESET_SECRET') ||
+      this.configService.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_RESET_SECRET / JWT_SECRET chưa được cấu hình');
+    }
+    return secret;
+  }
+
   async forgotPassword(dto: ForgotPasswordDto, msg: Messages) {
     const user = await this.prisma.user.findFirst({
       where: {
@@ -342,31 +359,59 @@ export class AuthService {
           { email: dto.identifier },
         ],
       },
+      select: { id: true, email: true, phone: true, isActive: true, deletedAt: true },
     });
 
-    if (!user) {
+    // Trả success ngay cả khi user không tồn tại để tránh enumeration.
+    if (!user || !user.isActive || user.deletedAt) {
       return { message: msg.auth.forgotPasswordSuccess, data: null };
+    }
+
+    // Sinh reset token: TTL 10 phút, có purpose='reset' để verify chặn nhầm token.
+    const resetToken = this.jwtService.sign(
+      { sub: user.id, purpose: 'reset' },
+      { secret: this.getResetSecret(), expiresIn: '10m' },
+    );
+
+    // Gửi qua email nếu có; nếu chưa cấu hình SMTP → log để dev/admin lấy thủ công.
+    // KHÔNG bao giờ trả token trong response (tránh leak qua proxy / log access).
+    // TODO: tích hợp SMS provider cho user chỉ có phone.
+    this.logger.log(`Password reset issued for user=${user.id}`);
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.warn(`[DEV ONLY] reset token for ${user.id}: ${resetToken}`);
     }
 
     return { message: msg.auth.forgotPasswordSuccess, data: null };
   }
 
   async resetPassword(dto: ResetPasswordDto, msg: Messages) {
+    let payload: { sub: string; purpose?: string };
     try {
-      const payload = this.jwtService.verify(dto.token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
-
-      const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
-      await this.prisma.user.update({
-        where: { id: payload.sub },
-        data: { password: hashedPassword },
-      });
-
-      return { message: msg.auth.resetPasswordSuccess, data: null };
+      payload = this.jwtService.verify(dto.token, { secret: this.getResetSecret() });
     } catch {
       throw new BadRequestException(msg.auth.resetTokenInvalid);
     }
+
+    // Bắt buộc purpose='reset' — chặn dùng access-token làm reset-token.
+    if (payload.purpose !== 'reset' || !payload.sub) {
+      throw new BadRequestException(msg.auth.resetTokenInvalid);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, isActive: true, deletedAt: true },
+    });
+    if (!user || !user.isActive || user.deletedAt) {
+      throw new BadRequestException(msg.auth.resetTokenInvalid);
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword, refreshToken: null },
+    });
+
+    return { message: msg.auth.resetPasswordSuccess, data: null };
   }
 
   async refreshToken(refreshToken: string, msg: Messages) {

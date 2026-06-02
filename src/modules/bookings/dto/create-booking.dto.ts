@@ -26,9 +26,9 @@ export class CreateBookingDto {
   @IsNotEmpty({ message: 'Số điện thoại khách hàng không được để trống' })
   customerPhone: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'VND, integer' })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
   @Type(() => Number)
   depositAmount?: number;

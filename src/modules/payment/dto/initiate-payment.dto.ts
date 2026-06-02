@@ -3,7 +3,7 @@ import { IsString, IsIn, IsInt, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class InitiatePaymentDto {
-  @ApiProperty({ example: 'professional' })
+  @ApiProperty({ example: 'rooms_10', description: 'Plan id (rooms_1 | rooms_5 | rooms_10 | rooms_20 | rooms_50 | enterprise)' })
   @IsString()
   planId: string;
 

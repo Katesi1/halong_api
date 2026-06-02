@@ -2,27 +2,38 @@ import { NestFactory } from '@nestjs/core';
 import { BadRequestException, Logger, ValidationError, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const isProd = process.env.NODE_ENV === 'production';
 
-  // Trust reverse proxy (nginx) → @Ip() đọc đúng X-Forwarded-For thay vì 127.0.0.1
-  app.set('trust proxy', true);
+  // Trust reverse proxy (1 hop: nginx). Không dùng `true` để tránh X-Forwarded-For spoof.
+  app.set('trust proxy', 1);
+
+  // Graceful shutdown — Prisma/Redis OnModuleDestroy chạy đúng khi nhận SIGTERM
+  app.enableShutdownHooks();
+
+  // Giới hạn body để tránh OOM / event-loop block
+  app.use(json({ limit: '1mb' }));
+  app.use(urlencoded({ extended: true, limit: '1mb' }));
 
   // Redirect root về Swagger
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.get('/', (_req: any, res: any) => res.redirect('/index.html'));
 
-  // Global prefix
-  // No global prefix — endpoints at root: /auth, /users, /properties, etc.
-
-  // CORS
+  // CORS — production phải set ALLOWED_ORIGINS=https://a.com,https://b.com
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: '*', // Thay bằng domain cụ thể khi production
+    origin: isProd ? (allowedOrigins.length > 0 ? allowedOrigins : false) : true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Partner-Key', 'X-Device-Id', 'Accept-Language'],
+    credentials: true,
   });
 
   // Logging interceptor toàn cục
@@ -99,6 +110,6 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  new Logger('Bootstrap').log(`Server running at http://localhost:${port}/index.html`);
+  new Logger('Bootstrap').log(`Server running on port ${port} (prod=${isProd})`);
 }
 bootstrap();

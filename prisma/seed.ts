@@ -60,48 +60,91 @@ async function main() {
   await prisma.appVersion.deleteMany();
   console.log('✅ Reset done');
 
-  // ─── 1. BillingPlans (cần cho subscription của OWNER demo) ───────────────
+  // ─── 1. BillingPlans (6 gói khớp BACKEND_APPLE_IAP_SPEC.md mục 2) ───────
+  // id phải đúng dạng `rooms_N` / `enterprise` để app map ra tier.
   await prisma.billingPlan.createMany({
     data: [
       {
-        id: 'starter',
-        name: 'Starter',
-        pricePerRoom: 99000,
+        id: 'rooms_1',
+        name: 'Mini',
+        pricePerRoom: 199000,
         minCharge: 199000,
-        maxRooms: 5,
-        yearlyDiscountPct: 20,
+        yearlyPrice: 1999000,
+        maxRooms: 1,
+        yearlyDiscountPct: 16,
         vatPct: 10,
-        features: ['Quản lý 1-5 phòng', 'Lịch booking', 'Báo cáo cơ bản'],
+        features: ['Booking + Calendar', 'Check-in / Check-out', 'Báo cáo cơ bản'],
         active: true,
         sortOrder: 0,
       },
       {
-        id: 'professional',
-        name: 'Professional',
-        pricePerRoom: 79000,
-        minCharge: 499000,
-        maxRooms: 20,
-        yearlyDiscountPct: 20,
+        id: 'rooms_5',
+        name: 'Starter',
+        pricePerRoom: 119800,
+        minCharge: 599000,
+        yearlyPrice: 5999000,
+        maxRooms: 5,
+        yearlyDiscountPct: 16,
         vatPct: 10,
-        features: ['Quản lý 6-20 phòng', 'Multi-staff', 'API partner', 'Báo cáo nâng cao'],
+        features: ['Tất cả tính năng Mini', 'Pricing rules cơ bản', 'Multi-staff (3 nhân viên)'],
         active: true,
         sortOrder: 1,
       },
       {
-        id: 'enterprise',
-        name: 'Enterprise',
-        pricePerRoom: 59000,
-        minCharge: 1499000,
-        maxRooms: null,
-        yearlyDiscountPct: 25,
+        id: 'rooms_10',
+        name: 'Standard',
+        pricePerRoom: 99900,
+        minCharge: 999000,
+        yearlyPrice: 9999000,
+        maxRooms: 10,
+        yearlyDiscountPct: 16,
         vatPct: 10,
-        features: ['Không giới hạn phòng', 'Priority support', 'Custom integration'],
+        features: ['Tất cả tính năng Starter', 'Dynamic pricing', 'Housekeeping + Expenses', 'Báo cáo nâng cao'],
         active: true,
         sortOrder: 2,
       },
+      {
+        id: 'rooms_20',
+        name: 'Pro',
+        pricePerRoom: 89950,
+        minCharge: 1799000,
+        yearlyPrice: 17999000,
+        maxRooms: 20,
+        yearlyDiscountPct: 16,
+        vatPct: 10,
+        features: ['Tất cả tính năng Standard', 'Multi-staff không giới hạn', 'Multi-property'],
+        active: true,
+        sortOrder: 3,
+      },
+      {
+        id: 'rooms_50',
+        name: 'Business',
+        pricePerRoom: 79980,
+        minCharge: 3999000,
+        yearlyPrice: 29999000,
+        maxRooms: 50,
+        yearlyDiscountPct: 37,
+        vatPct: 10,
+        features: ['Tất cả tính năng Pro', 'Channel sync (Booking.com, Agoda...)', 'API + Webhook'],
+        active: true,
+        sortOrder: 4,
+      },
+      {
+        id: 'enterprise',
+        name: 'Enterprise',
+        pricePerRoom: 0,
+        minCharge: 0,
+        yearlyPrice: 0,
+        maxRooms: null, // unlimited (app trả -1)
+        yearlyDiscountPct: 0,
+        vatPct: 10,
+        features: ['Số phòng không giới hạn', 'Tất cả tính năng Business', 'SLA + hỗ trợ riêng 24/7', 'Onboarding 1-1'],
+        active: true,
+        sortOrder: 5,
+      },
     ],
   });
-  console.log('✅ BillingPlans seeded (3 plans)');
+  console.log('✅ BillingPlans seeded (6 plans)');
 
   // ─── 2. Users ────────────────────────────────────────────────────────────
   const myPassword = await bcrypt.hash('Abcd@1234', 10);
@@ -146,7 +189,7 @@ async function main() {
       kycBypass: true,
       kycStatus: 'approved',
       subscriptionStatus: 'trial',
-      subscriptionPlanId: 'starter',
+      subscriptionPlanId: 'rooms_5',
       subscriptionCycle: 'monthly',
       trialEndsAt,
       nextChargeAt: trialEndsAt,
@@ -167,7 +210,22 @@ async function main() {
     },
   });
 
-  console.log('✅ Users seeded (4 accounts)');
+  // 2e. Apple Review DELETE — tài khoản dành riêng cho Apple test luồng xoá account.
+  // Role OWNER, không link booking/property để Apple có thể xoá tự do mà
+  // không ảnh hưởng demo data còn lại.
+  await prisma.user.create({
+    data: {
+      name: 'Apple Reviewer Delete',
+      email: 'apple-review-delete@halong24h.com',
+      phone: '0327000004',
+      password: reviewPassword,
+      role: ROLE.OWNER,
+      emailVerified: true,
+      isActive: true,
+    },
+  });
+
+  console.log('✅ Users seeded (5 accounts)');
 
   // ─── 3. KycSubmission cho OWNER (approved) ───────────────────────────────
   await prisma.kycSubmission.create({
@@ -188,7 +246,7 @@ async function main() {
   await prisma.subscription.create({
     data: {
       userId: reviewOwner.id,
-      planId: 'starter',
+      planId: 'rooms_5',
       cycle: 'monthly',
       rooms: 3,
       status: 'trial',
@@ -517,6 +575,8 @@ async function main() {
   console.log('               • 5 notifications');
   console.log('   SALE     → apple-review-sale@halong24h.com');
   console.log('               • Linked với OWNER demo');
+  console.log('   DELETE   → apple-review-delete@halong24h.com');
+  console.log('               • OWNER, dành cho test luồng xoá account');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 

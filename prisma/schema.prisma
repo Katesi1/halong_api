@@ -33,11 +33,12 @@ model User {
   kycBypass          Boolean  @default(false)  // ADMIN grant: skip KYC to manage properties
   kycStatus          String   @default("none") // none | pending | approved | rejected
   kycSubmissionId    String?
-  subscriptionStatus String   @default("none") // none | trial | active | past_due | cancelled
-  subscriptionPlanId String?
-  subscriptionCycle  String?  // monthly | yearly
-  trialEndsAt        DateTime?
-  nextChargeAt       DateTime?
+  subscriptionStatus   String   @default("none") // none | trial | active | past_due | cancelled | expired
+  subscriptionPlanId   String?
+  subscriptionCycle    String?  // monthly | yearly
+  subscriptionProvider String?  // apple_iap | vnpay | pays2 | manual_bank | null
+  trialEndsAt          DateTime?
+  nextChargeAt         DateTime?
 
   owner            User?    @relation("OwnerStaff", fields: [ownerId], references: [id])
   staffMembers     User[]   @relation("OwnerStaff")
@@ -52,6 +53,7 @@ model User {
   permissions      UserPermission[]
   subscriptions    Subscription[]
   paymentSessions  PaymentSession[]
+  appleTransactions AppleTransaction[]
   sentInvites      StaffInvite[]   @relation("InviteOwner")
   acceptedInvite   StaffInvite?    @relation("InviteAcceptedUser")
   devices          UserDevice[]
@@ -193,7 +195,7 @@ model Booking {
   checkoutDate   DateTime
   status         Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED
   holdExpireAt   DateTime?
-  depositAmount  Float?
+  depositAmount  Int?      // VND — luôn dùng Int, tránh sai số float64
   guestCount     Int       @default(2)
   notes          String?
   createdAt      DateTime  @default(now())
@@ -354,11 +356,12 @@ model KycUpload {
 // ─── Billing ──────────────────────────────────────────────────────────────────
 
 model BillingPlan {
-  id                String   @id // starter | professional | enterprise
+  id                String   @id // rooms_1 | rooms_5 | rooms_10 | rooms_20 | rooms_50 | enterprise
   name              String
-  pricePerRoom      Int      // VND/month
-  minCharge         Int      // VND/month (floor)
-  maxRooms          Int?     // null = unlimited
+  pricePerRoom      Int      // VND/month (deprecated, dùng minCharge làm monthlyPrice)
+  minCharge         Int      // VND/month — đây là giá Monthly hiển thị
+  yearlyPrice       Int?     // VND/year — explicit, khớp Apple StoreKit
+  maxRooms          Int?     // null hoặc -1 = unlimited
   yearlyDiscountPct Float    @default(20)
   vatPct            Float    @default(10)
   features          String[] @default([])
@@ -434,4 +437,42 @@ model PaymentSession {
   @@index([submissionId])
   @@index([status, expiresAt])
   @@map("payment_sessions")
+}
+
+// ─── Apple IAP ────────────────────────────────────────────────────────────────
+
+model AppleTransaction {
+  // Apple's stable per-subscription key — idempotency anchor
+  originalTransactionId String   @id
+
+  userId          String
+  productId       String   // com.halong24h.sub.rooms10_monthly
+  transactionId   String   // current period's transaction id
+  bundleId        String
+  environment     String   // Production | Sandbox
+  purchaseDate    DateTime
+  expiresAt       DateTime
+  status          String   // active | expired | cancelled | refunded
+  rawPayload      Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("apple_transactions")
+}
+
+model AppleNotification {
+  // Apple's notificationUUID — idempotency for webhook events
+  notificationUUID      String   @id
+  notificationType      String
+  subtype               String?
+  originalTransactionId String?
+  rawPayload            Json?
+  receivedAt            DateTime @default(now())
+
+  @@index([originalTransactionId])
+  @@map("apple_notifications")
 }

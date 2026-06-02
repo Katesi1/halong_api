@@ -53,12 +53,15 @@ export class PaymentService {
 
   // ─── VNPay config ────────────────────────────────────────────────────────
   private getVnpayConfig(): VnpayConfig {
+    const tmnCode = this.configService.get<string>('VNPAY_TMN_CODE');
+    const hashSecret = this.configService.get<string>('VNPAY_HASH_SECRET');
+    if (!tmnCode || !hashSecret) {
+      // Không dùng fallback 'PLACEHOLDER' — sẽ làm signature trivially bypass.
+      throw new Error('VNPAY_TMN_CODE / VNPAY_HASH_SECRET chưa được cấu hình');
+    }
     return {
-      tmnCode: this.configService.get<string>('VNPAY_TMN_CODE', 'PLACEHOLDER'),
-      hashSecret: this.configService.get<string>(
-        'VNPAY_HASH_SECRET',
-        'PLACEHOLDER_SECRET',
-      ),
+      tmnCode,
+      hashSecret,
       apiUrl: this.configService.get<string>(
         'VNPAY_API_URL',
         'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',
@@ -560,7 +563,7 @@ export class PaymentService {
         providerPayload: payload as any,
       },
     });
-    await this.notifications.notifyUser(
+    void this.notifications.notifyUser(
       session.userId,
       'Thanh toán thất bại',
       `${session.planLabel ?? 'Phiên thanh toán'} bị từ chối. Vui lòng thử lại.`,
@@ -568,7 +571,7 @@ export class PaymentService {
       session.id,
       'payment',
       { pushType: 'payment_failed', deepLink: '/my-bookings' },
-    );
+    ).catch(() => undefined);
     return { RspCode: '00', Message: 'Confirm Success' };
   }
 
@@ -578,7 +581,13 @@ export class PaymentService {
     headerSecret: string | undefined,
   ): Promise<{ success: boolean; message?: string }> {
     const expectedSecret = this.configService.get<string>('BANK_WEBHOOK_SECRET');
-    if (expectedSecret && headerSecret !== expectedSecret) {
+    if (!expectedSecret) {
+      // Bắt buộc cấu hình — nếu thiếu, từ chối toàn bộ webhook thay vì
+      // im lặng cho qua (kẻ tấn công có thể bơm thanh toán giả).
+      this.logger.error('BANK_WEBHOOK_SECRET chưa được cấu hình — từ chối webhook');
+      throw new ForbiddenException('Webhook authentication is not configured');
+    }
+    if (headerSecret !== expectedSecret) {
       this.logger.warn('Bank webhook secret mismatch');
       throw new ForbiddenException('Invalid webhook secret');
     }
@@ -638,16 +647,13 @@ export class PaymentService {
       providerPayload?: any;
     },
   ): Promise<void> {
-    const session = await this.prisma.paymentSession.findUnique({
-      where: { id: sessionId },
-    });
-    if (!session || session.status !== PAYMENT_STATUS.PENDING) return;
-
     const now = new Date();
     const invoiceNumber = await generateInvoiceNumber(this.prisma, now);
 
-    await this.prisma.paymentSession.update({
-      where: { id: sessionId },
+    // Atomic guard: chỉ chuyển PENDING→PAID, ngăn 2 webhook concurrent cùng kích hoạt
+    // cascade KYC / subscription dẫn tới double-payment.
+    const claim = await this.prisma.paymentSession.updateMany({
+      where: { id: sessionId, status: PAYMENT_STATUS.PENDING },
       data: {
         status: PAYMENT_STATUS.PAID,
         paidAt: now,
@@ -660,16 +666,28 @@ export class PaymentService {
       },
     });
 
+    if (claim.count === 0) {
+      // Đã được xử lý bởi webhook trước → idempotent return.
+      return;
+    }
+
+    const session = await this.prisma.paymentSession.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session) return;
+
     if (session.kind === PAYMENT_KIND.SUBSCRIPTION && session.submissionId) {
-      await this.prisma.kycSubmission.update({
-        where: { id: session.submissionId },
-        data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
-      });
-      await this.prisma.user.update({
-        where: { id: session.userId },
-        data: { kycStatus: KYC_STATUS.PENDING },
-      });
-      await this.notifications.notifyUser(
+      await this.prisma.$transaction([
+        this.prisma.kycSubmission.update({
+          where: { id: session.submissionId },
+          data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
+        }),
+        this.prisma.user.update({
+          where: { id: session.userId },
+          data: { kycStatus: KYC_STATUS.PENDING },
+        }),
+      ]);
+      void this.notifications.notifyUser(
         session.userId,
         'Thanh toán thành công',
         `${session.planLabel ?? 'Gói'} đã thanh toán, hồ sơ KYC đang chờ duyệt`,
@@ -677,10 +695,10 @@ export class PaymentService {
         session.id,
         'payment',
         { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
-      );
+      ).catch(() => undefined);
     } else if (session.kind === PAYMENT_KIND.RENEW) {
       await this.extendSubscription(session);
-      await this.notifications.notifyUser(
+      void this.notifications.notifyUser(
         session.userId,
         'Gia hạn thành công',
         `${session.planLabel ?? 'Gói'} đã được gia hạn`,
@@ -688,7 +706,7 @@ export class PaymentService {
         session.id,
         'payment',
         { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
-      );
+      ).catch(() => undefined);
     }
   }
 
@@ -760,15 +778,21 @@ export class PaymentService {
       },
       select: { id: true },
     });
-    for (const u of expiredTrials) {
-      await this.prisma.user.update({
-        where: { id: u.id },
-        data: {
-          subscriptionStatus: SUBSCRIPTION_STATUS.ACTIVE,
-          nextChargeAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-        },
-      });
-      this.logger.log(`User ${u.id} trial ended, moved to active`);
-    }
+    if (expiredTrials.length === 0) return;
+
+    // Trial hết hạn KHÔNG được tự auto-active — phải thanh toán mới mở ACTIVE.
+    // Đẩy về PAST_DUE để bắt buộc user thanh toán.
+    const result = await this.prisma.user.updateMany({
+      where: {
+        id: { in: expiredTrials.map((u) => u.id) },
+        subscriptionStatus: SUBSCRIPTION_STATUS.TRIAL,
+        trialEndsAt: { lt: now },
+      },
+      data: {
+        subscriptionStatus: SUBSCRIPTION_STATUS.PAST_DUE,
+        nextChargeAt: now,
+      },
+    });
+    this.logger.log(`Trial expired → PAST_DUE: ${result.count} user(s)`);
   }
 }

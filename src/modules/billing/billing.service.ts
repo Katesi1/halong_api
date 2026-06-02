@@ -16,12 +16,9 @@ export class BillingService {
       message: msg.billing.listSuccess,
       data: plans.map((p) => ({
         id: p.id,
-        name: p.name,
-        pricePerRoom: p.pricePerRoom,
-        minCharge: p.minCharge,
-        maxRooms: p.maxRooms,
-        yearlyDiscountPct: p.yearlyDiscountPct,
-        vatPct: p.vatPct,
+        rooms: p.maxRooms ?? -1,
+        monthlyPrice: p.minCharge,
+        yearlyPrice: p.yearlyPrice ?? 0,
         features: p.features,
       })),
     };

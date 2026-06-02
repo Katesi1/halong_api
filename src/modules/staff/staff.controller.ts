@@ -27,71 +27,75 @@ export class StaffController {
   @Post('invites')
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.OWNER)
-  @ApiOperation({ summary: 'OWNER tạo invite cho nhân viên' })
+  @Roles(ROLE.OWNER, ROLE.ADMIN)
+  @ApiOperation({ summary: 'OWNER tạo invite cho nhân viên (ADMIN: thay mặt OWNER, body kèm ownerId)' })
   @ApiResponse({ status: 201, description: 'Invite created and email sent (or queued)' })
-  @ApiResponse({ status: 403, description: 'Không phải OWNER / chưa KYC / không có subscription' })
+  @ApiResponse({ status: 403, description: 'Không phải OWNER/ADMIN / chưa KYC / không có subscription' })
   @ApiResponse({ status: 409, description: 'Email đã có tài khoản hoặc đã có invite pending' })
   createInvite(
-    @CurrentUser('id') ownerId: string,
+    @CurrentUser() caller: { id: string; role: number },
     @Body() dto: CreateInviteDto,
     @Lang() msg: Messages,
   ) {
-    return this.staffService.createInvite(ownerId, dto, msg);
+    return this.staffService.createInvite(caller, dto, msg);
   }
 
   @Get('invites')
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.OWNER)
-  @ApiOperation({ summary: 'OWNER list invite của mình' })
+  @Roles(ROLE.OWNER, ROLE.ADMIN)
+  @ApiOperation({ summary: 'List invite (OWNER: của mình; ADMIN: tất cả hoặc filter ?ownerId=)' })
   @ApiQuery({ name: 'status', required: false, description: 'pending | accepted | expired | cancelled | all' })
+  @ApiQuery({ name: 'ownerId', required: false, description: 'ADMIN only: filter theo OWNER cụ thể' })
   listInvites(
-    @CurrentUser('id') ownerId: string,
+    @CurrentUser() caller: { id: string; role: number },
     @Query('status') status: string,
+    @Query('ownerId') ownerIdFilter: string,
     @Lang() msg: Messages,
   ) {
-    return this.staffService.listInvites(ownerId, status, msg);
+    return this.staffService.listInvites(caller, ownerIdFilter, status, msg);
   }
 
   @Delete('invites/:id')
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.OWNER)
-  @ApiOperation({ summary: 'OWNER huỷ invite chưa accept' })
+  @Roles(ROLE.OWNER, ROLE.ADMIN)
+  @ApiOperation({ summary: 'Huỷ invite chưa accept (OWNER: của mình; ADMIN: bất kỳ)' })
   cancelInvite(
-    @CurrentUser('id') ownerId: string,
+    @CurrentUser() caller: { id: string; role: number },
     @Param('id') inviteId: string,
     @Lang() msg: Messages,
   ) {
-    return this.staffService.cancelInvite(ownerId, inviteId, msg);
+    return this.staffService.cancelInvite(caller, inviteId, msg);
   }
 
   @Get()
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.OWNER)
-  @ApiOperation({ summary: 'OWNER list nhân viên hiện tại' })
+  @Roles(ROLE.OWNER, ROLE.ADMIN)
+  @ApiOperation({ summary: 'List nhân viên (OWNER: của mình; ADMIN: tất cả hoặc filter ?ownerId=)' })
   @ApiQuery({ name: 'isActive', required: false, description: 'true | false | all (default true)' })
+  @ApiQuery({ name: 'ownerId', required: false, description: 'ADMIN only: filter theo OWNER cụ thể' })
   listStaff(
-    @CurrentUser('id') ownerId: string,
+    @CurrentUser() caller: { id: string; role: number },
     @Query('isActive') isActive: string,
+    @Query('ownerId') ownerIdFilter: string,
     @Lang() msg: Messages,
   ) {
-    return this.staffService.listStaff(ownerId, isActive ?? 'true', msg);
+    return this.staffService.listStaff(caller, ownerIdFilter, isActive ?? 'true', msg);
   }
 
   @Delete(':userId')
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.OWNER)
-  @ApiOperation({ summary: 'OWNER soft-delete nhân viên (revoke session)' })
+  @Roles(ROLE.OWNER, ROLE.ADMIN)
+  @ApiOperation({ summary: 'Soft-delete nhân viên (OWNER: của mình; ADMIN: bất kỳ)' })
   removeStaff(
-    @CurrentUser('id') ownerId: string,
+    @CurrentUser() caller: { id: string; role: number },
     @Param('userId') staffId: string,
     @Lang() msg: Messages,
   ) {
-    return this.staffService.removeStaff(ownerId, staffId, msg);
+    return this.staffService.removeStaff(caller, staffId, msg);
   }
 
   // ─── Public endpoints ─────────────────────────────────────────────────────

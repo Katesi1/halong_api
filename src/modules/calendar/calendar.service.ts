@@ -82,6 +82,7 @@ export class CalendarService {
   ) {
     const start = this.toUTCDate(startDate);
     const end = this.toUTCDate(endDate);
+    this.assertRangeWithinLimit(start, end);
 
     const where: any = { isActive: true, deletedAt: null };
     if (propertyId) where.id = propertyId;
@@ -110,6 +111,7 @@ export class CalendarService {
   ) {
     const start = this.toUTCDate(startDate);
     const end = this.toUTCDate(endDate);
+    this.assertRangeWithinLimit(start, end);
 
     const where: any = { isActive: true, deletedAt: null };
     if (propertyId) where.id = propertyId;
@@ -304,7 +306,23 @@ export class CalendarService {
 
   /** Parse 'YYYY-MM-DD' → UTC midnight Date */
   private toUTCDate(dateStr: string): Date {
-    return new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+    const d = new Date(dateStr.split('T')[0] + 'T00:00:00.000Z');
+    if (isNaN(d.getTime())) {
+      throw new BadRequestException('Invalid date format');
+    }
+    return d;
+  }
+
+  /** Chặn range quá dài để tránh build mảng days khổng lồ → block event-loop */
+  private assertRangeWithinLimit(start: Date, end: Date) {
+    if (end <= start) {
+      throw new BadRequestException('endDate must be after startDate');
+    }
+    const MAX_DAYS = 92; // ~3 tháng
+    const diffDays = Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
+    if (diffDays > MAX_DAYS) {
+      throw new BadRequestException(`Date range too large (max ${MAX_DAYS} days)`);
+    }
   }
 
   private async buildGrid(
