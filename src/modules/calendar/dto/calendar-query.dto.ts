@@ -1,12 +1,23 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional, IsDateString, IsInt, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 export class CalendarGridQueryDto {
-  @ApiPropertyOptional({ description: 'ID property (nếu không truyền → lấy tất cả properties của user)' })
+  @ApiPropertyOptional({ description: 'ID property (1 cơ sở). Nếu không truyền và không có propertyIds → lấy tất cả properties của user' })
   @IsOptional()
   @IsString()
   propertyId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Nhiều property cùng lúc — CSV string (vd: "uuid1,uuid2") hoặc array repeat (`?propertyIds=a&propertyIds=b`)',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') return value.split(',').map((s) => s.trim()).filter(Boolean);
+    return undefined;
+  })
+  propertyIds?: string[];
 
   @ApiProperty({ description: 'Ngày bắt đầu (YYYY-MM-DD)', example: '2026-04-01' })
   @IsDateString()

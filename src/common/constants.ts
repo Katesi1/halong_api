@@ -105,16 +105,14 @@ export const PAYMENT_KIND = {
 } as const;
 
 export const PAYMENT_METHOD = {
-  VNPAY_QR: 'vnpay_qr',
   BANK_TRANSFER: 'bank_transfer',
-  CARD: 'card',
 } as const;
 
 export const PAYMENT_PROVIDER = {
-  VNPAY: 'vnpay',
   CASSO: 'casso',
   SEPAY: 'sepay',
   MANUAL_BANK: 'manual_bank',
+  MANUAL: 'manual',
 } as const;
 
 export const SUBSCRIPTION_STATUS = {
@@ -123,6 +121,108 @@ export const SUBSCRIPTION_STATUS = {
   ACTIVE: 'active',
   PAST_DUE: 'past_due',
   CANCELLED: 'cancelled',
+  FROZEN: 'frozen',
+} as const;
+
+// ─── Disputes ────────────────────────────────────────────────────────────────
+
+export const DISPUTE_TYPE = {
+  REFUND_REQUEST: 'refund_request',
+  SERVICE_QUALITY: 'service_quality',
+  DAMAGE_CLAIM: 'damage_claim',
+  NO_SHOW: 'no_show',
+  OVERBOOKING: 'overbooking',
+  OTHER: 'other',
+} as const;
+
+// ─── Chat ─────────────────────────────────────────────────────────────────────
+
+export const CONVERSATION_TYPE = {
+  BOOKING: 'booking',
+  SUPPORT: 'support',
+  STAFF: 'staff',
+} as const;
+
+export const CONVERSATION_MEMBER_ROLE = {
+  OWNER: 'owner',
+  SALE: 'sale',
+  CUSTOMER: 'customer',
+  ADMIN: 'admin',
+} as const;
+
+export const CHAT_LIMITS = {
+  MESSAGE_MAX_LENGTH: 5000,
+  ATTACHMENTS_MAX: 5,
+  PAGE_DEFAULT: 50,
+  PAGE_MAX: 100,
+  RETENTION_DAYS: 180,
+} as const;
+
+export const LEAD_STATUS = {
+  NEW: 'new',
+  CONTACTED: 'contacted',
+  REJECTED: 'rejected',
+  EXPIRED: 'expired',
+  CONVERTED: 'converted',
+} as const;
+
+export const LEAD_SOURCE = {
+  PUBLIC_FORM: 'public_form',
+  LANDING_PAGE: 'landing_page',
+  PARTNER: 'partner',
+  MANUAL: 'manual',
+} as const;
+
+export const DISPUTE_STATUS = {
+  PENDING: 'pending',
+  INVESTIGATING: 'investigating',
+  RESOLVED: 'resolved',
+  REJECTED: 'rejected',
+} as const;
+
+// ─── Audit Log ───────────────────────────────────────────────────────────────
+
+export const AUDIT_TARGET_TYPE = {
+  USER: 'user',
+  PROPERTY: 'property',
+  BOOKING: 'booking',
+  DISPUTE: 'dispute',
+  SUBSCRIPTION: 'subscription',
+  REVIEW: 'review',
+  KYC: 'kyc',
+} as const;
+
+export const AUDIT_ACTION = {
+  // user
+  USER_BAN: 'user.ban',
+  USER_UNBAN: 'user.unban',
+  USER_REVOKE_SESSIONS: 'user.revoke_sessions',
+  USER_RESET_PASSWORD: 'user.reset_password',
+  USER_CHANGE_ROLE: 'user.change_role',
+  USER_KYC_BYPASS_TOGGLE: 'user.kyc_bypass_toggle',
+  // property
+  PROPERTY_APPROVE: 'property.approve',
+  PROPERTY_REJECT: 'property.reject',
+  PROPERTY_SUSPEND: 'property.suspend',
+  // subscription
+  SUBSCRIPTION_TRIAL_GRANT: 'subscription.trial_grant',
+  SUBSCRIPTION_TRIAL_REVOKE: 'subscription.trial_revoke',
+  SUBSCRIPTION_SET_PRICE: 'subscription.set_price',
+  SUBSCRIPTION_MARK_PAID: 'subscription.mark_paid',
+  SUBSCRIPTION_FREEZE: 'subscription.freeze',
+  SUBSCRIPTION_UNFREEZE: 'subscription.unfreeze',
+  // review
+  REVIEW_HIDE: 'review.hide',
+  REVIEW_RESTORE: 'review.restore',
+  // kyc
+  KYC_APPROVE: 'kyc.approve',
+  KYC_REJECT: 'kyc.reject',
+  // booking
+  BOOKING_MARK_PAID: 'booking.mark_paid',
+  // dispute
+  DISPUTE_INVESTIGATE: 'dispute.investigate',
+  DISPUTE_RESOLVE: 'dispute.resolve',
+  DISPUTE_REJECT: 'dispute.reject',
 } as const;
 
 export const KYC_UPLOAD_TYPE = {

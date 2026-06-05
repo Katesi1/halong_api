@@ -5,6 +5,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { AuditContextInterceptor } from './common/interceptors/audit-context.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -37,7 +38,9 @@ async function bootstrap() {
   });
 
   // Logging interceptor toàn cục
-  app.useGlobalInterceptors(new LoggingInterceptor());
+  // AuditContextInterceptor phải register TRƯỚC để mọi luồng async sau (kể cả lỗi)
+  // đều có access vào IP/UA qua AsyncLocalStorage.
+  app.useGlobalInterceptors(new AuditContextInterceptor(), new LoggingInterceptor());
 
   // Validation pipe toàn cục
   // exceptionFactory: tách lỗi validate theo field thay vì concat 1 string.

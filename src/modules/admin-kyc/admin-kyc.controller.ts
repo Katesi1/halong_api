@@ -57,6 +57,13 @@ export class AdminKycController {
     );
   }
 
+  @Get('count-pending')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'Count KYC submissions awaiting approval (sidebar badge)' })
+  countPending(@Lang() msg: Messages) {
+    return this.adminKycService.countPending(msg);
+  }
+
   @Post('submissions/:id/approve')
   @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Approve KYC submission' })

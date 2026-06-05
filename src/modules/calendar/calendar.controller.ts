@@ -2,6 +2,7 @@ import { Controller, Get, Post, Delete, Patch, Body, Query, UseGuards } from '@n
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
 import { CalendarGridQueryDto, CalendarPropertyQueryDto, CalendarLockDto, CalendarUnlockDto } from './dto/calendar-query.dto';
+import { CalendarBulkDto } from './dto/calendar-bulk.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
@@ -51,6 +52,7 @@ export class CalendarController {
       msg,
       query.propertyId,
       query.type,
+      query.propertyIds,
     );
   }
 
@@ -76,6 +78,7 @@ export class CalendarController {
       msg,
       query.propertyId,
       query.type,
+      query.propertyIds,
     );
   }
 
@@ -110,6 +113,21 @@ export class CalendarController {
   @ApiResponse({ status: 200, type: MessageResponse })
   markSold(@Body() dto: CalendarLockDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.calendarService.markSold(dto.propertyId, dto.date, user, msg);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Post('bulk')
+  @ApiBearerAuth('access-token')
+  @Permission(PERMISSION_MODULE.CALENDAR, PERMISSION_ACTION.UPDATE)
+  @ApiOperation({
+    summary: 'Bulk lock/unlock nhiều ngày cùng lúc',
+    description:
+      'Body: { mode: "lock"|"unlock", items: [{propertyId, date}] }. Tối đa 100 items. Trả per-item result.',
+  })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  bulk(@Body() dto: CalendarBulkDto, @CurrentUser() user: any, @Lang() msg: Messages) {
+    return this.calendarService.bulkUpdate(dto.mode, dto.items, user, msg);
   }
 
   @Public()

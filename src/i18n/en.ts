@@ -70,6 +70,18 @@ export const en = {
     saleNotAssigned: 'You have not been assigned to any owner yet',
     kycBypassGranted: 'KYC bypass granted — user can manage properties without KYC',
     kycBypassRevoked: 'KYC bypass revoked — user must complete KYC to manage properties',
+    banSuccess: 'User banned',
+    unbanSuccess: 'User unbanned',
+    revokeSessionsSuccess: 'All user sessions revoked',
+    resetPasswordSuccess: 'Password reset',
+    changeRoleSuccess: 'User role changed',
+    banReasonRequired: 'Ban reason must be at least 5 characters',
+    cannotSelfTarget: 'Cannot perform this action on yourself',
+    alreadyBanned: 'User is already banned',
+    notBanned: 'User is not currently banned',
+    passwordTooShort: 'Password must be at least 8 characters',
+    passwordWeak: 'Password must contain at least 1 letter and 1 digit',
+    invalidRole: 'Invalid role (only 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -92,6 +104,10 @@ export const en = {
     setCoverSuccess: 'Cover image set successfully',
     updatePricesSuccess: 'Property prices updated successfully',
     shareSuccess: 'Property share info retrieved successfully',
+    approveSuccess: 'Property approved',
+    rejectSuccess: 'Property rejected',
+    suspendSuccess: 'Property suspended',
+    rejectReasonRequired: 'Rejection reason must be at least 5 characters',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -120,6 +136,8 @@ export const en = {
     confirmSuccess: 'Booking confirmed successfully',
     cancelSuccess: 'Booking cancelled successfully',
     updateSuccess: 'Booking updated successfully',
+    markPaidSuccess: 'Booking payment recorded',
+    paidAmountRequired: 'Paid amount must be > 0 (pass amount or booking must have totalAmount/depositAmount set)',
   },
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
@@ -142,6 +160,10 @@ export const en = {
     dateAlreadyLocked: 'This date is already locked or booked',
     lockNotFound: 'Lock not found for this date',
     propertyNotFound: 'Property not found',
+    bulkEmpty: 'Items list is empty',
+    bulkTooMany: 'Bulk requests are limited to 100 dates per call',
+    bulkSuccess: (mode: string, ok: number, total: number) =>
+      `${mode === 'lock' ? 'Locked' : 'Unlocked'} ${ok}/${total} dates successfully`,
   },
 
   // ─── Notifications ──────────────────────────────────────────────────────────
@@ -187,6 +209,10 @@ export const en = {
     alreadyReviewed: 'This booking has already been reviewed',
     invalidScore: 'Score must be an integer between 1 and 5',
     forbidden: 'You do not have permission to perform this action',
+    restoreSuccess: 'Review restored successfully',
+    notHidden: 'Review is not currently hidden',
+    countFlaggedSuccess: 'Moderated reviews counted',
+    getSuccess: 'Review retrieved successfully',
   },
 
   // ─── KYC ───────────────────────────────────────────────────────────────────
@@ -237,6 +263,9 @@ export const en = {
     invalidWebhookSecret: 'Invalid webhook secret',
     invalidSignature: 'Invalid signature',
     cannotMatchTransfer: 'Could not match transfer description to a payment session',
+    adminListSuccess: 'Payment sessions retrieved',
+    adminMarkPaidSuccess: 'Session marked as paid',
+    cannotMarkRefunded: 'Cannot mark a refunded session as paid',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -285,6 +314,7 @@ export const en = {
   // ─── Admin KYC ─────────────────────────────────────────────────────────────
   adminKyc: {
     queueSuccess: 'KYC queue retrieved successfully',
+    countPendingSuccess: 'Pending submissions counted',
     approveSuccess: 'KYC submission approved successfully',
     rejectSuccess: 'KYC submission rejected successfully',
     alreadyProcessed: 'This submission has already been processed',
@@ -311,16 +341,114 @@ export const en = {
       `Your trial was extended by ${days} days. New expiry: ${endsAt.toLocaleDateString('en-GB')}.`,
     notifyRevokedTitle: 'Trial revoked',
     notifyRevokedBody: 'Your trial was revoked by an administrator.',
+    listSuccess: 'Subscriptions listed successfully',
+    countSuccess: 'Subscription count retrieved',
+    sumPaidSuccess: 'Paid revenue total',
+    priceSetSuccess: 'Custom price updated',
+    priceInvalid: 'Custom price must be a non-negative integer, or null to clear override',
+    markPaidSuccess: 'Manual payment recorded',
+    markPaidAmountRequired: 'Amount is required when marking paid',
+    freezeSuccess: 'Subscription frozen',
+    unfreezeSuccess: 'Subscription unfrozen',
+    notFrozen: 'Subscription is not currently frozen',
+    alreadyFrozen: 'Subscription is already frozen',
+    cannotGrantTrialFrozen: 'Cannot grant trial while account is frozen — please unfreeze first',
+    markPaidDuplicate: 'A mark-paid action was just performed in the last 10 seconds — please wait and retry',
+    freezeReasonRequired: 'Freeze reason is required',
+    selfSuccess: 'Your subscription retrieved',
+    notifyPriceSetTitle: 'Plan price updated',
+    notifyPriceSetBody: (price: number) =>
+      `An administrator updated your plan price to ${price.toLocaleString('en-GB')} VND per cycle.`,
+    notifyPriceClearedTitle: 'Plan price reset to default',
+    notifyPriceClearedBody: 'Your custom price was cleared. Default plan pricing applies again.',
+    notifyMarkPaidTitle: 'Payment recorded',
+    notifyMarkPaidBody: (amount: number, endsAt: Date) =>
+      `An administrator recorded a payment of ${amount.toLocaleString('en-GB')} VND. Plan renewed until ${endsAt.toLocaleDateString('en-GB')}.`,
+    notifyFrozenTitle: 'Subscription frozen',
+    notifyFrozenBody: (reason: string) => `Your subscription was frozen. Reason: ${reason}`,
+    notifyUnfrozenTitle: 'Subscription reactivated',
+    notifyUnfrozenBody: 'Your subscription is active again.',
   },
 
-  // ─── Apple IAP ─────────────────────────────────────────────────────────────
-  appleIap: {
-    notConfigured: 'Apple IAP is not configured on this server',
-    invalidReceipt: 'Apple receipt is invalid or expired',
-    bundleMismatch: 'Apple bundle id does not match',
-    productMismatch: 'Apple product id does not match the request',
-    expired: 'Apple subscription has already expired',
-    unknownProduct: 'Unknown Apple product id',
-    verifySuccess: 'Subscription activated successfully',
+  // ─── Disputes ──────────────────────────────────────────────────────────────
+  disputes: {
+    openSuccess: 'Dispute opened',
+    listSuccess: 'Disputes retrieved successfully',
+    getSuccess: 'Dispute retrieved successfully',
+    countSuccess: 'Active disputes counted',
+    investigateSuccess: 'Dispute moved to investigating',
+    resolveSuccess: 'Dispute resolved',
+    rejectSuccess: 'Dispute rejected',
+    notFound: 'Dispute not found',
+    onlyPendingCanInvestigate: 'Only pending disputes can move to investigating',
+    alreadyClosed: 'Dispute is already closed (resolved/rejected) — no further action allowed',
+    forbiddenOpen: 'You are not allowed to open a dispute for this booking',
   },
+
+  // ─── Audit Log ─────────────────────────────────────────────────────────────
+  auditLog: {
+    listSuccess: 'Audit log retrieved successfully',
+  },
+
+  // ─── Leads ─────────────────────────────────────────────────────────────────
+  leads: {
+    createSuccess: 'Lead recorded — the host will contact you soon',
+    listSuccess: 'Leads retrieved successfully',
+    getSuccess: 'Lead retrieved successfully',
+    updateSuccess: 'Lead updated successfully',
+    notFound: 'Lead not found',
+    propertyNotFound: 'Property not found or inactive',
+    invalidDates: 'Check-out must be after check-in',
+    forbidden: 'You are not allowed to access this lead',
+  },
+
+  // ─── Chat / Conversations ─────────────────────────────────────────────────
+  chat: {
+    conversationListSuccess: 'Conversations retrieved successfully',
+    conversationGetSuccess: 'Conversation retrieved successfully',
+    conversationCreateSuccess: 'Conversation created',
+    conversationNotFound: 'Conversation not found',
+    notMember: 'You are not a member of this conversation',
+    messageListSuccess: 'Messages retrieved successfully',
+    messageSendSuccess: 'Message sent',
+    messageEmpty: 'Message content cannot be empty',
+    messageTooLong: (max: number) => `Message exceeds ${max} characters`,
+    attachmentsTooMany: (max: number) => `Maximum ${max} attachments allowed`,
+    bookingRequired: 'booking-type conversation requires bookingId',
+    invalidCursor: 'Invalid cursor — restarting from beginning',
+    invalidConversationId: 'Invalid conversationId',
+    messageNotFound: 'Message not found or already deleted',
+    cannotEditSystem: 'System messages cannot be edited or deleted',
+    onlySenderCanEdit: 'Only the sender can edit a message',
+    onlySenderCanDelete: 'Only the sender or an admin can delete a message',
+    editWindowExpired: 'Edit window expired (15 minutes)',
+    editSuccess: 'Message edited',
+    deleteSuccess: 'Message deleted',
+    readSuccess: 'Marked as read',
+    unreadCountSuccess: 'Unread count retrieved',
+  },
+
+  // ─── Uploads ──────────────────────────────────────────────────────────────
+  uploads: {
+    fileRequired: 'Please select a file to upload',
+    fileEmpty: 'File is empty',
+    fileTooLarge: (maxMB: number) => `File exceeds ${maxMB}MB limit`,
+    unsupportedType:
+      'Unsupported file type. Allowed: JPEG, PNG, WEBP, GIF, PDF',
+    uploadFailed: 'Upload failed, please try again',
+    uploadSuccess: 'File uploaded',
+    deleteSuccess: 'File deleted',
+    notFound: 'File not found',
+    forbidden: 'You are not allowed to delete this file',
+    alreadyAttached:
+      'File is already attached to a message — delete the message instead',
+  },
+
+  // ─── Admin Emails ──────────────────────────────────────────────────────────
+  adminEmails: {
+    listSuccess: 'Email templates retrieved successfully',
+    testSentSuccess: 'Test email sent',
+    smtpDisabled: 'SMTP not configured — could not send email',
+  },
+
 };

@@ -86,6 +86,48 @@ export class ReviewsController {
     return this.reviewsService.replyReview(propertyId, reviewId, dto, user, msg);
   }
 
+  @Get('admin/reviews')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'ADMIN list reviews (with filters)' })
+  @ApiQuery({ name: 'status', required: false, enum: ['visible', 'hidden', 'all'] })
+  @ApiQuery({ name: 'rating', required: false, type: Number, description: '1-5 — filter star bucket' })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number })
+  adminListReviews(
+    @Query('status') status: 'visible' | 'hidden' | 'all',
+    @Query('rating') rating: string,
+    @Query('search') search: string,
+    @Query('page') page: string,
+    @Query('pageSize') pageSize: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.reviewsService.adminListReviews(
+      {
+        status,
+        rating: rating ? parseInt(rating) : undefined,
+        search,
+        page: page ? parseInt(page) : undefined,
+        pageSize: pageSize ? parseInt(pageSize) : undefined,
+      },
+      msg,
+    );
+  }
+
+  @Get('admin/reviews/count-flagged')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'ADMIN dem so review da moderate (badge sidebar)' })
+  countFlagged(@Lang() msg: Messages) {
+    return this.reviewsService.countFlagged(msg);
+  }
+
+  @Get('admin/reviews/:reviewId')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'ADMIN xem chi tiet review (kem property/customer/booking hydrated)' })
+  adminGetReview(@Param('reviewId') reviewId: string, @Lang() msg: Messages) {
+    return this.reviewsService.adminGetReview(reviewId, msg);
+  }
+
   @Delete('admin/reviews/:reviewId')
   @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'ADMIN an review', description: 'Set is_hidden = true. Khong xoa row.' })
@@ -94,8 +136,20 @@ export class ReviewsController {
   hideReview(
     @Param('reviewId') reviewId: string,
     @Body() dto: HideReviewDto,
+    @CurrentUser() admin: { id: string },
     @Lang() msg: Messages,
   ) {
-    return this.reviewsService.hideReview(reviewId, dto, msg);
+    return this.reviewsService.hideReviewAsAdmin(admin.id, reviewId, dto, msg);
+  }
+
+  @Post('admin/reviews/:reviewId/restore')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'ADMIN khoi phuc review da an' })
+  restoreReview(
+    @Param('reviewId') reviewId: string,
+    @CurrentUser() admin: { id: string },
+    @Lang() msg: Messages,
+  ) {
+    return this.reviewsService.restoreReviewAsAdmin(admin.id, reviewId, msg);
   }
 }

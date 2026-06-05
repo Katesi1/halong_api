@@ -79,13 +79,19 @@ export class CalendarService {
     msg: Messages,
     propertyId?: string,
     type?: number,
+    propertyIds?: string[],
   ) {
     const start = this.toUTCDate(startDate);
     const end = this.toUTCDate(endDate);
     this.assertRangeWithinLimit(start, end);
 
     const where: any = { isActive: true, deletedAt: null };
-    if (propertyId) where.id = propertyId;
+    // Hỗ trợ cả single (propertyId) và multi (propertyIds CSV); multi ưu tiên hơn.
+    if (propertyIds && propertyIds.length > 0) {
+      where.id = { in: propertyIds };
+    } else if (propertyId) {
+      where.id = propertyId;
+    }
     if (type !== undefined) where.type = type;
 
     const properties = await this.prisma.property.findMany({
@@ -108,13 +114,18 @@ export class CalendarService {
     msg: Messages,
     propertyId?: string,
     type?: number,
+    propertyIds?: string[],
   ) {
     const start = this.toUTCDate(startDate);
     const end = this.toUTCDate(endDate);
     this.assertRangeWithinLimit(start, end);
 
     const where: any = { isActive: true, deletedAt: null };
-    if (propertyId) where.id = propertyId;
+    if (propertyIds && propertyIds.length > 0) {
+      where.id = { in: propertyIds };
+    } else if (propertyId) {
+      where.id = propertyId;
+    }
     const effectiveOwnerId = getEffectiveOwnerId(user);
     if (effectiveOwnerId) {
       where.ownerId = effectiveOwnerId;
@@ -127,7 +138,7 @@ export class CalendarService {
       orderBy: { name: 'asc' },
     });
 
-    if (propertyId && properties.length === 0) {
+    if ((propertyId || (propertyIds && propertyIds.length > 0)) && properties.length === 0) {
       throw new NotFoundException(msg.properties.notFound);
     }
 
@@ -273,6 +284,61 @@ export class CalendarService {
     );
 
     return { message: msg.calendar.soldSuccess, data: lock };
+  }
+
+  // ─── Bulk lock/unlock ──────────────────────────────────────────────────────
+
+  /**
+   * Bulk lock or unlock multiple property-date pairs in one request.
+   * Skips items that violate constraints (already locked / has booking / not found)
+   * and returns per-item result so FE can show partial success.
+   */
+  async bulkUpdate(
+    mode: 'lock' | 'unlock',
+    items: Array<{ propertyId: string; date: string }>,
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+  ) {
+    if (!items || items.length === 0) {
+      throw new BadRequestException(msg.calendar.bulkEmpty);
+    }
+    if (items.length > 100) {
+      throw new BadRequestException(msg.calendar.bulkTooMany);
+    }
+    if (isSaleUnassigned(user)) {
+      throw new BadRequestException(msg.users.saleNotAssigned);
+    }
+
+    const results: Array<{
+      propertyId: string;
+      date: string;
+      ok: boolean;
+      error?: string;
+    }> = [];
+
+    for (const item of items) {
+      try {
+        if (mode === 'lock') {
+          await this.lockDate(item.propertyId, item.date, undefined, user, msg);
+        } else {
+          await this.unlockDate(item.propertyId, item.date, user, msg);
+        }
+        results.push({ propertyId: item.propertyId, date: item.date, ok: true });
+      } catch (err: any) {
+        results.push({
+          propertyId: item.propertyId,
+          date: item.date,
+          ok: false,
+          error: err?.message ?? 'failed',
+        });
+      }
+    }
+
+    const succeeded = results.filter((r) => r.ok).length;
+    return {
+      message: msg.calendar.bulkSuccess(mode, succeeded, results.length),
+      data: { mode, total: results.length, succeeded, failed: results.length - succeeded, results },
+    };
   }
 
   // ─── Admin Contact ─────────────────────────────────────────────────────────

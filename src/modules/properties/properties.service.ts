@@ -10,8 +10,9 @@ import { CloudinaryService } from '../../config/cloudinary.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { kycRequired } from '../../common/errors/kyc.errors';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class PropertiesService {
     private prisma: PrismaService,
     private cloudinary: CloudinaryService,
     private notifications: NotificationsService,
+    private auditLog: AuditLogService,
   ) {}
 
   async findAll(
@@ -33,7 +35,10 @@ export class PropertiesService {
       ? { ownerId: effectiveOwnerId, deletedAt: null }
       : { deletedAt: null };
 
-    if (!includeInactive) {
+    // OWNER/SALE luôn thấy property của mình kể cả pending/rejected/suspended,
+    // tránh "biến mất" sau khi tạo. ADMIN/list explicit query mới cần includeInactive.
+    const scopedToSelf = user.role === ROLE.OWNER || user.role === ROLE.SALE;
+    if (!includeInactive && !scopedToSelf) {
       where.isActive = true;
     }
 
@@ -163,10 +168,14 @@ export class PropertiesService {
     if (existing) throw new ConflictException(msg.properties.codeDuplicate);
 
     const { ownerId: _, ...createData } = dto;
+    // OWNER-created properties go through moderation. ADMIN/SALE bypass.
+    const moderationStatus = user.role === ROLE.OWNER ? 'pending' : 'approved';
     const property = await this.prisma.property.create({
       data: {
         ...createData,
         ownerId,
+        moderationStatus,
+        isActive: moderationStatus === 'approved',
       },
       include: {
         owner: { select: { id: true, name: true, phone: true } },
@@ -204,15 +213,40 @@ export class PropertiesService {
       if (existing) throw new ConflictException(msg.properties.codeDuplicate);
     }
 
+    // Auto-resubmit: nếu OWNER đang sở hữu property bị reject/suspended và edit lại
+    // → chuyển moderationStatus về pending để admin duyệt lại.
+    const data: any = { ...dto };
+    if (
+      user.role === ROLE.OWNER &&
+      (property.moderationStatus === 'rejected' || property.moderationStatus === 'suspended')
+    ) {
+      data.moderationStatus = 'pending';
+      data.moderationRejectedReason = null;
+      data.moderationReviewedAt = null;
+      data.moderationReviewedBy = null;
+    }
+
     const updated = await this.prisma.property.update({
       where: { id },
-      data: dto,
+      data,
       include: {
         owner: { select: { id: true, name: true, phone: true } },
         images: { orderBy: { order: 'asc' } },
         _count: { select: { bookings: true } },
       },
     });
+
+    // Nếu chuyển sang pending → notify admin có property cần duyệt lại
+    if (data.moderationStatus === 'pending') {
+      await this.notifications.notifyAdmins(
+        'Cơ sở cần duyệt lại',
+        `${updated.name} đã được chủ cập nhật và gửi lại để duyệt`,
+        NOTIFICATION_TYPE.SYSTEM,
+        id,
+        'property',
+        { pushType: 'property_resubmitted', deepLink: `/admin/properties/${id}` },
+      );
+    }
 
     await this.notifications.notifyPropertyOwner(
       id,
@@ -470,5 +504,146 @@ export class PropertiesService {
     if (owner.kycStatus !== KYC_STATUS.APPROVED) {
       throw kycRequired(msg.kyc.propertyRequiresKyc);
     }
+  }
+
+  // ─── Admin moderation ─────────────────────────────────────────────────────
+
+  async approveProperty(
+    adminId: string,
+    propertyId: string,
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, ownerId: true, name: true, moderationStatus: true },
+    });
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+
+    const updated = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        moderationStatus: 'approved',
+        moderationRejectedReason: null,
+        moderationReviewedAt: new Date(),
+        moderationReviewedBy: adminId,
+        isActive: true,
+      },
+    });
+
+    await this.notifications.notifyUser(
+      property.ownerId,
+      'Cơ sở đã được duyệt',
+      `Cơ sở ${property.name} đã được admin duyệt và hiển thị công khai.`,
+      NOTIFICATION_TYPE.SYSTEM,
+      propertyId,
+      'property',
+      { pushType: 'property_approved', deepLink: `/host/properties/${propertyId}` },
+    );
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.PROPERTY_APPROVE,
+      targetType: AUDIT_TARGET_TYPE.PROPERTY,
+      targetId: propertyId,
+      targetLabel: property.name,
+    });
+
+    return { message: msg.properties.approveSuccess, data: updated };
+  }
+
+  async rejectProperty(
+    adminId: string,
+    propertyId: string,
+    reason: string,
+    msg: Messages,
+  ) {
+    if (!reason || reason.trim().length < 5) {
+      throw new BadRequestException(msg.properties.rejectReasonRequired);
+    }
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, ownerId: true, name: true },
+    });
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+
+    const updated = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        moderationStatus: 'rejected',
+        moderationRejectedReason: reason.trim(),
+        moderationReviewedAt: new Date(),
+        moderationReviewedBy: adminId,
+        isActive: false,
+      },
+    });
+
+    await this.notifications.notifyUser(
+      property.ownerId,
+      'Cơ sở bị từ chối duyệt',
+      `Cơ sở ${property.name} bị admin từ chối. Lý do: ${reason}`,
+      NOTIFICATION_TYPE.SYSTEM,
+      propertyId,
+      'property',
+      { pushType: 'property_rejected', deepLink: `/host/properties/${propertyId}` },
+    );
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.PROPERTY_REJECT,
+      targetType: AUDIT_TARGET_TYPE.PROPERTY,
+      targetId: propertyId,
+      targetLabel: property.name,
+      metadata: { reason: reason.trim() },
+    });
+
+    return { message: msg.properties.rejectSuccess, data: updated };
+  }
+
+  async suspendProperty(
+    adminId: string,
+    propertyId: string,
+    reason: string | undefined,
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, ownerId: true, name: true },
+    });
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+
+    const updated = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        moderationStatus: 'suspended',
+        moderationRejectedReason: reason?.trim() ?? 'Suspended by admin',
+        moderationReviewedAt: new Date(),
+        moderationReviewedBy: adminId,
+        isActive: false,
+      },
+    });
+
+    await this.notifications.notifyUser(
+      property.ownerId,
+      'Cơ sở bị tạm ngưng',
+      `Cơ sở ${property.name} đã bị admin tạm ngưng${reason ? `. Lý do: ${reason}` : '.'}`,
+      NOTIFICATION_TYPE.SYSTEM,
+      propertyId,
+      'property',
+      { pushType: 'property_suspended', deepLink: `/host/properties/${propertyId}` },
+    );
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.PROPERTY_SUSPEND,
+      targetType: AUDIT_TARGET_TYPE.PROPERTY,
+      targetId: propertyId,
+      targetLabel: property.name,
+      metadata: { reason: reason?.trim() ?? null },
+    });
+
+    return { message: msg.properties.suspendSuccess, data: updated };
   }
 }

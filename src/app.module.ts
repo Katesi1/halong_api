@@ -19,7 +19,6 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { KycModule } from './modules/kyc/kyc.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { PaymentModule } from './modules/payment/payment.module';
-import { AppleIapModule } from './modules/apple-iap/apple-iap.module';
 import { AdminKycModule } from './modules/admin-kyc/admin-kyc.module';
 import { AdminSubscriptionModule } from './modules/admin-subscription/admin-subscription.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
@@ -29,6 +28,12 @@ import { StaffModule } from './modules/staff/staff.module';
 import { FirebaseModule } from './modules/firebase/firebase.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { AppVersionModule } from './modules/app-version/app-version.module';
+import { AuditLogModule } from './modules/audit-log/audit-log.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { LeadsModule } from './modules/leads/leads.module';
+import { AdminEmailsModule } from './modules/admin-emails/admin-emails.module';
+import { ChatModule } from './modules/chat/chat.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -55,7 +60,6 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     KycModule,
     BillingModule,
     PaymentModule,
-    AppleIapModule,
     AdminKycModule,
     AdminSubscriptionModule,
     ReviewsModule,
@@ -65,6 +69,12 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     FirebaseModule,
     DevicesModule,
     AppVersionModule,
+    AuditLogModule,
+    DisputesModule,
+    LeadsModule,
+    AdminEmailsModule,
+    ChatModule,
+    UploadsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

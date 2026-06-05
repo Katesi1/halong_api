@@ -70,6 +70,18 @@ export const vi = {
     saleNotAssigned: 'Bạn chưa được gán cho chủ nhà nào',
     kycBypassGranted: 'Đã cấp quyền bỏ qua KYC — người dùng có thể quản lý cơ sở mà không cần KYC',
     kycBypassRevoked: 'Đã thu hồi quyền bỏ qua KYC — người dùng cần hoàn thành KYC để quản lý cơ sở',
+    banSuccess: 'Đã ban người dùng',
+    unbanSuccess: 'Đã gỡ ban người dùng',
+    revokeSessionsSuccess: 'Đã thu hồi toàn bộ phiên đăng nhập của người dùng',
+    resetPasswordSuccess: 'Đã đặt lại mật khẩu',
+    changeRoleSuccess: 'Đã đổi vai trò người dùng',
+    banReasonRequired: 'Lý do ban phải tối thiểu 5 ký tự',
+    cannotSelfTarget: 'Không thể thực hiện thao tác này lên chính mình',
+    alreadyBanned: 'Người dùng đang bị ban',
+    notBanned: 'Người dùng hiện không bị ban',
+    passwordTooShort: 'Mật khẩu mới phải có ít nhất 8 ký tự',
+    passwordWeak: 'Mật khẩu phải chứa ít nhất 1 chữ cái và 1 số',
+    invalidRole: 'Role không hợp lệ (chỉ 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -92,6 +104,10 @@ export const vi = {
     setCoverSuccess: 'Đặt ảnh cover thành công',
     updatePricesSuccess: 'Cập nhật giá cơ sở thành công',
     shareSuccess: 'Lấy thông tin chia sẻ cơ sở thành công',
+    approveSuccess: 'Duyệt cơ sở thành công',
+    rejectSuccess: 'Từ chối cơ sở thành công',
+    suspendSuccess: 'Tạm ngưng cơ sở thành công',
+    rejectReasonRequired: 'Lý do từ chối phải tối thiểu 5 ký tự',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -120,6 +136,8 @@ export const vi = {
     confirmSuccess: 'Xác nhận booking thành công',
     cancelSuccess: 'Huỷ booking thành công',
     updateSuccess: 'Cập nhật booking thành công',
+    markPaidSuccess: 'Đã ghi nhận thanh toán booking',
+    paidAmountRequired: 'Số tiền thanh toán phải > 0 (truyền amount hoặc booking cần có totalAmount/depositAmount)',
   },
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
@@ -142,6 +160,10 @@ export const vi = {
     dateAlreadyLocked: 'Ngày này đã được khoá hoặc đặt',
     lockNotFound: 'Không tìm thấy ngày bị khoá',
     propertyNotFound: 'Cơ sở không tồn tại',
+    bulkEmpty: 'Danh sách items rỗng',
+    bulkTooMany: 'Bulk tối đa 100 ngày trong 1 request',
+    bulkSuccess: (mode: string, ok: number, total: number) =>
+      `${mode === 'lock' ? 'Khoá' : 'Mở khoá'} ${ok}/${total} ngày thành công`,
   },
 
   // ─── Notifications ──────────────────────────────────────────────────────────
@@ -187,6 +209,10 @@ export const vi = {
     alreadyReviewed: 'Booking này đã được đánh giá rồi',
     invalidScore: 'Điểm đánh giá phải là số nguyên từ 1 đến 5',
     forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    restoreSuccess: 'Đã khôi phục đánh giá',
+    notHidden: 'Đánh giá hiện không bị ẩn',
+    countFlaggedSuccess: 'Đếm đánh giá đã moderate thành công',
+    getSuccess: 'Lấy chi tiết đánh giá thành công',
   },
 
   // ─── KYC ───────────────────────────────────────────────────────────────────
@@ -237,6 +263,9 @@ export const vi = {
     invalidWebhookSecret: 'Webhook secret không hợp lệ',
     invalidSignature: 'Chữ ký không hợp lệ',
     cannotMatchTransfer: 'Không xác định được phiên thanh toán từ nội dung chuyển khoản',
+    adminListSuccess: 'Lấy danh sách phiên thanh toán thành công',
+    adminMarkPaidSuccess: 'Đã xác nhận thanh toán cho phiên này',
+    cannotMarkRefunded: 'Không thể xác nhận thanh toán cho phiên đã hoàn tiền',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -285,6 +314,7 @@ export const vi = {
   // ─── Admin KYC ─────────────────────────────────────────────────────────────
   adminKyc: {
     queueSuccess: 'Lấy danh sách chờ duyệt thành công',
+    countPendingSuccess: 'Đếm hồ sơ chờ duyệt thành công',
     approveSuccess: 'Duyệt hồ sơ xác minh thành công',
     rejectSuccess: 'Từ chối hồ sơ xác minh thành công',
     alreadyProcessed: 'Hồ sơ này đã được xử lý rồi',
@@ -311,16 +341,114 @@ export const vi = {
       `Trial của bạn vừa được cộng thêm ${days} ngày. Hạn mới đến ${endsAt.toLocaleDateString('vi-VN')}.`,
     notifyRevokedTitle: 'Trial đã bị thu hồi',
     notifyRevokedBody: 'Trial trên tài khoản của bạn đã bị thu hồi bởi quản trị viên.',
+    listSuccess: 'Lấy danh sách subscription thành công',
+    countSuccess: 'Đếm subscription thành công',
+    sumPaidSuccess: 'Tổng doanh thu thu được',
+    priceSetSuccess: 'Cập nhật giá tuỳ chỉnh thành công',
+    priceInvalid: 'Giá tuỳ chỉnh phải là số nguyên >= 0 hoặc null để bỏ override',
+    markPaidSuccess: 'Ghi nhận thanh toán thủ công thành công',
+    markPaidAmountRequired: 'Số tiền (amount) là bắt buộc khi mark-paid',
+    freezeSuccess: 'Đã đóng băng subscription',
+    unfreezeSuccess: 'Đã mở đóng băng subscription',
+    notFrozen: 'Subscription hiện không bị đóng băng',
+    alreadyFrozen: 'Subscription đã bị đóng băng từ trước',
+    cannotGrantTrialFrozen: 'Không thể cấp trial cho tài khoản đang bị đóng băng — vui lòng unfreeze trước',
+    markPaidDuplicate: 'Vừa có một thao tác mark-paid khác trong 10 giây qua — vui lòng đợi và thử lại',
+    freezeReasonRequired: 'Lý do đóng băng (reason) là bắt buộc',
+    selfSuccess: 'Lấy subscription của bạn thành công',
+    notifyPriceSetTitle: 'Giá gói được điều chỉnh',
+    notifyPriceSetBody: (price: number) =>
+      `Quản trị viên vừa điều chỉnh giá gói của bạn thành ${price.toLocaleString('vi-VN')} đ/kỳ.`,
+    notifyPriceClearedTitle: 'Giá gói trở về mặc định',
+    notifyPriceClearedBody: 'Giá tuỳ chỉnh trên tài khoản của bạn đã bị huỷ, gói sẽ dùng giá niêm yết.',
+    notifyMarkPaidTitle: 'Đã ghi nhận thanh toán',
+    notifyMarkPaidBody: (amount: number, endsAt: Date) =>
+      `Quản trị viên đã ghi nhận thanh toán ${amount.toLocaleString('vi-VN')} đ. Gói gia hạn đến ${endsAt.toLocaleDateString('vi-VN')}.`,
+    notifyFrozenTitle: 'Tài khoản bị tạm khoá gói',
+    notifyFrozenBody: (reason: string) => `Subscription của bạn đã bị tạm khoá. Lý do: ${reason}`,
+    notifyUnfrozenTitle: 'Gói đã được mở khoá',
+    notifyUnfrozenBody: 'Subscription của bạn đã được kích hoạt trở lại.',
   },
 
-  // ─── Apple IAP ─────────────────────────────────────────────────────────────
-  appleIap: {
-    notConfigured: 'Hệ thống chưa cấu hình Apple IAP',
-    invalidReceipt: 'Apple receipt không hợp lệ hoặc đã hết hạn',
-    bundleMismatch: 'Bundle ID Apple không khớp',
-    productMismatch: 'Product ID Apple không khớp với request',
-    expired: 'Subscription Apple đã hết hạn',
-    unknownProduct: 'Apple product ID không hợp lệ',
-    verifySuccess: 'Kích hoạt gói thành công',
+  // ─── Disputes ──────────────────────────────────────────────────────────────
+  disputes: {
+    openSuccess: 'Đã mở khiếu nại',
+    listSuccess: 'Lấy danh sách khiếu nại thành công',
+    getSuccess: 'Lấy chi tiết khiếu nại thành công',
+    countSuccess: 'Đếm khiếu nại đang xử lý thành công',
+    investigateSuccess: 'Đã chuyển sang trạng thái đang điều tra',
+    resolveSuccess: 'Đã giải quyết khiếu nại',
+    rejectSuccess: 'Đã bác khiếu nại',
+    notFound: 'Không tìm thấy khiếu nại',
+    onlyPendingCanInvestigate: 'Chỉ khiếu nại đang pending mới có thể chuyển sang investigating',
+    alreadyClosed: 'Khiếu nại đã đóng (resolved/rejected) — không thể thao tác tiếp',
+    forbiddenOpen: 'Bạn không có quyền mở khiếu nại cho booking này',
   },
+
+  // ─── Audit Log ─────────────────────────────────────────────────────────────
+  auditLog: {
+    listSuccess: 'Lấy danh sách audit log thành công',
+  },
+
+  // ─── Leads ─────────────────────────────────────────────────────────────────
+  leads: {
+    createSuccess: 'Đã ghi nhận yêu cầu, chủ cơ sở sẽ liên hệ bạn sớm',
+    listSuccess: 'Lấy danh sách lead thành công',
+    getSuccess: 'Lấy chi tiết lead thành công',
+    updateSuccess: 'Cập nhật lead thành công',
+    notFound: 'Lead không tồn tại',
+    propertyNotFound: 'Cơ sở không tồn tại hoặc đã ngừng hoạt động',
+    invalidDates: 'Ngày check-out phải sau ngày check-in',
+    forbidden: 'Bạn không có quyền truy cập lead này',
+  },
+
+  // ─── Chat / Conversations ─────────────────────────────────────────────────
+  chat: {
+    conversationListSuccess: 'Lấy danh sách hội thoại thành công',
+    conversationGetSuccess: 'Lấy hội thoại thành công',
+    conversationCreateSuccess: 'Tạo hội thoại thành công',
+    conversationNotFound: 'Hội thoại không tồn tại',
+    notMember: 'Bạn không phải thành viên của hội thoại này',
+    messageListSuccess: 'Lấy tin nhắn thành công',
+    messageSendSuccess: 'Gửi tin nhắn thành công',
+    messageEmpty: 'Tin nhắn không được rỗng',
+    messageTooLong: (max: number) => `Tin nhắn tối đa ${max} ký tự`,
+    attachmentsTooMany: (max: number) => `Tối đa ${max} file đính kèm`,
+    bookingRequired: 'Hội thoại type=booking cần bookingId',
+    invalidCursor: 'Cursor không hợp lệ — sẽ đọc từ đầu',
+    invalidConversationId: 'conversationId không hợp lệ',
+    messageNotFound: 'Tin nhắn không tồn tại hoặc đã bị xoá',
+    cannotEditSystem: 'Không thể sửa/xoá tin nhắn hệ thống',
+    onlySenderCanEdit: 'Chỉ người gửi mới được sửa tin nhắn',
+    onlySenderCanDelete: 'Chỉ người gửi hoặc admin mới được xoá tin nhắn',
+    editWindowExpired: 'Đã quá 15 phút — không thể sửa tin nhắn',
+    editSuccess: 'Sửa tin nhắn thành công',
+    deleteSuccess: 'Xoá tin nhắn thành công',
+    readSuccess: 'Đã đánh dấu đã đọc',
+    unreadCountSuccess: 'Lấy số tin chưa đọc thành công',
+  },
+
+  // ─── Uploads (generic file upload) ─────────────────────────────────────────
+  uploads: {
+    fileRequired: 'Vui lòng chọn file để upload',
+    fileEmpty: 'File rỗng, không thể upload',
+    fileTooLarge: (maxMB: number) => `File quá lớn, tối đa ${maxMB}MB`,
+    unsupportedType:
+      'Loại file không được hỗ trợ. Chỉ chấp nhận: JPEG, PNG, WEBP, GIF, PDF',
+    uploadFailed: 'Upload thất bại, vui lòng thử lại',
+    uploadSuccess: 'Tải lên thành công',
+    deleteSuccess: 'Xoá file thành công',
+    notFound: 'File không tồn tại',
+    forbidden: 'Bạn không có quyền xoá file này',
+    alreadyAttached:
+      'File đã được gắn vào tin nhắn — không thể xoá trực tiếp, hãy xoá tin nhắn tương ứng',
+  },
+
+  // ─── Admin Emails ──────────────────────────────────────────────────────────
+  adminEmails: {
+    listSuccess: 'Lấy danh sách template email thành công',
+    testSentSuccess: 'Đã gửi email mẫu',
+    smtpDisabled: 'SMTP chưa được cấu hình — không gửi được email',
+  },
+
 };

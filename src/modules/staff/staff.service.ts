@@ -318,17 +318,6 @@ export class StaffService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: {
-          id: newUser.id,
-          name: newUser.name,
-          email: newUser.email,
-          avatar: newUser.avatar,
-          phone: newUser.phone,
-          role: newUser.role,
-          ownerId: newUser.ownerId,
-          isActive: newUser.isActive,
-          emailVerified: newUser.emailVerified,
-        },
       },
     };
   }

@@ -110,16 +110,6 @@ export class PaymentController {
   }
 
   @Public()
-  @Post('vnpay/ipn')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'VNPay IPN webhook (public, HMAC-verified)' })
-  vnpayIpn(@Body() payload: Record<string, string>, @Req() req: Request) {
-    // VNPay can send query string or form body — merge both
-    const merged = { ...(req.query as Record<string, string>), ...(payload || {}) };
-    return this.paymentService.handleVnpayWebhook(merged);
-  }
-
-  @Public()
   @Post('bank-webhook')
   @HttpCode(200)
   @ApiOperation({ summary: 'Bank reconciliation webhook (Casso/Sepay)' })

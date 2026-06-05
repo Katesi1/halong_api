@@ -11,8 +11,12 @@ import {
   SUBSCRIPTION_STATUS,
   KYC_STATUS_API_MAP,
   NOTIFICATION_TYPE,
+  ROLE,
+  AUDIT_ACTION,
+  AUDIT_TARGET_TYPE,
 } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import type { Messages } from '../../i18n';
 
 @Injectable()
@@ -22,7 +26,16 @@ export class AdminKycService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private auditLog: AuditLogService,
   ) {}
+
+  /** Count submissions awaiting approval (sidebar badge) */
+  async countPending(msg: Messages) {
+    const count = await this.prisma.kycSubmission.count({
+      where: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
+    });
+    return { message: msg.adminKyc.countPendingSuccess, data: { count } };
+  }
 
   /** Get KYC approval queue */
   async getQueue(
@@ -186,6 +199,15 @@ export class AdminKycService {
       { pushType: 'kyc_approved', deepLink: '/dashboard' },
     );
 
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.KYC_APPROVE,
+      targetType: AUDIT_TARGET_TYPE.KYC,
+      targetId: submissionId,
+      metadata: { trialDays, trialEndsAt },
+    });
+
     return {
       message: msg.adminKyc.approveSuccess,
       data: {
@@ -239,6 +261,15 @@ export class AdminKycService {
       'kyc',
       { pushType: 'kyc_rejected', deepLink: '/verify/rejected' },
     );
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.KYC_REJECT,
+      targetType: AUDIT_TARGET_TYPE.KYC,
+      targetId: submissionId,
+      metadata: { reason, rejectedItems: items },
+    });
 
     return {
       message: msg.adminKyc.rejectSuccess,

@@ -12,8 +12,9 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
@@ -26,6 +27,7 @@ export class BookingsService {
     private prisma: PrismaService,
     private redis: RedisService,
     private notifications: NotificationsService,
+    private auditLog: AuditLogService,
   ) {}
 
   // ─── Staff/Admin Methods ──────────────────────────────────────────────────
@@ -72,19 +74,28 @@ export class BookingsService {
       this.prisma.booking.count({ where }),
     ]);
 
-    const bookingsWithHoldTtl = bookings.map((booking) => {
+    const bookingsWithExtras = bookings.map((booking) => {
       let holdRemainingSeconds = 0;
       if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
         holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
       }
-      return { ...booking, holdRemainingSeconds };
+      // Flatten denorm fields cho FE: propertyName + nights
+      const propertyName = booking.property?.name ?? null;
+      const nights = this.calcNights(booking.checkinDate, booking.checkoutDate);
+      return { ...booking, holdRemainingSeconds, propertyName, nights };
     });
 
     return {
       message: msg.bookings.listSuccess,
-      data: bookingsWithHoldTtl,
+      data: bookingsWithExtras,
       meta: { total, page: currentPage, limit: take },
     };
+  }
+
+  /** Tính số đêm giữa checkin và checkout (UTC date diff). */
+  private calcNights(checkin: Date, checkout: Date): number {
+    const ms = checkout.getTime() - checkin.getTime();
+    return Math.max(0, Math.round(ms / (24 * 60 * 60 * 1000)));
   }
 
   async findOne(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
@@ -111,7 +122,12 @@ export class BookingsService {
 
     return {
       message: msg.bookings.getSuccess,
-      data: { ...booking, holdRemainingSeconds },
+      data: {
+        ...booking,
+        holdRemainingSeconds,
+        propertyName: booking.property?.name ?? null,
+        nights: this.calcNights(booking.checkinDate, booking.checkoutDate),
+      },
     };
   }
 
@@ -276,6 +292,77 @@ export class BookingsService {
     }
 
     return { message: msg.bookings.confirmSuccess, data: confirmed };
+  }
+
+  async markPaid(
+    id: string,
+    amount: number | undefined,
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { id: true, name: true, code: true, ownerId: true } } },
+    });
+    if (!booking) throw new NotFoundException(msg.bookings.notFound);
+    this.checkBookingAccess(booking, user, msg);
+
+    if (booking.status === BOOKING_STATUS.CANCELLED) {
+      throw new BadRequestException(msg.bookings.alreadyCancelled);
+    }
+
+    const paidAmount = amount ?? booking.totalAmount ?? booking.depositAmount ?? 0;
+    if (paidAmount <= 0) {
+      throw new BadRequestException(msg.bookings.paidAmountRequired);
+    }
+
+    const updated = await this.prisma.booking.update({
+      where: { id },
+      data: {
+        paidAmount,
+        paidAt: new Date(),
+        // Nếu booking vẫn ở HOLD, chuyển luôn sang CONFIRMED
+        status:
+          booking.status === BOOKING_STATUS.HOLD ? BOOKING_STATUS.CONFIRMED : booking.status,
+        holdExpireAt: null,
+      },
+      include: { property: { select: { id: true, name: true, code: true } } },
+    });
+
+    await this.redis.delHold(id);
+
+    void this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Booking đã thu tiền',
+      `${updated.property.name} (${updated.property.code}) — đã ghi nhận ${paidAmount.toLocaleString('vi-VN')} đ`,
+      NOTIFICATION_TYPE.PAYMENT,
+      id,
+      'booking',
+      { pushType: 'booking_paid', deepLink: `/bookings/${id}` },
+    ).catch(() => undefined);
+    if (booking.customerId) {
+      void this.notifications.notifyUser(
+        booking.customerId,
+        'Đã nhận thanh toán',
+        `Booking ${updated.property.name} đã được ghi nhận thanh toán.`,
+        NOTIFICATION_TYPE.PAYMENT,
+        id,
+        'booking',
+        { pushType: 'booking_paid', deepLink: '/my-bookings' },
+      ).catch(() => undefined);
+    }
+
+    void this.auditLog.log({
+      actorId: user.id,
+      actorRole: user.role,
+      action: AUDIT_ACTION.BOOKING_MARK_PAID,
+      targetType: AUDIT_TARGET_TYPE.BOOKING,
+      targetId: id,
+      targetLabel: `${updated.property.name} (${updated.property.code})`,
+      metadata: { amount: paidAmount, previousStatus: booking.status },
+    });
+
+    return { message: msg.bookings.markPaidSuccess, data: updated };
   }
 
   async cancelBooking(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {

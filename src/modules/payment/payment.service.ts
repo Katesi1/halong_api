@@ -21,12 +21,8 @@ import {
   NOTIFICATION_TYPE,
 } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import type { Messages } from '../../i18n';
-import {
-  buildVnpayPayUrl,
-  verifyVnpaySignature,
-  type VnpayConfig,
-} from './helpers/vnpay.helper';
 import {
   buildVietQrPayload,
   sanitizeTransferContent,
@@ -37,8 +33,9 @@ import {
 } from './helpers/bank-webhook.helper';
 import { generateInvoiceNumber } from './helpers/invoice.helper';
 
-const SESSION_EXPIRY_MINUTES_VNPAY = 15;
-const SESSION_EXPIRY_MINUTES_BANK = 24 * 60; // 24h
+// 24h — đủ thời gian cho admin manual đối soát (Sepay webhook chưa setup ở phase này).
+// Khi switch sang Sepay auto: có thể giảm lại 15-30 phút.
+const SESSION_EXPIRY_MINUTES_BANK = 24 * 60;
 const BANK_AMOUNT_TOLERANCE_VND = 1000;
 
 @Injectable()
@@ -49,30 +46,8 @@ export class PaymentService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private notifications: NotificationsService,
+    private auditLog: AuditLogService,
   ) {}
-
-  // ─── VNPay config ────────────────────────────────────────────────────────
-  private getVnpayConfig(): VnpayConfig {
-    const tmnCode = this.configService.get<string>('VNPAY_TMN_CODE');
-    const hashSecret = this.configService.get<string>('VNPAY_HASH_SECRET');
-    if (!tmnCode || !hashSecret) {
-      // Không dùng fallback 'PLACEHOLDER' — sẽ làm signature trivially bypass.
-      throw new Error('VNPAY_TMN_CODE / VNPAY_HASH_SECRET chưa được cấu hình');
-    }
-    return {
-      tmnCode,
-      hashSecret,
-      apiUrl: this.configService.get<string>(
-        'VNPAY_API_URL',
-        'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',
-      ),
-      returnUrl: this.configService.get<string>(
-        'VNPAY_RETURN_URL',
-        'https://halong24h.com/payments/vnpay/return',
-      ),
-      ipnUrl: this.configService.get<string>('VNPAY_IPN_URL'),
-    };
-  }
 
   private getBankConfig() {
     return {
@@ -98,7 +73,13 @@ export class PaymentService {
     plan: { pricePerRoom: number; minCharge: number; yearlyDiscountPct: number; vatPct: number },
     cycle: string,
     rooms: number,
+    priceOverride?: number | null,
   ): number {
+    // Admin-set override: absolute price per cycle, VAT/discount đã tính bởi admin.
+    // priceOverride = 0 ⇒ free (vẫn cần đi qua flow để có session record).
+    if (priceOverride !== null && priceOverride !== undefined) {
+      return priceOverride;
+    }
     const months = cycle === 'yearly' ? 12 : 1;
     const discount = cycle === 'yearly' ? plan.yearlyDiscountPct / 100 : 0;
     const baseAmount = Math.max(plan.pricePerRoom * rooms, plan.minCharge) * months;
@@ -106,13 +87,14 @@ export class PaymentService {
     return Math.round(discounted * (1 + plan.vatPct / 100));
   }
 
-  // ─── Build session payment artefacts (qrCode / payUrl / bankInfo) ────────
+  // ─── Build session payment artefacts (bankInfo + VietQR) ─────────────────
+  // Hiện chỉ hỗ trợ Bank Transfer + VietQR. Các method khác đã bị loại khỏi v2.
   private buildSessionArtefacts(
     sessionId: string,
     method: string,
     totalAmount: number,
-    orderInfo: string,
-    ipAddr: string,
+    _orderInfo: string,
+    _ipAddr: string,
   ): {
     qrCode: string | null;
     bankInfo: any;
@@ -120,52 +102,34 @@ export class PaymentService {
     payUrl: string | null;
     expiresAt: Date;
   } {
-    let qrCode: string | null = null;
-    let bankInfo: any = null;
-    let redirectUrl: string | null = null;
-    let payUrl: string | null = null;
-    let expiresAt: Date;
-
-    if (method === PAYMENT_METHOD.VNPAY_QR) {
-      const cfg = this.getVnpayConfig();
-      const built = buildVnpayPayUrl(cfg, {
-        sessionId,
-        amount: totalAmount,
-        orderInfo,
-        ipAddr,
-        expireMinutes: SESSION_EXPIRY_MINUTES_VNPAY,
-        locale: 'vn',
-      });
-      payUrl = built.payUrl;
-      // Without a server-to-server VNPay createQR call we cannot return a true
-      // EMV string; clients will fall back to opening payUrl in a banking app.
-      qrCode = null;
-      expiresAt = new Date(Date.now() + SESSION_EXPIRY_MINUTES_VNPAY * 60_000);
-    } else if (method === PAYMENT_METHOD.BANK_TRANSFER) {
-      const bank = this.getBankConfig();
-      const content = sanitizeTransferContent(`HALONG24H ${sessionId}`);
-      const vietQrPayload = buildVietQrPayload({
-        bankBin: bank.bankBin,
-        accountNumber: bank.accountNumber,
-        amount: totalAmount,
-        content,
-      });
-      bankInfo = {
-        bankName: bank.bankName,
-        accountNumber: bank.accountNumber,
-        accountName: bank.accountName,
-        bankBin: bank.bankBin,
-        content,
-        vietQrPayload,
-      };
-      qrCode = vietQrPayload;
-      expiresAt = new Date(Date.now() + SESSION_EXPIRY_MINUTES_BANK * 60_000);
-    } else {
-      // card or other (locked at UI for now)
-      expiresAt = new Date(Date.now() + SESSION_EXPIRY_MINUTES_VNPAY * 60_000);
+    if (method !== PAYMENT_METHOD.BANK_TRANSFER) {
+      throw new BadRequestException(`Phương thức thanh toán không được hỗ trợ: ${method}`);
     }
 
-    return { qrCode, bankInfo, redirectUrl, payUrl, expiresAt };
+    const bank = this.getBankConfig();
+    const content = sanitizeTransferContent(`HALONG24H ${sessionId}`);
+    const vietQrPayload = buildVietQrPayload({
+      bankBin: bank.bankBin,
+      accountNumber: bank.accountNumber,
+      amount: totalAmount,
+      content,
+    });
+    const bankInfo = {
+      bankName: bank.bankName,
+      accountNumber: bank.accountNumber,
+      accountName: bank.accountName,
+      bankBin: bank.bankBin,
+      content,
+      vietQrPayload,
+    };
+
+    return {
+      qrCode: vietQrPayload,
+      bankInfo,
+      redirectUrl: null,
+      payUrl: null,
+      expiresAt: new Date(Date.now() + SESSION_EXPIRY_MINUTES_BANK * 60_000),
+    };
   }
 
   private toSessionResponse(session: {
@@ -236,7 +200,16 @@ export class PaymentService {
       throw new BadRequestException(msg.billing.roomCountExceedsPlan);
     }
 
-    const expectedTotal = this.computeExpectedTotal(plan, dto.cycle, dto.rooms);
+    const callerUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { subscriptionPriceOverride: true },
+    });
+    const expectedTotal = this.computeExpectedTotal(
+      plan,
+      dto.cycle,
+      dto.rooms,
+      callerUser?.subscriptionPriceOverride,
+    );
     const tolerance = expectedTotal * 0.01;
     if (Math.abs(dto.totalAmount - expectedTotal) > tolerance) {
       throw new BadRequestException(msg.payment.amountMismatch);
@@ -312,7 +285,16 @@ export class PaymentService {
       throw new BadRequestException(msg.payment.noActiveSubscription);
     }
 
-    const totalAmount = this.computeExpectedTotal(sub.plan, sub.cycle, sub.rooms);
+    const callerUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { subscriptionPriceOverride: true },
+    });
+    const totalAmount = this.computeExpectedTotal(
+      sub.plan,
+      sub.cycle,
+      sub.rooms,
+      callerUser?.subscriptionPriceOverride,
+    );
 
     // Expire the user's existing pending renew sessions
     await this.prisma.paymentSession.updateMany({
@@ -507,74 +489,6 @@ export class PaymentService {
     };
   }
 
-  // ─── VNPay IPN webhook ───────────────────────────────────────────────────
-  async handleVnpayWebhook(payload: Record<string, string>) {
-    const cfg = this.getVnpayConfig();
-
-    if (!verifyVnpaySignature(payload, cfg.hashSecret)) {
-      this.logger.warn('VNPay IPN signature verification failed');
-      return { RspCode: '97', Message: 'Invalid signature' };
-    }
-
-    const txnRef = payload.vnp_TxnRef;
-    const responseCode = payload.vnp_ResponseCode;
-    const transactionNo = payload.vnp_TransactionNo;
-    const amount = payload.vnp_Amount ? Number(payload.vnp_Amount) : null;
-
-    if (!txnRef) {
-      return { RspCode: '99', Message: 'Invalid request' };
-    }
-
-    const session = await this.prisma.paymentSession.findUnique({
-      where: { id: txnRef },
-    });
-    if (!session) {
-      return { RspCode: '01', Message: 'Order not found' };
-    }
-
-    // VNPay multiplies amount by 100
-    if (amount !== null && amount !== session.totalAmount * 100) {
-      return { RspCode: '04', Message: 'Invalid amount' };
-    }
-
-    if (session.status === PAYMENT_STATUS.PAID) {
-      return { RspCode: '00', Message: 'Confirm Success' };
-    }
-    if (session.status !== PAYMENT_STATUS.PENDING) {
-      return { RspCode: '02', Message: 'Order already processed' };
-    }
-
-    if (responseCode === '00') {
-      await this.markSessionPaid(session.id, {
-        provider: PAYMENT_PROVIDER.VNPAY,
-        providerTxnId: transactionNo,
-        referenceCode: transactionNo,
-        providerPayload: payload,
-      });
-      return { RspCode: '00', Message: 'Confirm Success' };
-    }
-
-    await this.prisma.paymentSession.update({
-      where: { id: session.id },
-      data: {
-        status: PAYMENT_STATUS.FAILED,
-        provider: PAYMENT_PROVIDER.VNPAY,
-        providerTxnId: transactionNo,
-        providerPayload: payload as any,
-      },
-    });
-    void this.notifications.notifyUser(
-      session.userId,
-      'Thanh toán thất bại',
-      `${session.planLabel ?? 'Phiên thanh toán'} bị từ chối. Vui lòng thử lại.`,
-      NOTIFICATION_TYPE.PAYMENT,
-      session.id,
-      'payment',
-      { pushType: 'payment_failed', deepLink: '/my-bookings' },
-    ).catch(() => undefined);
-    return { RspCode: '00', Message: 'Confirm Success' };
-  }
-
   // ─── Bank webhook (Casso / Sepay auto-detect) ────────────────────────────
   async handleBankWebhook(
     payload: Record<string, any>,
@@ -756,6 +670,146 @@ export class PaymentService {
 
   // ─── Cron: expire pending sessions every 5 minutes ───────────────────────
   @Cron(CronExpression.EVERY_5_MINUTES)
+  /**
+   * Admin list payment sessions để đối soát thủ công.
+   * Filter theo status + date range + search (planLabel / sessionId).
+   */
+  async adminListSessions(
+    filters: {
+      status?: string;
+      userId?: string;
+      from?: string;
+      to?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+    msg: Messages,
+  ) {
+    const page = Math.max(1, filters.page ?? 1);
+    const limit = Math.min(100, Math.max(1, filters.limit ?? 50));
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (filters.status) where.status = filters.status;
+    if (filters.userId) where.userId = filters.userId;
+    if (filters.from || filters.to) {
+      where.createdAt = {};
+      if (filters.from) where.createdAt.gte = new Date(filters.from);
+      if (filters.to) where.createdAt.lte = new Date(filters.to);
+    }
+    if (filters.search) {
+      where.OR = [
+        { id: { contains: filters.search } },
+        { planLabel: { contains: filters.search, mode: 'insensitive' } },
+        { referenceCode: { contains: filters.search } },
+      ];
+    }
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.paymentSession.count({ where }),
+      this.prisma.paymentSession.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, userId: true, kind: true, planId: true, planLabel: true,
+          cycle: true, rooms: true, totalAmount: true, method: true,
+          status: true, provider: true, providerTxnId: true, referenceCode: true,
+          invoiceNumber: true, paidAt: true, refundedAt: true,
+          expiresAt: true, createdAt: true,
+        },
+      }),
+    ]);
+
+    // Hydrate user info
+    const userIds = Array.from(new Set(items.map((s) => s.userId)));
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, phone: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    return {
+      message: msg.payment.adminListSuccess,
+      data: {
+        items: items.map((s) => ({ ...s, user: userMap.get(s.userId) ?? null })),
+        total, page, limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Admin xác nhận đã nhận tiền cho 1 session pending (manual reconcile).
+   * - Cho phép mark cả session đã expired (vì tiền có thể vào sau hạn)
+   * - Idempotent với markSessionPaid existing logic
+   */
+  async adminMarkSessionPaid(
+    adminId: string,
+    sessionId: string,
+    reference: string | undefined,
+    msg: Messages,
+  ) {
+    const session = await this.prisma.paymentSession.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session) throw new NotFoundException(msg.payment.sessionNotFound);
+
+    if (session.status === PAYMENT_STATUS.PAID) {
+      throw new ConflictException(msg.payment.alreadyPaid);
+    }
+    if (session.status === PAYMENT_STATUS.REFUNDED) {
+      throw new BadRequestException(msg.payment.cannotMarkRefunded);
+    }
+
+    // Reset về PENDING nếu đã expired để markSessionPaid claim được
+    if (session.status === PAYMENT_STATUS.EXPIRED || session.status === PAYMENT_STATUS.FAILED) {
+      await this.prisma.paymentSession.update({
+        where: { id: sessionId },
+        data: { status: PAYMENT_STATUS.PENDING },
+      });
+    }
+
+    await this.markSessionPaid(sessionId, {
+      provider: PAYMENT_PROVIDER.MANUAL,
+      providerTxnId: reference,
+      referenceCode: reference,
+      providerPayload: { markedBy: adminId, markedAt: new Date().toISOString() },
+    });
+
+    this.logger.log(
+      `Manual mark-paid session=${sessionId} by admin=${adminId}${reference ? ` ref="${reference}"` : ''}`,
+    );
+
+    const updated = await this.prisma.paymentSession.findUnique({
+      where: { id: sessionId },
+    });
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: 0, // ROLE.ADMIN
+      action: 'payment.session_mark_paid',
+      targetType: 'subscription',
+      targetId: session.userId,
+      targetLabel: `Session ${sessionId}`,
+      metadata: {
+        sessionId,
+        amount: session.totalAmount,
+        planLabel: session.planLabel,
+        reference: reference ?? null,
+      },
+    });
+
+    return {
+      message: msg.payment.adminMarkPaidSuccess,
+      data: updated,
+    };
+  }
+
   async expirePendingSessions() {
     const now = new Date();
     const result = await this.prisma.paymentSession.updateMany({

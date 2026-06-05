@@ -82,7 +82,6 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -126,7 +125,6 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -226,7 +224,6 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -331,7 +328,6 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -467,7 +463,9 @@ export class AuthService {
         role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
         emailVerified: true, createdAt: true, updatedAt: true,
         kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
-        subscriptionCycle: true, trialEndsAt: true, nextChargeAt: true,
+        subscriptionCycle: true, subscriptionProvider: true, subscriptionPriceOverride: true,
+        subscriptionFrozenAt: true, subscriptionFrozenReason: true,
+        trialEndsAt: true, nextChargeAt: true,
         permissions: {
           select: { module: true, canCreate: true, canRead: true, canUpdate: true, canDelete: true },
         },
@@ -531,27 +529,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * Shape user object dùng chung cho mọi auth response (login/register/google/profile).
-   */
-  private serializeAuthUser(user: any) {
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar ?? null,
-      phone: user.phone ?? null,
-      role: user.role,
-      ownerId: user.ownerId ?? null,
-      isActive: user.isActive,
-      emailVerified: user.emailVerified ?? false,
-      kycStatus: user.kycStatus ?? null,
-      subscriptionStatus: user.subscriptionStatus ?? null,
-      trialEndsAt: user.trialEndsAt ?? null,
-      createdAt: user.createdAt ?? null,
-      updatedAt: user.updatedAt ?? null,
-    };
-  }
 
   /**
    * Verify Google idToken (audience = GOOGLE_OAUTH_WEB_CLIENT_ID).

@@ -11,8 +11,8 @@ export class InitiatePaymentDto {
   @IsIn(['monthly', 'yearly'])
   cycle: string;
 
-  @ApiProperty({ example: 'vnpay_qr', enum: ['vnpay_qr', 'bank_transfer', 'card'] })
-  @IsIn(['vnpay_qr', 'bank_transfer', 'card'])
+  @ApiProperty({ example: 'bank_transfer', enum: ['bank_transfer'], description: 'Hiện chỉ hỗ trợ bank_transfer (VietQR + auto reconcile qua webhook Casso/Sepay)' })
+  @IsIn(['bank_transfer'])
   method: string;
 
   @ApiProperty({ example: 15 })
