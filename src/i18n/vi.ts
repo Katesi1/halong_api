@@ -194,6 +194,8 @@ export const vi = {
     reportsSuccess: 'Lấy dữ liệu báo cáo thành công',
     missingDateRange: 'Vui lòng cung cấp from và to khi dùng period=custom',
     invalidDateRange: 'Ngày from phải trước ngày to',
+    toInFuture: 'Ngày to không được ở tương lai',
+    invalidPeriod: 'Giá trị period không hợp lệ (today | week | month | year | custom)',
   },
 
   // ─── Reviews ───────────────────────────────────────────────────────────────
@@ -269,6 +271,12 @@ export const vi = {
     cancelSuccess: 'Đã hủy phiên thanh toán',
     cannotCancel: 'Phiên không ở trạng thái chờ, không thể hủy',
     activeSuccess: 'Lấy phiên thanh toán hiện tại thành công',
+    quoteSuccess: 'Tạo báo giá thanh toán thành công',
+    subscriptionFrozen: 'Gói đăng ký đang bị đóng băng. Vui lòng liên hệ hỗ trợ.',
+    downgradeScheduled: 'Đã đặt lịch hạ gói. Gói mới sẽ áp dụng từ kỳ tiếp theo.',
+    cannotDowngradeInTrial: 'Không thể hạ gói trong thời gian dùng thử',
+    planNotFound: 'Không tìm thấy gói dịch vụ',
+    samePlanNoChange: 'Bạn đang sử dụng gói này',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -452,6 +460,39 @@ export const vi = {
     listSuccess: 'Lấy danh sách template email thành công',
     testSentSuccess: 'Đã gửi email mẫu',
     smtpDisabled: 'SMTP chưa được cấu hình — không gửi được email',
+  },
+
+  // ─── Support Tickets ───────────────────────────────────────────────────────
+  supportTickets: {
+    createSuccess: 'Tạo yêu cầu hỗ trợ thành công',
+    listSuccess: 'Lấy danh sách yêu cầu hỗ trợ thành công',
+    getSuccess: 'Lấy chi tiết yêu cầu hỗ trợ thành công',
+    replySuccess: 'Gửi phản hồi thành công',
+    notFound: 'Yêu cầu hỗ trợ không tồn tại',
+    forbidden: 'Bạn không có quyền truy cập yêu cầu này',
+  },
+
+  // ─── Feedback ──────────────────────────────────────────────────────────────
+  feedback: {
+    createSuccess: 'Cảm ơn — phản hồi của bạn đã được ghi nhận',
+  },
+
+  // ─── Data Exports (GDPR) ───────────────────────────────────────────────────
+  dataExports: {
+    createSuccess: 'Đã tạo yêu cầu xuất dữ liệu',
+    listSuccess: 'Lấy danh sách yêu cầu xuất dữ liệu thành công',
+  },
+
+  // ─── Consents ──────────────────────────────────────────────────────────────
+  consents: {
+    getSuccess: 'Lấy thông tin đồng ý thành công',
+    updateSuccess: 'Cập nhật thông tin đồng ý thành công',
+  },
+
+  // ─── Notification Preferences ──────────────────────────────────────────────
+  notificationPreferences: {
+    getSuccess: 'Lấy cài đặt thông báo thành công',
+    updateSuccess: 'Cập nhật cài đặt thông báo thành công',
   },
 
 };

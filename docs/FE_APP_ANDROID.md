@@ -4,7 +4,7 @@
 > **Đối tượng đọc**: Dev BE, QA integration.  
 > **Tham chiếu BE**: `docs/API_SPEC_FULL.md` (spec đầy đủ từ phía server), `REPORT_FE_ANDROID_2026-06-06.md` (feedback BE).  
 > **Cập nhật**: 2026-06-06 · App version `1.1.3+12` · Base URL production: `https://api.halong24h.com`  
-> **Changelog gần nhất**: Báo cáo vi phạm có list + detail + actions (mock); lịch sử moderation gộp vào **Thông báo → Hệ thống** (bỏ màn `/admin/moderation-audit`).
+> **Changelog gần nhất**: Tách **Thông báo** (booking/thanh toán) vs **Lịch sử hệ thống** admin (báo cáo vi phạm, moderation, audit); inbox không hiển thị `type=system`.
 
 ---
 
@@ -27,6 +27,15 @@
 ## 0. Mô hình sản phẩm B2B (quan trọng)
 
 > **Quyết định sản phẩm (2026-06-06)**: App mobile này là **PMS B2B** — dành cho **chủ homestay (OWNER)** và **nhân viên sale (SALE)** vận hành phòng. **Khách lưu trú không đặt phòng trên app này.**
+
+### Thông báo vs Lịch sử hệ thống (quan trọng)
+
+| Kênh | Route | Đối tượng | Nội dung |
+|---|---|---|---|
+| **Thông báo** | `/notifications` | OWNER, SALE (vận hành) | Booking (xác nhận, huỷ, lịch…), thanh toán (hóa đơn, subscription…) — liên quan **khách & chủ homestay** |
+| **Lịch sử hệ thống** | `/admin/moderation-audit` | ADMIN | Ai báo cáo vi phạm, admin xử lý thế nào, khóa user, ẩn tin… — **moderation & audit** |
+
+FE inbox **chỉ** hiển thị `type ∈ {booking, payment}`. `type=system` từ BE **không** vào inbox — ghi vào audit / lịch sử hệ thống (hoặc redirect admin từ `/notifications?type=system`).
 
 ### Ai dùng app?
 
@@ -194,8 +203,7 @@ Getter trên `UserModel`: `isAdmin`, `isOwner`, `isSale`, `isCustomer`, `isManag
 | SALE membership không active | Chỉ được `/dashboard`, `/profile`, `/profile/help`, `/notifications` |
 | SALE | Chặn `/properties/new` (tạo cơ sở mới) |
 | OWNER `needsKyc` | Chặn mutate `/properties/:id/*` → redirect `/verify/cccd-front`. Cho phép `/properties` (list). **Roadmap**: cho read-only `GET /properties/:id` khi chưa KYC |
-| Admin-only | `/admin/users/*`, `/admin/kyc/*`, `/admin/trial`, `/admin/abuse-reports/*`, `/admin/role-permissions` |
-| Lịch sử moderation (legacy) | `/admin/moderation-audit` → redirect `/notifications?type=system` |
+| Admin-only | `/admin/users/*`, `/admin/kyc/*`, `/admin/trial`, `/admin/abuse-reports/*`, `/admin/moderation-audit`, `/admin/role-permissions` |
 | Legacy customer routes | `/home`, `/search`, `/my-bookings`, `/account` — **out of scope B2B**, sẽ gỡ |
 
 ### 4.4 Bottom navigation (B2B — mode quản lý)
@@ -392,12 +400,12 @@ Create review body: `{ bookingId, cleanliness, location, amenities, service, val
 
 | Method | Path | Repository | Màn hình / Service |
 |---|---|---|---|
-| GET | `/notifications` | `notification_repository.dart` | `/notifications` (filter chip: Tất cả / Booking / Thanh toán / **Hệ thống**) |
+| GET | `/notifications` | `notification_repository.dart` | `/notifications` (inbox: **Booking + Thanh toán** — ẩn `type=system`) |
 | GET | `/notifications/unread-count` | `notification_repository.dart` | Badge AppBar |
 | PATCH | `/notifications/:id/read` | `notification_repository.dart` | Notification detail |
 | PATCH | `/notifications/read-all` | `notification_repository.dart` | Mark all |
 
-**Deep link filter:** `/notifications?type=system` — mở sẵn tab **Hệ thống** (dùng cho lịch sử moderation / audit push từ BE).
+**Deep link:** `/notifications?type=booking|payment` — filter inbox. `/notifications?type=system` → ADMIN redirect `/admin/moderation-audit`.
 | POST | `/devices` | `device_repository.dart` | `push_notification_service.dart` (sau login) |
 | DELETE | `/devices/:token` | `device_repository.dart` | Trước logout |
 
@@ -631,6 +639,8 @@ Actions trên từng ngày:
 | Route app | API | Repository | File |
 |---|---|---|---|
 | `/reports` | `GET /reports` | `report_repository.dart` | `features/reports/views/report_screen.dart` |
+
+**UI chọn kỳ:** Chip Hôm nay / Tuần / Tháng / Năm / **Tuỳ chỉnh**. Kỳ tuỳ chỉnh mở bottom sheet `report_date_range_sheet.dart` (TableCalendar + preset 7/30/90 ngày, Tháng này) — không dùng `showDateRangePicker` Material mặc định.
 
 **Auth:** `Authorization: Bearer <accessToken>` (bắt buộc).
 
@@ -945,7 +955,7 @@ Sort: **mới nhất trước**, trong phạm vi kỳ đã chọn.
 
 #### Hành vi FE (Tuỳ chỉnh) — BE cần biết
 
-1. User tap chip **Tuỳ chỉnh** → app mở date range picker.
+1. User tap chip **Tuỳ chỉnh** → bottom sheet calendar (chọn range trên lịch + preset nhanh).
 2. Chọn xong → FE gọi `GET /reports?period=custom&from=...&to=...`.
 3. Huỷ picker → **không gọi API**, giữ kỳ cũ.
 4. Chưa chọn ngày → FE **không gọi API** (tránh 400).
@@ -1032,6 +1042,7 @@ Paywall modal (`paywall_modal.dart`) — không có route; hydrate từ `GET /ky
 | `/admin/kyc/:id` | ADMIN | GET detail, approve, reject |
 | `/admin/abuse-reports` | ADMIN | **Mock** — `MockAbuseReportRepository` (4 tab: Chờ xử lý / Tất cả / Đã xử lý / Bỏ qua) |
 | `/admin/abuse-reports/:id` | ADMIN | **Mock** — detail + actions: điều tra, bỏ qua, xử lý xong (ẩn nội dung / khóa user) |
+| `/admin/moderation-audit` | ADMIN | **UI placeholder** — hiển thị tên **Lịch sử hệ thống** (nhật ký moderation); chờ `GET /admin/audit-log` |
 | `/admin/role-permissions` | ADMIN | **Local SharedPreferences only** |
 
 KYC queue FE gọi 3 lần parallel: `status=awaiting_approval`, `approved`, `rejected` (pageSize 100).
@@ -1045,7 +1056,7 @@ KYC queue FE gọi 3 lần parallel: `status=awaiting_approval`, `approved`, `re
 | Controller | `features/admin/controllers/abuse_report_controller.dart` |
 | Views | `abuse_reports_screen.dart`, `abuse_report_detail_screen.dart` |
 
-**Lịch sử moderation:** Không còn màn riêng. BE ghi audit (spec §14) + push `type=system` → admin xem tại `/notifications?type=system`. Route cũ `/admin/moderation-audit` redirect sang đó.
+**Lịch sử hệ thống:** Route `/admin/moderation-audit`, file `moderation_audit_screen.dart`. Gồm: ai báo cáo vi phạm, admin xử lý, khóa user, ẩn tin… **Khác** inbox Thông báo (chỉ booking/thanh toán).
 
 ---
 
@@ -1078,17 +1089,18 @@ Admin hide → `DELETE /admin/reviews/:reviewId { reason }`.
 
 | Route | API |
 |---|---|
-| `/notifications` | `GET /notifications` |
-| `/notifications?type=system` | Cùng API — FE filter client-side tab **Hệ thống** (lịch sử moderation / audit) |
+| `/notifications` | `GET /notifications` — FE lọc client: chỉ `booking` + `payment` |
+| `/notifications?type=booking\|payment` | Filter chip inbox |
 | `/notifications/:id` | `PATCH /notifications/:id/read` |
 
-`NotificationType`: `booking` | `payment` | `system`. Label UI: Booking / Thanh toán / **Hệ thống**.
+`NotificationType` BE có thể gửi: `booking` | `payment` | `system`.  
+**Inbox UI** (`inboxNotificationTypes`): chỉ **Booking** và **Thanh toán** — vận hành cho chủ homestay/sale.
 
-FCM payload FE expect (deep link): `data.type`, `data.targetType`, `data.targetId` — handler set ở `PushNotificationService.onNotificationTap` (app root).
+**Không hiển thị trong inbox:** `type=system` (moderation, báo cáo, audit) → thuộc **Lịch sử hệ thống** (`/admin/moderation-audit`).  
+Redirect: `/notifications?type=system` + role ADMIN → `/admin/moderation-audit`.
 
-**Moderation audit UX:** Admin không mở màn audit riêng. Khi BE implement `GET /admin/audit-log`, có thể:
-- (Ưu tiên) Push từng action moderation qua `/notifications` với `type=system`, hoặc
-- (Bổ sung) Màn audit read-only gọi audit-log API — hiện **chưa có**.
+FCM deep link: `data.type`, `data.targetType`, `data.targetId` — `PushNotificationService.onNotificationTap`.  
+Push `type=system` nên deep link admin tới lịch sử hệ thống, không inbox.
 
 Sau login: `POST /devices` register token. Logout: `DELETE /devices/:fcmToken` rồi `POST /auth/logout`.
 
@@ -1099,7 +1111,7 @@ Sau login: `POST /devices` register token. Logout: `DELETE /devices/:fcmToken` r
 | Màn hình | Route | Trạng thái |
 |---|---|---|
 | Abuse reports (list + detail) | `/admin/abuse-reports`, `/admin/abuse-reports/:id` | **Mock** — `MockAbuseReportRepository`, chưa gọi BE |
-| ~~Moderation audit~~ | `/admin/moderation-audit` | **Đã gỡ** — redirect `/notifications?type=system` |
+| Lịch sử hệ thống (moderation audit) | `/admin/moderation-audit` | UI demo, chờ `GET /admin/audit-log` |
 | Role permissions | `/admin/role-permissions` | Lưu local device, không sync BE |
 | Feedback / báo lỗi | `/profile/feedback` | Chỉ analytics event local |
 | My tickets | `/profile/tickets` | Hardcoded mock tickets |
@@ -1211,11 +1223,17 @@ FE đã có queue + detail + actions (pattern giống KYC admin), nhưng **chưa
 
 Sau resolve: ghi audit log (§14) + push notification `type=system` cho admin liên quan.
 
-### 9.12 Lịch sử moderation
+### 9.12 Thông báo vs Lịch sử hệ thống
 
-- **Không** ship màn audit placeholder riêng — đã xoá `moderation_audit_screen.dart`.
-- Admin xem hành động kiểm duyệt qua **Thông báo → Hệ thống** (`/notifications?type=system`).
-- `GET /admin/audit-log` (spec §14) vẫn **chưa integrate** — dùng khi cần tra cứu sâu (filter action, IP, date range).
+| | Thông báo `/notifications` | Lịch sử hệ thống `/admin/moderation-audit` |
+|---|---|---|
+| User | OWNER, SALE | ADMIN |
+| Nội dung | Booking, thanh toán (khách/chủ) | Báo cáo vi phạm, moderation, audit |
+| BE `type` | `booking`, `payment` | `system` + audit-log actions (spec §14) |
+| Tùy chọn push | `/profile/notifications` — 2 nhóm | Không (admin xem log) |
+
+- `GET /admin/audit-log` **chưa wire** — màn lịch sử hiện demo cứng.
+- BE gửi `type=system` → **không** expect hiện trong inbox FE; ghi audit hoặc push deep link admin → lịch sử hệ thống.
 
 ---
 

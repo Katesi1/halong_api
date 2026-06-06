@@ -877,6 +877,170 @@ Status string: `available | hold | booked | locked`.
 
 ---
 
+## 7A. Dashboard & Reports
+
+Endpoints KPI cho Owner/Sale/Admin. Auth: Bearer. Roles: ADMIN, OWNER, SALE.
+
+### 7A.1 Endpoints
+
+| Method | Path | Mô tả |
+|---|---|---|
+| `GET` | `/dashboard/stats` | KPI realtime tổng quan hôm nay (occupancy, doanh thu hôm nay/tháng, checkout today) |
+| `GET` | `/reports?period&from&to&month?&year?` | Báo cáo mở rộng theo kỳ — KPI, trend, top rooms, ratings, reviews |
+
+**Scope dữ liệu:**
+- **OWNER**: chỉ property của mình
+- **SALE**: theo `ownerId` được gán (auto-resolve qua `getEffectiveOwnerId`)
+- **ADMIN**: toàn hệ thống
+
+### 7A.2 GET /reports — Query params
+
+| Param | Bắt buộc | Giá trị | Ghi chú |
+|---|---|---|---|
+| `period` | optional | `today` \| `week` \| `month` \| `year` \| `custom` | Mặc định `month`. Timezone server (Asia/Ho_Chi_Minh) |
+| `from` | **bắt buộc khi `period=custom`** | `YYYY-MM-DD` | Ngày bắt đầu (inclusive) |
+| `to` | **bắt buộc khi `period=custom`** | `YYYY-MM-DD` | Ngày kết thúc (inclusive) |
+| `month` | legacy optional | 1–12 | Tương thích API cũ |
+| `year` | legacy optional | YYYY | Tương thích API cũ |
+
+**Định nghĩa kỳ:**
+
+| `period` | Khoảng |
+|---|---|
+| `today` | 00:00 → 24:00 hôm nay |
+| `week` | Tuần hiện tại, **Monday-based** (T2 00:00 → T2 tuần sau 00:00) |
+| `month` | Tháng dương lịch hiện tại |
+| `year` | Năm dương lịch hiện tại |
+| `custom` | `[from 00:00, to 23:59]` inclusive |
+
+**`previousPeriod`** = kỳ ngay trước cùng độ dài. `custom` N ngày → N ngày trước `from`.
+
+### 7A.3 Validation 400 (mới v1.10)
+
+| Rule | i18n key | Message vi |
+|---|---|---|
+| `period=custom` thiếu `from` hoặc `to` | `dashboard.missingDateRange` | "Vui lòng cung cấp from và to khi dùng period=custom" |
+| `from >= to` hoặc date parse fail | `dashboard.invalidDateRange` | "Ngày from phải trước ngày to" |
+| `to` ở tương lai (sau cuối ngày hôm nay) | `dashboard.toInFuture` | "Ngày to không được ở tương lai" |
+| `period` không thuộc 5 giá trị hợp lệ | `dashboard.invalidPeriod` | "Giá trị period không hợp lệ (today \| week \| month \| year \| custom)" |
+
+### 7A.4 Response data shape
+
+```jsonc
+{
+  "success": true,
+  "message": "Lấy dữ liệu báo cáo thành công",
+  "data": {
+    // ─── KPI (4 ô đầu) ───
+    "revenue": 15000000,            // VND tổng kỳ
+    "adr": 850000,                  // Average Daily Rate
+    "occupancyRate": 72.5,          // 0..100 (%) — top-level scale
+    "totalBookings": 42,
+
+    // ─── Donut (status counts trong kỳ) ───
+    "holdCount": 3,                 // status=0
+    "confirmedCount": 10,           // status=1
+    "cancelledCount": 4,            // status=2
+    "completedCount": 25,           // status=3
+
+    // ─── So sánh kỳ trước ───
+    "previousPeriod": {
+      "revenue": 12000000,
+      "bookings": 38,
+      "occupancy": 65.0,            // 0..100
+      "adr": 800000
+    },
+
+    // ─── Chart xu hướng (1 điểm/ngày) ───
+    "revenueByDay": [
+      {
+        "date": "2026-06-01",
+        "revenue": 500000,
+        "bookings": 2,
+        "occupancy": 0.75           // 0..1 — chart scale
+      }
+    ],
+
+    // ─── Top phòng (top 5 theo revenue) ───
+    "topRooms": [
+      {
+        "roomId": "uuid",
+        "name": "Phòng 101",
+        "coverImage": "https://...",
+        "revenue": 3000000,
+        "bookings": 8,
+        "occupancy": 0.8            // 0..1
+      }
+    ],
+
+    // ─── Phân tích lưu trú ───
+    "dayOfWeekOccupancy": {
+      "values": [0.6, 0.7, 0.65, 0.8, 0.9, 0.95, 0.85]  // index 0=T2, 6=CN, 0..1
+    },
+    "lengthOfStay": {
+      "oneNight": 10,
+      "twoToThree": 20,
+      "fourToSeven": 8,
+      "eightPlus": 2
+    },
+
+    // ─── Booking gần đây (10 bản, sort createdAt desc) ───
+    "recentBookings": [
+      {
+        "id": "uuid",
+        "propertyId": "uuid",
+        "checkinDate": "2026-06-10",
+        "checkoutDate": "2026-06-12",
+        "status": 1,
+        "customerName": "Nguyễn A",
+        "guestCount": 2,
+        "property": { "id": "uuid", "name": "Homestay X", "code": "HS001" },
+        "sale": { "id": "uuid", "name": "Sale name" }
+      }
+    ],
+
+    // ─── Reviews ───
+    "ratingSummary": {
+      "avgRating": 4.4,               // weighted avg across all properties
+      "totalReviews": 25,
+      "totalProperties": 3,
+      "distribution": { "5": 15, "4": 7, "3": 3, "2": 0, "1": 0 },
+      "breakdown": {
+        "cleanliness": 4.5, "location": 4.3, "amenities": 4.2,
+        "service": 4.6, "value": 4.1, "accuracy": 4.4
+      }
+    },
+    "propertyRatings": [ /* per-property breakdown, sort by avgRating desc */ ],
+    "recentReviews": [ /* 5 review mới nhất */ ],
+
+    // ─── Legacy / backward-compat ───
+    "totalRooms": 10,
+    "activeRooms": 8,
+    "totalDeposit": 15000000,        // = revenue (deprecated, FE nên dùng `revenue`)
+    "thisMonthBookings": 42,
+    "roomsWithCover": 8,
+    "roomsWithPrice": 7
+  }
+}
+```
+
+**Scale convention** (CRITICAL — FE đa nền tảng dễ nhầm):
+- `occupancyRate` top-level + `previousPeriod.occupancy` = **0..100** (đã ×100, FE chỉ append `%`)
+- `revenueByDay[].occupancy` + `topRooms[].occupancy` + `dayOfWeekOccupancy.values[]` = **0..1** (FE ×100 khi plot)
+
+**Nguồn doanh thu**: aggregate `Booking.depositAmount` của booking `status ∈ {CONFIRMED, COMPLETED}` overlapping kỳ. Revenue mỗi ngày = chia đều `depositAmount / số đêm`.
+
+### 7A.5 Endpoints CHƯA wire (roadmap)
+
+FE hiện gom hết vào `GET /reports`. Các path sau đã reserve nhưng **không cần implement** cho release này:
+
+- `GET /reports/occupancy`
+- `GET /reports/adr`
+- `GET /reports/revpar`
+- `POST /reports/export?format=csv|xlsx`
+
+---
+
 ## 8. Notifications & Devices
 
 ### 8.1 Notifications
@@ -1017,13 +1181,118 @@ Base path: `/payments`. Role: OWNER.
 
 | Method | Path | Body / Note |
 |---|---|---|
-| `POST` | `/payments/initiate` | `{ planId, cycle, method, rooms, totalAmount }` → tạo session VietQR |
-| `POST` | `/payments/renew` | `{ method }` |
+| `POST` | `/payments/quote` | `{ planId, cycle, rooms? }` → **read-only**, trả `kind` + `breakdown` + `totalAmount`. FE nên gọi trước khi mở màn thanh toán thay vì tự tính. |
+| `POST` | `/payments/initiate` | `{ planId, cycle, method, rooms, totalAmount }` → tạo session. BE tự branch theo trạng thái user: subscription / renew / upgrade / downgrade (xem §10.2.1). |
+| `POST` | `/payments/renew` | `{ method }` — gia hạn cùng gói hiện tại (stack 1 kỳ). |
 | `GET` | `/payments/active` | Trả session `pending` mới nhất của user (rehydrate UI khi reload). `data = null` nếu không có. |
-| `GET` | `/payments/history?limit&cursor` | — |
+| `GET` | `/payments/history?limit&cursor` | — Mỗi item có `kind` (`subscription | renew | upgrade | refund`). |
 | `GET` | `/payments/:sessionId/status` | Poll trạng thái session |
 | `POST` | `/payments/:sessionId/cancel` | User huỷ session `pending`. Chỉ cho phép khi `status=pending`, ngược lại 409 `cannotCancel`. Đồng thời revert KycSubmission `payment_pending → kyc_submitted` |
 | `POST` | `/payments/:sessionId/refund` | — |
+
+### 10.2.1 Branching trong `POST /payments/initiate`
+
+BE tự nhận diện loại giao dịch — FE chỉ gửi `planId + cycle + rooms + totalAmount` như cũ. Logic:
+
+| Trạng thái user | Điều kiện | `kind` trả về | Charge | Side-effect khi paid |
+|---|---|---|---|---|
+| Chưa có subscription (`none`) | Cần KYC submission `kyc_submitted` | `subscription` | Full 1 kỳ | KYC → `awaiting_approval`, user kycStatus → `pending` |
+| Active/trial/past_due, cùng `planId + cycle` | — | `renew` | Full 1 kỳ | `currentPeriodEnd = max(now, currentPeriodEnd) + 1 cycle` |
+| Active/trial/past_due, tier mới **cao hơn** | `tier(new) > tier(current)` | `upgrade` | **Prorate** (xem §10.2.2) | Đổi plan ngay, giữ nguyên `currentPeriodEnd` |
+| Active/trial/past_due, tier mới **thấp hơn** | `tier(new) < tier(current)` | — | — | **409 `downgradeScheduled`** + `effectiveAt` + `pendingPlanId`; ghi `User.pendingPlanId/Cycle/EffectiveAt` |
+| Active/trial/past_due, cùng tier, **khác cycle** | — | `renew` | Full 1 kỳ theo cycle mới | Stack 1 kỳ mới từ `currentPeriodEnd`, cycle cập nhật |
+| `frozen` | — | — | — | **409 `subscriptionFrozen`** |
+
+**Tier order** (thấp → cao):
+`starter_test < rooms_1 < rooms_5 < rooms_10 < rooms_20 < rooms_50 < enterprise`
+
+### 10.2.2 Công thức prorate (upgrade)
+
+```
+totalDays     = oldCycle == yearly ? 365 : 30
+remainingDays = max(0, ceil((currentPeriodEnd - now) / 1d))   // clamp 0..totalDays
+oldSubtotal   = subtotal(currentPlan, currentCycle, currentRooms, override)
+newSubtotal   = subtotal(newPlan, newCycle, newRooms, override)
+oldCredit     = round(oldSubtotal × remainingDays / totalDays)
+due           = max(0, newSubtotal - oldCredit)
+vat           = round(due × newPlan.vatPct / 100)
+totalAmount   = due + vat
+```
+
+`subtotal(plan, cycle, rooms, override)`:
+- Nếu `override != null` → `subtotal = override` (giá tuyệt đối/kỳ chưa VAT).
+- Else: `months = cycle == yearly ? 12 : 1`; `base = max(plan.pricePerRoom × rooms, plan.minCharge) × months`; `subtotal = round(base × (1 - yearlyDiscount nếu yearly))`.
+
+### 10.2.3 Quote API
+
+`POST /payments/quote` body:
+```json
+{ "planId": "rooms_10", "cycle": "monthly", "rooms": 10 }
+```
+
+Response (200):
+```json
+{
+  "success": true,
+  "message": "...",
+  "data": {
+    "kind": "upgrade",
+    "planId": "rooms_10",
+    "cycle": "monthly",
+    "rooms": 10,
+    "totalAmount": 769450,
+    "breakdown": {
+      "listPrice": 999000,
+      "creditApplied": 299500,
+      "vat": 69950,
+      "remainingDays": 15,
+      "totalDays": 30,
+      "currentPlanId": "rooms_5",
+      "periodExtension": null
+    }
+  }
+}
+```
+
+`breakdown.periodExtension`:
+- `subscription` / `renew` → `{ "months": 1 }` hoặc `{ "months": 12 }`
+- `upgrade` → `null` (giữ period)
+- `downgrade` → `null` + thêm `effectiveAt` + `pendingPlanId` top-level data
+
+Quote **không** tạo session, không ghi DB. FE có thể gọi mỗi khi user đổi plan/cycle để re-render order summary. Khi user confirm, FE gọi `POST /payments/initiate` với `totalAmount` lấy từ quote — BE vẫn tính lại và validate ±1%.
+
+### 10.2.4 Mở rộng response của `initiate` / `renew`
+
+Session response (trên hai endpoint này) trả thêm so với spec cũ:
+
+```jsonc
+{
+  // ... fields cũ (sessionId, totalAmount, qrCode, bankInfo, expiresAt, ...)
+  "kind": "renew",                    // 'subscription' | 'renew' | 'upgrade'
+  "planId": "rooms_5",
+  "cycle": "monthly",
+  "breakdown": {
+    "listPrice": 599000,
+    "creditApplied": 0,                // > 0 chỉ trong upgrade
+    "vat": 59900,
+    "remainingDays": null,             // upgrade only
+    "totalDays": null,                 // upgrade only
+    "periodExtension": { "months": 1 } // upgrade → null
+  }
+}
+```
+
+### 10.2.5 Error codes (subscription billing)
+
+| Code | HTTP | Khi |
+|---|---|---|
+| `amountMismatch` | 400 | `totalAmount` FE gửi ≠ BE tính (±1%) |
+| `planNotFound` | 404 | `planId` không tồn tại / `active = false` |
+| `noActiveSubscription` | 409 | `POST /payments/renew` khi `subscriptionStatus = none` |
+| `subscriptionFrozen` | 409 | Mọi initiate/renew/quote khi `subscriptionStatus = frozen` |
+| `downgradeScheduled` | 409 | `POST /payments/initiate` với tier thấp hơn. Body kèm `effectiveAt` + `pendingPlanId` |
+| `cannotDowngradeInTrial` | 409 | (reserved) Trial chưa hết mà muốn hạ gói |
+| `markPaidDuplicate` | 409 | Đã paid trước đó |
 
 Method values: `bank_transfer` (chỉ hỗ trợ duy nhất — VNPay và Apple IAP đã loại bỏ ở v1.4).
 
@@ -1627,6 +1896,23 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 
 ## 21. Changelog & Bug fixes
 
+### v1.10 — 2026-06-06 (Reports validation + spec sync cho FE đa nền tảng)
+
+Đồng bộ spec với code sau khi FE mobile wire xong tab Báo cáo và ghép thêm KYC/Apple IAP.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| Thêm §7A **Dashboard & Reports** | Document đầy đủ `GET /dashboard/stats` + `GET /reports` (period, custom range, response shape) — gỡ rời khỏi §1 enum table |
+| `GET /reports` validation 400 mới | `dashboard.toInFuture` (to ở tương lai), `dashboard.invalidPeriod` (period không hợp lệ). i18n en+vi đã sync |
+| `GET /reports` response — clarify scale convention | `occupancyRate` + `previousPeriod.occupancy` = **0..100**; `revenueByDay[].occupancy` + `topRooms[].occupancy` + `dayOfWeekOccupancy.values[]` = **0..1** |
+| `LoginDataDto` — xóa field `user: UserDto` (Swagger schema fix) | Swagger UI giờ hiển thị đúng response auth chỉ có `accessToken` + `refreshToken`. Khớp với contract v1.7 |
+| §5.4 + §10.2 — phân biệt `PATCH /bookings/:id/paid` (deposit khách) vs `POST /payments/initiate` (subscription owner) | FE đa nền tảng tránh wire nhầm flow |
+| §6.1 Calendar — document `propertyIds` plural | Public/grid hỗ trợ CSV (`?propertyIds=u1,u2`) hoặc array repeat |
+| §11.2 Staff invites — thêm response shape `verify` + `accept` | `accept` chỉ tokens (khớp [[feedback-auth-response-shape]]), `verify` có nested `owner.{name,avatar,homestayName}` |
+| §20.1 + §20.2 — thêm `/uploads` vào FE checklist | Tránh team bỏ sót khi tích hợp chat / dispute evidence |
+
+**Breaking?** Không. Chỉ thêm validation + cập nhật doc + xóa field DTO chưa từng được populate ở runtime.
+
 ### v1.9 — 2026-06-06 (Payment session lifecycle + Starter Test plan)
 
 Khắc phục bug "loading mãi ở trang chờ đối soát" khi user đóng/mở lại app sau khi initiate session, và bổ sung plan thử nghiệm cho QA / App Store review.
@@ -2214,3 +2500,176 @@ ChatService `sendMessage` đã tự gọi `markAttached`. FE chỉ cần:
 > - **§2A — Phân quyền & Authorization** — quy tắc đầy đủ ai được vào endpoint nào, vì sao 401/403/404, business rules ngoài role
 >
 > 90% câu hỏi "tại sao lại bị 403" của FE đều trả lời được trong §2A.
+
+---
+
+## 24. Mobile Profile Endpoints (Support / Feedback / Data Export / Consents / Notification Prefs)
+
+> Bổ sung 2026-06-06 cho team Mobile (iOS + Android). Tất cả yêu cầu Bearer token, trừ `/feedback` (vẫn cần auth, nhưng rate-limit 10/giờ/user).
+
+### 24.1 Support Tickets — `/support/tickets`
+
+**Enums**
+- `category`: `account | payment | technical | other`
+- `status`: `open | in_progress | resolved | closed`
+
+#### POST `/support/tickets`
+Body:
+```json
+{
+  "subject": "Không đăng nhập được",
+  "category": "account",
+  "description": "Mô tả chi tiết tối thiểu 10 ký tự",
+  "attachments": ["https://res.cloudinary.com/.../a.jpg"]
+}
+```
+Validate: `subject ≥ 5`, `description ≥ 10`, `attachments ≤ 5 URLs`.
+Response:
+```json
+{
+  "success": true,
+  "message": "Tạo yêu cầu hỗ trợ thành công",
+  "data": {
+    "id": "uuid",
+    "userId": "uuid",
+    "code": "HT-482193",
+    "subject": "...",
+    "category": "account",
+    "description": "...",
+    "status": "open",
+    "attachments": [],
+    "createdAt": "2026-06-06T07:00:00.000Z",
+    "updatedAt": "2026-06-06T07:00:00.000Z"
+  }
+}
+```
+
+#### GET `/support/tickets?status&page&limit`
+Trả ticket của user hiện tại (ADMIN xem tất cả). Pagination Shape A:
+```json
+{ "items": [/* ticket */], "total": 12, "page": 1, "limit": 20, "totalPages": 1 }
+```
+
+#### GET `/support/tickets/:id`
+Trả ticket + `messages[]` (sorted asc by createdAt). 403 nếu không phải owner / không phải ADMIN.
+
+#### POST `/support/tickets/:id/reply`
+Body: `{ "message": "...", "attachments"?: ["url"] }`
+Tạo message mới. `fromAdmin=true` nếu caller là ADMIN. ADMIN reply trên ticket `open` → auto bump status sang `in_progress`.
+
+---
+
+### 24.2 Feedback — `POST /feedback`
+Rate-limit: 10 requests/giờ/user.
+Body:
+```json
+{
+  "category": "bug",            // bug | feature | support | other
+  "message": "Mô tả ≥ 10 ký tự",
+  "contact": "user@example.com", // optional
+  "deviceInfo": "iPhone 15 / iOS 18.0", // optional
+  "attachments": ["https://..."]        // optional, ≤ 5 URLs
+}
+```
+Response: `{ success, message, data: { id: "uuid" } }`
+
+---
+
+### 24.3 Data Export (GDPR) — `/users/me/data-export`
+
+Item shape:
+```json
+{
+  "id": "uuid",
+  "status": "pending",          // pending | processing | ready | expired
+  "requestedAt": "2026-06-06T07:00:00.000Z",
+  "downloadUrl": null,
+  "expiresAt": null
+}
+```
+
+#### POST `/users/me/data-export`
+Tạo yêu cầu mới. Nếu đã có yêu cầu pending/processing → trả lại yêu cầu cũ (không tạo mới).
+Response: `{ success, message, data: <item> }`
+
+#### GET `/users/me/data-export`
+Trả danh sách yêu cầu của user, newest first. Nếu item ready quá `expiresAt` → auto-flip sang `expired` ngay tại response.
+Response: `{ success, message, data: { items: [<item>] } }`
+
+---
+
+### 24.4 Consents — `/users/me/consents`
+
+#### GET `/users/me/consents`
+Tạo record mặc định nếu chưa có. Response:
+```json
+{
+  "success": true,
+  "message": "Lấy thông tin đồng ý thành công",
+  "data": { "kyc": true, "marketing": false, "updatedAt": "2026-06-06T..." }
+}
+```
+
+#### PUT `/users/me/consents`
+Body: `{ "marketing": true }` (chỉ duy nhất field này).
+> `kyc` là server-locked — ignore mọi nỗ lực sửa từ client.
+
+Response giống GET.
+
+---
+
+### 24.5 Notification Preferences — `/users/me/notification-preferences`
+
+Shape:
+```json
+{
+  "booking": true,
+  "payment": true,
+  "system": true,
+  "quietHours": false,
+  "quietFrom": "22:00",   // HH:MM (24h)
+  "quietTo": "07:00",
+  "updatedAt": "2026-06-06T..."
+}
+```
+
+#### GET `/users/me/notification-preferences`
+Tạo record mặc định nếu chưa có. Trả shape ở trên.
+
+#### PUT `/users/me/notification-preferences`
+Body: tất cả fields đều optional (partial update). `quietFrom`/`quietTo` validate regex `^([01]\d|2[0-3]):[0-5]\d$`. Trả shape mới.
+
+---
+
+### 24.6 Confirmed Existing — Permissions
+
+#### GET `/permissions/:userId` (ADMIN only)
+Response:
+```json
+{
+  "success": true,
+  "message": "Permissions retrieved successfully",
+  "data": {
+    "user": { "id": "uuid", "name": "Nguyễn A", "role": 1 },
+    "permissions": [
+      { "module": "properties", "canCreate": false, "canRead": true, "canUpdate": false, "canDelete": false },
+      { "module": "bookings",   "canCreate": false, "canRead": true, "canUpdate": false, "canDelete": false },
+      { "module": "calendar",   "canCreate": false, "canRead": true, "canUpdate": false, "canDelete": false },
+      { "module": "reviews",    "canCreate": false, "canRead": true, "canUpdate": false, "canDelete": false }
+    ]
+  }
+}
+```
+Module whitelist: `properties | bookings | calendar | reviews`.
+
+#### PUT `/permissions/:userId` (ADMIN only)
+Body:
+```json
+{
+  "permissions": [
+    { "module": "properties", "canCreate": true, "canRead": true, "canUpdate": true, "canDelete": false },
+    { "module": "bookings",   "canCreate": true, "canRead": true, "canUpdate": true, "canDelete": false }
+  ]
+}
+```
+Bulk upsert. Mỗi field CRUD optional (giữ giá trị cũ nếu không gửi). Response trả `{ userId, permissions: [...] }`.

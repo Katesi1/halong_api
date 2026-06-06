@@ -32,6 +32,18 @@ import {
   extractSessionIdFromDescription,
 } from './helpers/bank-webhook.helper';
 import { generateInvoiceNumber } from './helpers/invoice.helper';
+import {
+  computeFullCycleTotal,
+  computeUpgradeProrate,
+  extendPeriod,
+  isDowngrade,
+  isUpgrade,
+  pickBaseDate,
+  planSubtotal,
+  type BillingKind,
+  type Cycle,
+  type PriceBreakdown,
+} from './helpers/billing.helper';
 
 // QR code chỉ hợp lệ 15 phút (FE hiển thị countdown bằng `qrExpiresAt`).
 // Session vẫn sống đến 24h để webhook/admin có thời gian đối soát sau khi user chuyển khoản.
@@ -76,16 +88,149 @@ export class PaymentService {
     rooms: number,
     priceOverride?: number | null,
   ): number {
-    // Admin-set override: absolute price per cycle, VAT/discount đã tính bởi admin.
-    // priceOverride = 0 ⇒ free (vẫn cần đi qua flow để có session record).
-    if (priceOverride !== null && priceOverride !== undefined) {
-      return priceOverride;
+    return computeFullCycleTotal(
+      { id: '', ...plan },
+      cycle as Cycle,
+      rooms,
+      priceOverride,
+    ).total;
+  }
+
+  /**
+   * Quote API — FE gọi để biết kind + breakdown trước khi mở màn thanh toán.
+   * Hỗ trợ subscription (KYC lần đầu), renew (trùng plan+cycle), upgrade, downgrade.
+   * KHÔNG tạo session — chỉ tính toán read-only.
+   */
+  async quote(
+    user: { id: string },
+    dto: { planId: string; cycle: string; rooms?: number },
+    msg: Messages,
+  ) {
+    const plan = await this.prisma.billingPlan.findUnique({
+      where: { id: dto.planId },
+    });
+    if (!plan || !plan.active) {
+      throw new NotFoundException(msg.payment.planNotFound);
     }
-    const months = cycle === 'yearly' ? 12 : 1;
-    const discount = cycle === 'yearly' ? plan.yearlyDiscountPct / 100 : 0;
-    const baseAmount = Math.max(plan.pricePerRoom * rooms, plan.minCharge) * months;
-    const discounted = Math.round(baseAmount * (1 - discount));
-    return Math.round(discounted * (1 + plan.vatPct / 100));
+    const cycle = dto.cycle as Cycle;
+
+    const callerUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        subscriptionStatus: true,
+        subscriptionPlanId: true,
+        subscriptionCycle: true,
+        subscriptionPriceOverride: true,
+        currentPeriodEnd: true,
+      },
+    });
+    if (callerUser?.subscriptionStatus === SUBSCRIPTION_STATUS.FROZEN) {
+      throw new ConflictException(msg.payment.subscriptionFrozen);
+    }
+
+    // Identify current subscription for upgrade/downgrade context
+    const sub = await this.prisma.subscription.findFirst({
+      where: {
+        userId: user.id,
+        status: {
+          in: [SUBSCRIPTION_STATUS.ACTIVE, SUBSCRIPTION_STATUS.PAST_DUE, SUBSCRIPTION_STATUS.TRIAL],
+        },
+      },
+      orderBy: { endsAt: 'desc' },
+      include: { plan: true },
+    });
+
+    const hasActive = !!sub && !!sub.plan;
+    const rooms = dto.rooms ?? sub?.rooms ?? plan.maxRooms ?? 1;
+    if (plan.maxRooms && rooms > plan.maxRooms) {
+      throw new BadRequestException(msg.billing.roomCountExceedsPlan);
+    }
+
+    let kind: BillingKind = 'subscription';
+    let breakdown: PriceBreakdown;
+    let effectiveAt: Date | null = null;
+    let currentPlanId: string | null = null;
+    let pendingPlanId: string | null = null;
+
+    if (!hasActive) {
+      // First-time subscription
+      kind = 'subscription';
+      breakdown = computeFullCycleTotal(
+        plan,
+        cycle,
+        rooms,
+        callerUser?.subscriptionPriceOverride,
+      );
+    } else if (sub!.planId === dto.planId && sub!.cycle === cycle) {
+      // Same plan + cycle → renew (stack)
+      kind = 'renew';
+      currentPlanId = sub!.planId;
+      breakdown = computeFullCycleTotal(
+        sub!.plan,
+        cycle,
+        sub!.rooms,
+        callerUser?.subscriptionPriceOverride,
+      );
+    } else if (isUpgrade(sub!.planId, dto.planId)) {
+      kind = 'upgrade';
+      currentPlanId = sub!.planId;
+      breakdown = computeUpgradeProrate(
+        plan,
+        cycle,
+        rooms,
+        callerUser?.subscriptionPriceOverride,
+        sub!.plan,
+        sub!.cycle as Cycle,
+        sub!.rooms,
+        callerUser?.subscriptionPriceOverride,
+        callerUser?.currentPeriodEnd ?? sub!.endsAt,
+      );
+    } else if (isDowngrade(sub!.planId, dto.planId)) {
+      kind = 'downgrade';
+      currentPlanId = sub!.planId;
+      pendingPlanId = dto.planId;
+      effectiveAt = callerUser?.currentPeriodEnd ?? sub!.endsAt;
+      breakdown = {
+        listPrice: planSubtotal(plan, cycle, rooms, callerUser?.subscriptionPriceOverride),
+        creditApplied: 0,
+        vat: 0,
+        total: 0,
+        periodExtension: null,
+      };
+    } else {
+      // Different cycle, same tier → treat as renew with new cycle (no prorate)
+      kind = 'renew';
+      currentPlanId = sub!.planId;
+      breakdown = computeFullCycleTotal(
+        plan,
+        cycle,
+        rooms,
+        callerUser?.subscriptionPriceOverride,
+      );
+    }
+
+    return {
+      message: msg.payment.quoteSuccess,
+      data: {
+        kind,
+        planId: dto.planId,
+        cycle,
+        rooms,
+        totalAmount: breakdown.total,
+        breakdown: {
+          listPrice: breakdown.listPrice,
+          creditApplied: breakdown.creditApplied,
+          vat: breakdown.vat,
+          remainingDays: breakdown.remainingDays ?? null,
+          totalDays: breakdown.totalDays ?? null,
+          currentPlanId,
+          periodExtension: breakdown.periodExtension ?? null,
+        },
+        ...(kind === 'downgrade'
+          ? { effectiveAt, pendingPlanId }
+          : {}),
+      },
+    };
   }
 
   // ─── Build session payment artefacts (bankInfo + VietQR) ─────────────────
@@ -169,7 +314,12 @@ export class PaymentService {
     };
   }
 
-  // ─── Initiate (subscription, first-time KYC payment) ─────────────────────
+  // ─── Initiate ────────────────────────────────────────────────────────────
+  // Branches:
+  //   • Đã có subscription active/past_due/trial cùng plan+cycle → renew (stack 1 kỳ)
+  //   • Đã có subscription với tier cao hơn của tier mới → downgrade (409 deferred)
+  //   • Đã có subscription với tier thấp hơn → upgrade (prorate)
+  //   • Chưa có subscription → first-time subscription (cần KYC submission)
   async initiate(
     user: { id: string },
     dto: {
@@ -182,6 +332,122 @@ export class PaymentService {
     ipAddr: string,
     msg: Messages,
   ) {
+    const plan = await this.prisma.billingPlan.findUnique({
+      where: { id: dto.planId },
+    });
+    if (!plan || !plan.active) {
+      throw new NotFoundException(msg.payment.planNotFound);
+    }
+    if (plan.maxRooms && dto.rooms > plan.maxRooms) {
+      throw new BadRequestException(msg.billing.roomCountExceedsPlan);
+    }
+
+    const callerUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        subscriptionPriceOverride: true,
+        subscriptionStatus: true,
+        currentPeriodEnd: true,
+      },
+    });
+    if (callerUser?.subscriptionStatus === SUBSCRIPTION_STATUS.FROZEN) {
+      throw new ConflictException(msg.payment.subscriptionFrozen);
+    }
+
+    const sub = await this.prisma.subscription.findFirst({
+      where: {
+        userId: user.id,
+        status: {
+          in: [
+            SUBSCRIPTION_STATUS.ACTIVE,
+            SUBSCRIPTION_STATUS.PAST_DUE,
+            SUBSCRIPTION_STATUS.TRIAL,
+          ],
+        },
+      },
+      orderBy: { endsAt: 'desc' },
+      include: { plan: true },
+    });
+
+    const cycle = dto.cycle as Cycle;
+    const cycleChanged = sub ? sub.cycle !== cycle : false;
+    const priceOverride = callerUser?.subscriptionPriceOverride ?? null;
+
+    // ─── Downgrade → deferred, không charge ───────────────────────────────
+    if (sub && sub.plan && isDowngrade(sub.planId, dto.planId)) {
+      const effectiveAt = callerUser?.currentPeriodEnd ?? sub.endsAt;
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          pendingPlanId: dto.planId,
+          pendingCycle: cycle,
+          pendingEffectiveAt: effectiveAt,
+        },
+      });
+      throw new ConflictException({
+        code: 'downgradeScheduled',
+        message: msg.payment.downgradeScheduled,
+        effectiveAt,
+        pendingPlanId: dto.planId,
+      });
+    }
+
+    // ─── Upgrade → prorate, KIND=upgrade ──────────────────────────────────
+    if (sub && sub.plan && isUpgrade(sub.planId, dto.planId)) {
+      const breakdown = computeUpgradeProrate(
+        plan,
+        cycle,
+        dto.rooms,
+        priceOverride,
+        sub.plan,
+        sub.cycle as Cycle,
+        sub.rooms,
+        priceOverride,
+        callerUser?.currentPeriodEnd ?? sub.endsAt,
+      );
+      return this.createBillingSession({
+        user,
+        plan,
+        cycle,
+        rooms: dto.rooms,
+        method: dto.method,
+        ipAddr,
+        kind: PAYMENT_KIND.UPGRADE,
+        breakdown,
+        clientAmount: dto.totalAmount,
+        orderVerb: 'Nang cap',
+        successMsg: msg.payment.initiateSuccess,
+        msg,
+      });
+    }
+
+    // ─── Same plan+cycle (or same tier, different cycle) → renew stack ────
+    if (sub && sub.plan) {
+      // Same tier (đã loại upgrade/downgrade) → coi là renew.
+      // Cycle change handled by stacking with new cycle from baseDate.
+      const breakdown = computeFullCycleTotal(
+        plan,
+        cycle,
+        cycleChanged ? dto.rooms : sub.rooms,
+        priceOverride,
+      );
+      return this.createBillingSession({
+        user,
+        plan,
+        cycle,
+        rooms: cycleChanged ? dto.rooms : sub.rooms,
+        method: dto.method,
+        ipAddr,
+        kind: PAYMENT_KIND.RENEW,
+        breakdown,
+        clientAmount: dto.totalAmount,
+        orderVerb: 'Gia han',
+        successMsg: msg.payment.renewSuccess,
+        msg,
+      });
+    }
+
+    // ─── First-time subscription (KYC required) ───────────────────────────
     const submission = await this.prisma.kycSubmission.findFirst({
       where: {
         userId: user.id,
@@ -205,32 +471,12 @@ export class PaymentService {
       throw new ConflictException(msg.payment.alreadyPaid);
     }
 
-    const plan = await this.prisma.billingPlan.findUnique({
-      where: { id: dto.planId },
-    });
-    if (!plan || !plan.active) {
-      throw new BadRequestException(msg.payment.invalidPlan);
-    }
-    if (plan.maxRooms && dto.rooms > plan.maxRooms) {
-      throw new BadRequestException(msg.billing.roomCountExceedsPlan);
-    }
-
-    const callerUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      select: { subscriptionPriceOverride: true },
-    });
-    const expectedTotal = this.computeExpectedTotal(
-      plan,
-      dto.cycle,
-      dto.rooms,
-      callerUser?.subscriptionPriceOverride,
-    );
-    const tolerance = expectedTotal * 0.01;
-    if (Math.abs(dto.totalAmount - expectedTotal) > tolerance) {
+    const breakdown = computeFullCycleTotal(plan, cycle, dto.rooms, priceOverride);
+    const tolerance = breakdown.total * 0.01;
+    if (Math.abs(dto.totalAmount - breakdown.total) > tolerance) {
       throw new BadRequestException(msg.payment.amountMismatch);
     }
 
-    // Expire old pending sessions on this submission
     await this.prisma.paymentSession.updateMany({
       where: { submissionId: submission.id, status: PAYMENT_STATUS.PENDING },
       data: { status: PAYMENT_STATUS.EXPIRED },
@@ -242,7 +488,7 @@ export class PaymentService {
     const artefacts = this.buildSessionArtefacts(
       sessionId,
       dto.method,
-      dto.totalAmount,
+      breakdown.total,
       orderInfo,
       ipAddr,
     );
@@ -257,13 +503,14 @@ export class PaymentService {
         planLabel,
         cycle: dto.cycle,
         rooms: dto.rooms,
-        totalAmount: dto.totalAmount,
+        totalAmount: breakdown.total,
         method: dto.method,
         qrCode: artefacts.qrCode,
         bankInfo: artefacts.bankInfo,
         redirectUrl: artefacts.redirectUrl,
         payUrl: artefacts.payUrl,
         expiresAt: artefacts.expiresAt,
+        breakdown: this.serializeBreakdown(breakdown),
       },
     });
 
@@ -277,7 +524,106 @@ export class PaymentService {
 
     return {
       message: msg.payment.initiateSuccess,
-      data: this.toSessionResponse(session),
+      data: {
+        ...this.toSessionResponse(session),
+        kind: PAYMENT_KIND.SUBSCRIPTION,
+        planId: dto.planId,
+        cycle: dto.cycle,
+        breakdown: this.serializeBreakdown(breakdown),
+      },
+    };
+  }
+
+  /** Shared helper to create a renew/upgrade payment session and return FE shape. */
+  private async createBillingSession(opts: {
+    user: { id: string };
+    plan: { id: string; name: string };
+    cycle: Cycle;
+    rooms: number;
+    method: string;
+    ipAddr: string;
+    kind: string;
+    breakdown: PriceBreakdown;
+    clientAmount?: number;
+    orderVerb: string;
+    successMsg: string;
+    msg: Messages;
+  }) {
+    const {
+      user, plan, cycle, rooms, method, ipAddr, kind, breakdown,
+      clientAmount, orderVerb, successMsg, msg,
+    } = opts;
+
+    // Validate amount if FE provided one (legacy contract).
+    if (clientAmount !== undefined && clientAmount !== null) {
+      const tolerance = Math.max(breakdown.total * 0.01, 1);
+      if (Math.abs(clientAmount - breakdown.total) > tolerance) {
+        throw new BadRequestException(msg.payment.amountMismatch);
+      }
+    }
+
+    // Expire previous pending sessions of same kind for this user
+    await this.prisma.paymentSession.updateMany({
+      where: {
+        userId: user.id,
+        kind,
+        status: PAYMENT_STATUS.PENDING,
+      },
+      data: { status: PAYMENT_STATUS.EXPIRED },
+    });
+
+    const planLabel = this.formatPlanLabel(plan.name, cycle);
+    const sessionId = crypto.randomUUID();
+    const orderInfo = `${orderVerb} ${plan.name} ${cycle === 'yearly' ? 'nam' : 'thang'}`;
+    const artefacts = this.buildSessionArtefacts(
+      sessionId,
+      method,
+      breakdown.total,
+      orderInfo,
+      ipAddr,
+    );
+
+    const session = await this.prisma.paymentSession.create({
+      data: {
+        id: sessionId,
+        userId: user.id,
+        submissionId: null,
+        kind,
+        planId: plan.id,
+        planLabel,
+        cycle,
+        rooms,
+        totalAmount: breakdown.total,
+        method,
+        qrCode: artefacts.qrCode,
+        bankInfo: artefacts.bankInfo,
+        redirectUrl: artefacts.redirectUrl,
+        payUrl: artefacts.payUrl,
+        expiresAt: artefacts.expiresAt,
+        breakdown: this.serializeBreakdown(breakdown),
+      },
+    });
+
+    return {
+      message: successMsg,
+      data: {
+        ...this.toSessionResponse(session),
+        kind,
+        planId: plan.id,
+        cycle,
+        breakdown: this.serializeBreakdown(breakdown),
+      },
+    };
+  }
+
+  private serializeBreakdown(b: PriceBreakdown): Record<string, any> {
+    return {
+      listPrice: b.listPrice,
+      creditApplied: b.creditApplied,
+      vat: b.vat,
+      remainingDays: b.remainingDays ?? null,
+      totalDays: b.totalDays ?? null,
+      periodExtension: b.periodExtension ?? null,
     };
   }
 
@@ -288,74 +634,52 @@ export class PaymentService {
     ipAddr: string,
     msg: Messages,
   ) {
+    const callerUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { subscriptionStatus: true, subscriptionPriceOverride: true },
+    });
+    if (callerUser?.subscriptionStatus === SUBSCRIPTION_STATUS.FROZEN) {
+      throw new ConflictException(msg.payment.subscriptionFrozen);
+    }
+
     const sub = await this.prisma.subscription.findFirst({
       where: {
         userId: user.id,
-        status: { in: [SUBSCRIPTION_STATUS.ACTIVE, SUBSCRIPTION_STATUS.PAST_DUE] },
+        status: {
+          in: [
+            SUBSCRIPTION_STATUS.ACTIVE,
+            SUBSCRIPTION_STATUS.PAST_DUE,
+            SUBSCRIPTION_STATUS.TRIAL,
+          ],
+        },
       },
       orderBy: { endsAt: 'desc' },
       include: { plan: true },
     });
     if (!sub || !sub.plan) {
-      throw new BadRequestException(msg.payment.noActiveSubscription);
+      throw new ConflictException(msg.payment.noActiveSubscription);
     }
 
-    const callerUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      select: { subscriptionPriceOverride: true },
-    });
-    const totalAmount = this.computeExpectedTotal(
+    const breakdown = computeFullCycleTotal(
       sub.plan,
-      sub.cycle,
+      sub.cycle as Cycle,
       sub.rooms,
       callerUser?.subscriptionPriceOverride,
     );
 
-    // Expire the user's existing pending renew sessions
-    await this.prisma.paymentSession.updateMany({
-      where: {
-        userId: user.id,
-        kind: PAYMENT_KIND.RENEW,
-        status: PAYMENT_STATUS.PENDING,
-      },
-      data: { status: PAYMENT_STATUS.EXPIRED },
-    });
-
-    const planLabel = this.formatPlanLabel(sub.plan.name, sub.cycle);
-    const sessionId = crypto.randomUUID();
-    const orderInfo = `Gia han ${sub.plan.name} ${sub.cycle === 'yearly' ? 'nam' : 'thang'}`;
-    const artefacts = this.buildSessionArtefacts(
-      sessionId,
+    return this.createBillingSession({
+      user,
+      plan: sub.plan,
+      cycle: sub.cycle as Cycle,
+      rooms: sub.rooms,
       method,
-      totalAmount,
-      orderInfo,
       ipAddr,
-    );
-
-    const session = await this.prisma.paymentSession.create({
-      data: {
-        id: sessionId,
-        userId: user.id,
-        submissionId: null,
-        kind: PAYMENT_KIND.RENEW,
-        planId: sub.planId,
-        planLabel,
-        cycle: sub.cycle,
-        rooms: sub.rooms,
-        totalAmount,
-        method,
-        qrCode: artefacts.qrCode,
-        bankInfo: artefacts.bankInfo,
-        redirectUrl: artefacts.redirectUrl,
-        payUrl: artefacts.payUrl,
-        expiresAt: artefacts.expiresAt,
-      },
+      kind: PAYMENT_KIND.RENEW,
+      breakdown,
+      orderVerb: 'Gia han',
+      successMsg: msg.payment.renewSuccess,
+      msg,
     });
-
-    return {
-      message: msg.payment.renewSuccess,
-      data: this.toSessionResponse(session),
-    };
   }
 
   // ─── Get session status (poll) ───────────────────────────────────────────
@@ -730,10 +1054,36 @@ export class PaymentService {
         'payment',
         { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
       ).catch(() => undefined);
+    } else if (session.kind === PAYMENT_KIND.UPGRADE) {
+      await this.applyUpgrade(session);
+      void this.notifications.notifyUser(
+        session.userId,
+        'Nâng cấp thành công',
+        `${session.planLabel ?? 'Gói'} đã được nâng cấp`,
+        NOTIFICATION_TYPE.PAYMENT,
+        session.id,
+        'payment',
+        { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
+      ).catch(() => undefined);
     }
+
+    void this.auditLog.log({
+      actorId: session.userId,
+      actorRole: 1, // OWNER
+      action: 'payment.session_mark_paid',
+      targetType: 'subscription',
+      targetId: session.userId,
+      targetLabel: `Session ${session.id}`,
+      metadata: {
+        kind: session.kind,
+        amount: session.totalAmount,
+        planId: session.planId,
+        cycle: session.cycle,
+      },
+    }).catch(() => undefined);
   }
 
-  /** Extend the user's subscription endsAt by one cycle (from current endsAt or now). */
+  /** Extend the user's subscription endsAt by one cycle from max(now, currentPeriodEnd). */
   private async extendSubscription(session: {
     userId: string;
     planId: string;
@@ -743,29 +1093,86 @@ export class PaymentService {
     const sub = await this.prisma.subscription.findFirst({
       where: {
         userId: session.userId,
-        status: { in: [SUBSCRIPTION_STATUS.ACTIVE, SUBSCRIPTION_STATUS.PAST_DUE] },
+        status: {
+          in: [
+            SUBSCRIPTION_STATUS.ACTIVE,
+            SUBSCRIPTION_STATUS.PAST_DUE,
+            SUBSCRIPTION_STATUS.TRIAL,
+          ],
+        },
       },
       orderBy: { endsAt: 'desc' },
     });
     if (!sub) return;
 
-    const base = sub.endsAt > new Date() ? sub.endsAt : new Date();
-    const next = new Date(base);
-    if (session.cycle === 'yearly') {
-      next.setFullYear(next.getFullYear() + 1);
-    } else {
-      next.setMonth(next.getMonth() + 1);
-    }
+    const now = new Date();
+    const baseDate = pickBaseDate(sub.endsAt, now);
+    const nextEnd = extendPeriod(baseDate, session.cycle as Cycle);
+    const wasFuture = sub.endsAt.getTime() > now.getTime();
 
     await this.prisma.subscription.update({
       where: { id: sub.id },
-      data: { endsAt: next, status: SUBSCRIPTION_STATUS.ACTIVE },
+      data: {
+        endsAt: nextEnd,
+        status: SUBSCRIPTION_STATUS.ACTIVE,
+        cycle: session.cycle,
+        rooms: session.rooms,
+      },
     });
     await this.prisma.user.update({
       where: { id: session.userId },
       data: {
         subscriptionStatus: SUBSCRIPTION_STATUS.ACTIVE,
-        nextChargeAt: next,
+        subscriptionPlanId: session.planId,
+        subscriptionCycle: session.cycle,
+        nextChargeAt: nextEnd,
+        currentPeriodEnd: nextEnd,
+        ...(wasFuture
+          ? {}
+          : { currentPeriodStart: now, trialEndsAt: null }),
+      },
+    });
+  }
+
+  /**
+   * Apply upgrade: keep currentPeriodEnd, switch plan/cycle/rooms immediately.
+   */
+  private async applyUpgrade(session: {
+    userId: string;
+    planId: string;
+    cycle: string;
+    rooms: number;
+  }): Promise<void> {
+    const sub = await this.prisma.subscription.findFirst({
+      where: {
+        userId: session.userId,
+        status: {
+          in: [
+            SUBSCRIPTION_STATUS.ACTIVE,
+            SUBSCRIPTION_STATUS.PAST_DUE,
+            SUBSCRIPTION_STATUS.TRIAL,
+          ],
+        },
+      },
+      orderBy: { endsAt: 'desc' },
+    });
+    if (!sub) return;
+
+    await this.prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        planId: session.planId,
+        rooms: session.rooms,
+        // Cycle change deferred to next period
+        // endsAt unchanged → keep currentPeriodEnd
+        status: SUBSCRIPTION_STATUS.ACTIVE,
+      },
+    });
+    await this.prisma.user.update({
+      where: { id: session.userId },
+      data: {
+        subscriptionStatus: SUBSCRIPTION_STATUS.ACTIVE,
+        subscriptionPlanId: session.planId,
       },
     });
   }

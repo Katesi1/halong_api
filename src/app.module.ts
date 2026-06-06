@@ -34,6 +34,11 @@ import { LeadsModule } from './modules/leads/leads.module';
 import { AdminEmailsModule } from './modules/admin-emails/admin-emails.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
+import { DataExportsModule } from './modules/data-exports/data-exports.module';
+import { ConsentsModule } from './modules/consents/consents.module';
+import { NotificationPreferencesModule } from './modules/notification-preferences/notification-preferences.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -75,6 +80,11 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     AdminEmailsModule,
     ChatModule,
     UploadsModule,
+    SupportTicketsModule,
+    FeedbackModule,
+    DataExportsModule,
+    ConsentsModule,
+    NotificationPreferencesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

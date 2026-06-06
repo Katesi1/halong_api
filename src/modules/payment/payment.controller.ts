@@ -20,6 +20,7 @@ import type { Request } from 'express';
 import { PaymentService } from './payment.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { RenewPaymentDto } from './dto/renew-payment.dto';
+import { QuotePaymentDto } from './dto/quote-payment.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -57,6 +58,19 @@ export class PaymentController {
     @Lang() msg: Messages,
   ) {
     return this.paymentService.initiate(user, dto, getClientIp(req), msg);
+  }
+
+  @Post('quote')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({
+    summary: 'Quote payment for plan + cycle (returns kind + breakdown without creating a session)',
+  })
+  quote(
+    @CurrentUser() user: any,
+    @Body() dto: QuotePaymentDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.paymentService.quote(user, dto, msg);
   }
 
   @Post('renew')

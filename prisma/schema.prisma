@@ -8,62 +8,75 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  name          String
-  phone         String?   @unique
-  email         String    @unique
-  password      String?   // null nếu user chỉ login Google
-  role          Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
-  ownerId       String?   // SALE → trỏ về User có role OWNER (chủ của mình)
-  gender        Int?      // 0=MALE, 1=FEMALE, 2=OTHER
-  dateOfBirth   DateTime?
-  isActive      Boolean   @default(true)
-  refreshToken  String?
-  googleSub     String?   @unique // Google's sub claim — stable user ID
-  appleSub      String?   @unique // Apple's sub claim — stable user ID
-  emailVerified Boolean   @default(false)
-  avatar        String?   // URL ảnh đại diện (từ Google picture hoặc upload)
+  id               String    @id @default(uuid())
+  name             String
+  phone            String?   @unique
+  email            String    @unique
+  password         String? // null nếu user chỉ login Google
+  role             Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
+  ownerId          String? // SALE → trỏ về User có role OWNER (chủ của mình)
+  gender           Int? // 0=MALE, 1=FEMALE, 2=OTHER
+  dateOfBirth      DateTime?
+  isActive         Boolean   @default(true)
+  refreshToken     String?
+  googleSub        String?   @unique // Google's sub claim — stable user ID
+  appleSub         String?   @unique // Apple's sub claim — stable user ID
+  emailVerified    Boolean   @default(false)
+  avatar           String? // URL ảnh đại diện (từ Google picture hoặc upload)
   registerDeviceId String? // Device ID lúc tạo account — chống spam register
   registerIp       String? // IP lúc tạo account — chống spam register
 
   // Admin moderation
-  bannedAt         DateTime?
-  bannedReason     String?
-  bannedBy         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  bannedAt     DateTime?
+  bannedReason String?
+  bannedBy     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
   // KYC & Subscription
-  kycBypass          Boolean  @default(false)  // ADMIN grant: skip KYC to manage properties
-  kycStatus          String   @default("none") // none | pending | approved | rejected
-  kycSubmissionId    String?
-  subscriptionStatus   String   @default("none") // none | trial | active | past_due | cancelled | expired | frozen
-  subscriptionPlanId   String?
-  subscriptionCycle    String?  // monthly | yearly
-  subscriptionProvider String?  // apple_iap | vnpay | manual_bank | manual | null
-  subscriptionPriceOverride Int?     // VND custom price per cycle set by admin (null = use plan default)
+  kycBypass                 Boolean   @default(false) // ADMIN grant: skip KYC to manage properties
+  kycStatus                 String    @default("none") // none | pending | approved | rejected
+  kycSubmissionId           String?
+  subscriptionStatus        String    @default("none") // none | trial | active | past_due | cancelled | expired | frozen
+  subscriptionPlanId        String?
+  subscriptionCycle         String? // monthly | yearly
+  subscriptionProvider      String? // apple_iap | vnpay | manual_bank | manual | null
+  subscriptionPriceOverride Int? // VND custom price per cycle set by admin (null = use plan default)
   subscriptionFrozenAt      DateTime?
   subscriptionFrozenReason  String?
-  trialEndsAt          DateTime?
-  nextChargeAt         DateTime?
+  trialEndsAt               DateTime?
+  nextChargeAt              DateTime?
+  currentPeriodStart        DateTime?
+  currentPeriodEnd          DateTime?
+  // Deferred downgrade — apply pending plan when current period ends
+  pendingPlanId             String?
+  pendingCycle              String?
+  pendingEffectiveAt        DateTime?
 
-  owner            User?    @relation("OwnerStaff", fields: [ownerId], references: [id])
-  staffMembers     User[]   @relation("OwnerStaff")
-  properties       Property[]
-  notifications    Notification[]
-  saleBookings     Booking[]  @relation("SaleBookings")
-  customerBookings Booking[]  @relation("CustomerBookings")
-  kycSubmissions   KycSubmission[]
-  approvedSubmissions KycSubmission[] @relation("ApprovedBy")
-  reviews          PropertyReview[]
+  owner               User?            @relation("OwnerStaff", fields: [ownerId], references: [id])
+  staffMembers        User[]           @relation("OwnerStaff")
+  properties          Property[]
+  notifications       Notification[]
+  saleBookings        Booking[]        @relation("SaleBookings")
+  customerBookings    Booking[]        @relation("CustomerBookings")
+  kycSubmissions      KycSubmission[]
+  approvedSubmissions KycSubmission[]  @relation("ApprovedBy")
+  reviews             PropertyReview[]
 
-  permissions      UserPermission[]
-  subscriptions    Subscription[]
-  paymentSessions  PaymentSession[]
-  sentInvites      StaffInvite[]   @relation("InviteOwner")
-  acceptedInvite   StaffInvite?    @relation("InviteAcceptedUser")
-  devices          UserDevice[]
+  permissions     UserPermission[]
+  subscriptions   Subscription[]
+  paymentSessions PaymentSession[]
+  sentInvites     StaffInvite[]    @relation("InviteOwner")
+  acceptedInvite  StaffInvite?     @relation("InviteAcceptedUser")
+  devices         UserDevice[]
+
+  supportTickets         SupportTicket[]
+  supportTicketMessages  SupportTicketMessage[]
+  feedbacks              Feedback[]
+  dataExportRequests     DataExportRequest[]
+  consent                UserConsent?
+  notificationPreference NotificationPreference?
 
   @@map("users")
 }
@@ -72,11 +85,11 @@ model UserDevice {
   id           String   @id @default(uuid())
   userId       String
   fcmToken     String   @unique // FCM registration token
-  platform     String   // ios | android
-  deviceModel  String?  // iPhone 13, Galaxy S21, ...
-  osVersion    String?  // 17.4
-  appVersion   String?  // 1.0.2
-  locale       String?  // vi | en
+  platform     String // ios | android
+  deviceModel  String? // iPhone 13, Galaxy S21, ...
+  osVersion    String? // 17.4
+  appVersion   String? // 1.0.2
+  locale       String? // vi | en
   lastActiveAt DateTime @default(now())
   createdAt    DateTime @default(now())
 
@@ -87,17 +100,17 @@ model UserDevice {
 }
 
 model StaffInvite {
-  id              String    @id @default(uuid())
-  ownerId         String
-  email           String
-  token           String    @unique // 64 hex chars (32 bytes random)
-  shortCode       String    @unique // "HL-XXXXXX" — dùng cho UX nhập tay
-  status          String    @default("pending") // pending | accepted | expired | cancelled
-  expiresAt       DateTime
-  acceptedAt      DateTime?
-  acceptedUserId  String?   @unique
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  ownerId        String
+  email          String
+  token          String    @unique // 64 hex chars (32 bytes random)
+  shortCode      String    @unique // "HL-XXXXXX" — dùng cho UX nhập tay
+  status         String    @default("pending") // pending | accepted | expired | cancelled
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  acceptedUserId String?   @unique
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   owner        User  @relation("InviteOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   acceptedUser User? @relation("InviteAcceptedUser", fields: [acceptedUserId], references: [id])
@@ -110,7 +123,7 @@ model StaffInvite {
 model UserPermission {
   id        String  @id @default(uuid())
   userId    String
-  module    String  // properties | bookings | calendar | reviews
+  module    String // properties | bookings | calendar | reviews
   canCreate Boolean @default(false)
   canRead   Boolean @default(true)
   canUpdate Boolean @default(false)
@@ -124,38 +137,38 @@ model UserPermission {
 }
 
 model Property {
-  id                 String   @id @default(uuid())
-  ownerId            String
-  name               String
-  type               Int      @default(1) // 0=VILLA, 1=HOMESTAY, 2=HOTEL
-  code               String   @unique
-  isActive           Boolean  @default(true)
-  moderationStatus   String   @default("approved") // pending | approved | rejected
+  id                       String    @id @default(uuid())
+  ownerId                  String
+  name                     String
+  type                     Int       @default(1) // 0=VILLA, 1=HOMESTAY, 2=HOTEL
+  code                     String    @unique
+  isActive                 Boolean   @default(true)
+  moderationStatus         String    @default("approved") // pending | approved | rejected
   moderationRejectedReason String?
   moderationReviewedAt     DateTime?
   moderationReviewedBy     String?
 
   // View
-  view               String?  // "sea", "city", null
+  view String? // "sea", "city", null
 
   // Location
-  address            String?
-  latitude           Float?
-  longitude          Float?
-  mapLink            String?
+  address   String?
+  latitude  Float?
+  longitude Float?
+  mapLink   String?
 
   // Specs
-  bedrooms           Int      @default(1)
-  bathrooms          Int      @default(1)
-  standardGuests     Int      @default(2)
-  maxGuests          Int      @default(2)
+  bedrooms       Int @default(1)
+  bathrooms      Int @default(1)
+  standardGuests Int @default(2)
+  maxGuests      Int @default(2)
 
   // Pricing
-  weekdayPrice       Float?
-  weekendPrice       Float?
-  holidayPrice       Float?
-  adultSurcharge     Float?
-  childSurcharge     Float?
+  weekdayPrice   Float?
+  weekendPrice   Float?
+  holidayPrice   Float?
+  adultSurcharge Float?
+  childSurcharge Float?
 
   // Content
   amenities          String[] @default([])
@@ -165,14 +178,14 @@ model Property {
   description        String?
 
   // Check in/out
-  checkInTime        String?  @default("14:00")
-  checkOutTime       String?  @default("12:00")
+  checkInTime  String? @default("14:00")
+  checkOutTime String? @default("12:00")
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  deletedAt          DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
-  owner         User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner         User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   images        PropertyImage[]
   bookings      Booking[]
   calendarLocks CalendarLock[]
@@ -196,24 +209,24 @@ model PropertyImage {
 }
 
 model Booking {
-  id             String    @id @default(uuid())
-  propertyId     String
-  saleId         String?
-  customerId     String?
-  customerName   String?
-  customerPhone  String?
-  checkinDate    DateTime
-  checkoutDate   DateTime
-  status         Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED
-  holdExpireAt   DateTime?
-  depositAmount  Int?      // VND — luôn dùng Int, tránh sai số float64
-  totalAmount    Int?      // VND — tổng giá trị booking (lưu lại khi tạo để tránh re-compute)
-  paidAmount     Int?      // VND — số tiền thực thu (cập nhật qua mark-paid)
-  paidAt         DateTime?
-  guestCount     Int       @default(2)
-  notes          String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id            String    @id @default(uuid())
+  propertyId    String
+  saleId        String?
+  customerId    String?
+  customerName  String?
+  customerPhone String?
+  checkinDate   DateTime
+  checkoutDate  DateTime
+  status        Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED
+  holdExpireAt  DateTime?
+  depositAmount Int? // VND — luôn dùng Int, tránh sai số float64
+  totalAmount   Int? // VND — tổng giá trị booking (lưu lại khi tạo để tránh re-compute)
+  paidAmount    Int? // VND — số tiền thực thu (cập nhật qua mark-paid)
+  paidAt        DateTime?
+  guestCount    Int       @default(2)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   property Property        @relation(fields: [propertyId], references: [id])
   sale     User?           @relation("SaleBookings", fields: [saleId], references: [id])
@@ -238,10 +251,10 @@ model CalendarLock {
 model AppVersion {
   id                  String   @id @default(uuid())
   platform            String   @unique // ios | android
-  latestVersion       String   // e.g. "1.2.0"
-  minSupportedVersion String   // e.g. "1.0.0"
+  latestVersion       String // e.g. "1.2.0"
+  minSupportedVersion String // e.g. "1.0.0"
   releaseNotes        String?
-  storeUrl            String   // App Store / Play Store URL
+  storeUrl            String // App Store / Play Store URL
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -280,10 +293,10 @@ model Notification {
 // ─── Reviews ─────────────────────────────────────────────────────────────────
 
 model PropertyReview {
-  id          String    @id @default(uuid())
-  propertyId  String
-  bookingId   String    @unique
-  customerId  String
+  id         String @id @default(uuid())
+  propertyId String
+  bookingId  String @unique
+  customerId String
 
   // 6 score (1-5)
   cleanliness Int
@@ -294,17 +307,17 @@ model PropertyReview {
   accuracy    Int
 
   // Avg pre-computed = (c+l+a+s+v+ac) / 6.0
-  avgRating   Float
+  avgRating Float
 
-  comment     String?
-  photos      Json?     // ["url1", "url2", ...]
+  comment String?
+  photos  Json? // ["url1", "url2", ...]
 
   // Owner reply
   ownerReply   String?
   ownerReplyAt DateTime?
 
   // Admin moderation
-  isHidden     Boolean  @default(false)
+  isHidden     Boolean @default(false)
   hiddenReason String?
 
   createdAt DateTime @default(now())
@@ -335,8 +348,8 @@ model KycSubmission {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  approvedBy User?         @relation("ApprovedBy", fields: [approvedById], references: [id])
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy User?            @relation("ApprovedBy", fields: [approvedById], references: [id])
   uploads    KycUpload[]
   payments   PaymentSession[]
 
@@ -346,19 +359,19 @@ model KycSubmission {
 }
 
 model KycUpload {
-  id               String   @id @default(uuid())
-  submissionId     String
-  type             String   // cccd_front | cccd_back | selfie
-  imageUrl         String
-  imageUrlThumb    String?
-  publicId         String?
-  ocrResult        Json?
-  ocrConfidence    Float?
-  faceMatchScore   Float?
-  livenessScore    Float?
-  provider         String?  // fpt_ai | vnpt_ekyc | manual
+  id                String   @id @default(uuid())
+  submissionId      String
+  type              String // cccd_front | cccd_back | selfie
+  imageUrl          String
+  imageUrlThumb     String?
+  publicId          String?
+  ocrResult         Json?
+  ocrConfidence     Float?
+  faceMatchScore    Float?
+  livenessScore     Float?
+  provider          String? // fpt_ai | vnpt_ekyc | manual
   providerRequestId String?
-  uploadedAt       DateTime @default(now())
+  uploadedAt        DateTime @default(now())
 
   submission KycSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
 
@@ -372,10 +385,10 @@ model KycUpload {
 model BillingPlan {
   id                String   @id // rooms_1 | rooms_5 | rooms_10 | rooms_20 | rooms_50 | enterprise
   name              String
-  pricePerRoom      Int      // VND/month (deprecated, dùng minCharge làm monthlyPrice)
-  minCharge         Int      // VND/month — đây là giá Monthly hiển thị
-  yearlyPrice       Int?     // VND/year — explicit, khớp Apple StoreKit
-  maxRooms          Int?     // null hoặc -1 = unlimited
+  pricePerRoom      Int // VND/month (deprecated, dùng minCharge làm monthlyPrice)
+  minCharge         Int // VND/month — đây là giá Monthly hiển thị
+  yearlyPrice       Int? // VND/year — explicit, khớp Apple StoreKit
+  maxRooms          Int? // null hoặc -1 = unlimited
   yearlyDiscountPct Float    @default(20)
   vatPct            Float    @default(10)
   features          String[] @default([])
@@ -391,24 +404,24 @@ model BillingPlan {
 // ─── Subscription ─────────────────────────────────────────────────────────────
 
 model Subscription {
-  id        String    @id @default(uuid())
-  userId    String
-  planId    String
-  cycle     String    // monthly | yearly
-  rooms     Int       @default(1)
-  status    String    @default("trial") // trial | active | past_due | cancelled | frozen
-  startsAt  DateTime  @default(now())
-  endsAt    DateTime
-  cancelledAt DateTime?
+  id           String    @id @default(uuid())
+  userId       String
+  planId       String
+  cycle        String // monthly | yearly
+  rooms        Int       @default(1)
+  status       String    @default("trial") // trial | active | past_due | cancelled | frozen
+  startsAt     DateTime  @default(now())
+  endsAt       DateTime
+  cancelledAt  DateTime?
   // Admin-side fields for manual / overridden billing
-  customPrice Int?    // VND snapshot of price for THIS period (null = computed from plan)
-  paidAmount  Int?    // VND actually received (manual mark-paid records this)
-  provider    String? // vnpay | apple_iap | manual_bank | manual
-  note        String? // admin note for manual ops
-  frozenAt    DateTime?
+  customPrice  Int? // VND snapshot of price for THIS period (null = computed from plan)
+  paidAmount   Int? // VND actually received (manual mark-paid records this)
+  provider     String? // vnpay | apple_iap | manual_bank | manual
+  note         String? // admin note for manual ops
+  frozenAt     DateTime?
   frozenReason String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan BillingPlan @relation(fields: [planId], references: [id])
@@ -423,29 +436,30 @@ model Subscription {
 model PaymentSession {
   id              String    @id @default(uuid())
   userId          String
-  submissionId    String?                       // null for renew/upgrade payments
+  submissionId    String? // null for renew/upgrade payments
   kind            String    @default("subscription") // subscription | renew | upgrade | refund
   planId          String
-  planLabel       String?                       // denormalized for history display
-  cycle           String    // monthly | yearly
+  planLabel       String? // denormalized for history display
+  cycle           String // monthly | yearly
   rooms           Int
-  totalAmount     Int       // VND, includes VAT
-  method          String    // vnpay_qr | bank_transfer | card
+  totalAmount     Int // VND, includes VAT
+  method          String // vnpay_qr | bank_transfer | card
   status          String    @default("pending") // pending | paid | failed | expired | refunded
-  qrCode          String?                       // EMV payload string
+  qrCode          String? // EMV payload string
   bankInfo        Json?
   redirectUrl     String?
-  payUrl          String?                       // VNPay gateway URL
-  provider        String?                       // vnpay | momo | manual_bank | casso | sepay
+  payUrl          String? // VNPay gateway URL
+  provider        String? // vnpay | momo | manual_bank | casso | sepay
   providerTxnId   String?
   providerPayload Json?
-  referenceCode   String?                       // bank tid / manual reference
-  invoiceNumber   String?   @unique             // INV-YYYY-NNNN
-  settledAt       DateTime?                     // alias for paidAt for clearer history field
+  referenceCode   String? // bank tid / manual reference
+  invoiceNumber   String?   @unique // INV-YYYY-NNNN
+  settledAt       DateTime? // alias for paidAt for clearer history field
   paidAt          DateTime?
   refundedAt      DateTime?
   refundedAmount  Int?
-  refundOfId      String?                       // links refund row → original payment row
+  refundOfId      String? // links refund row → original payment row
+  breakdown       Json? // { listPrice, creditApplied, vat, remainingDays, totalDays, periodExtension }
   expiresAt       DateTime
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -463,22 +477,22 @@ model PaymentSession {
 // ─── Uploads (generic file upload tracking) ──────────────────────────────────
 
 model UploadRecord {
-  id           String   @id @default(uuid())
-  userId       String   // ai upload
-  url          String   // CDN URL (https://res.cloudinary.com/.../...)
-  publicId     String   // Cloudinary public_id để destroy
-  resourceType String   // 'image' | 'raw' (PDF) | 'video' (defer v2)
-  mimeType     String   // image/jpeg, application/pdf, ...
-  originalName String   // tên gốc khách upload (sanitized)
+  id           String @id @default(uuid())
+  userId       String // ai upload
+  url          String // CDN URL (https://res.cloudinary.com/.../...)
+  publicId     String // Cloudinary public_id để destroy
+  resourceType String // 'image' | 'raw' (PDF) | 'video' (defer v2)
+  mimeType     String // image/jpeg, application/pdf, ...
+  originalName String // tên gốc khách upload (sanitized)
   sizeBytes    Int
-  folder       String   @default("chat/attachments")
+  folder       String @default("chat/attachments")
 
   // Link tracking: nếu file đã attach vào message thì lưu messageId.
   // Orphan = attachedAt=null sau 24h → cron xoá.
-  attachedAt   DateTime?
+  attachedAt        DateTime?
   attachedMessageId String?
 
-  createdAt    DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([attachedAt, createdAt]) // cho cron orphan cleanup
@@ -489,30 +503,30 @@ model UploadRecord {
 // ─── Disputes ─────────────────────────────────────────────────────────────────
 
 model Dispute {
-  id           String   @id @default(uuid())
-  bookingId    String
-  propertyId   String
-  ownerId      String
-  customerId   String?
+  id         String  @id @default(uuid())
+  bookingId  String
+  propertyId String
+  ownerId    String
+  customerId String?
   // Người mở dispute
-  openerType   String   // 'owner' | 'customer' | 'admin' | 'sale'
-  openerId     String
+  openerType String // 'owner' | 'customer' | 'admin' | 'sale'
+  openerId   String
 
-  type         String   // refund_request | service_quality | damage_claim | no_show | overbooking | other
-  subject      String
-  description  String   @db.Text
-  amount       Int?     // VND, optional — số tiền tranh chấp
+  type        String // refund_request | service_quality | damage_claim | no_show | overbooking | other
+  subject     String
+  description String @db.Text
+  amount      Int? // VND, optional — số tiền tranh chấp
 
-  status       String   @default("pending") // pending | investigating | resolved | rejected
-  resolution   String?  @db.Text
-  refundAmount Int?     // VND — số tiền đồng ý hoàn (resolved only)
+  status       String  @default("pending") // pending | investigating | resolved | rejected
+  resolution   String? @db.Text
+  refundAmount Int? // VND — số tiền đồng ý hoàn (resolved only)
 
   resolvedById String?
   resolvedAt   DateTime?
 
-  attachments  Json?    // ["url1", "url2"]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  attachments Json? // ["url1", "url2"]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([status, createdAt(sort: Desc)])
   @@index([ownerId])
@@ -524,25 +538,25 @@ model Dispute {
 // ─── Chat / Messaging ─────────────────────────────────────────────────────────
 
 model Conversation {
-  id                 String   @id @default(uuid())
+  id         String  @id @default(uuid())
   // 'booking' (owner ↔ customer về 1 booking) | 'support' (user ↔ admin) | 'staff' (owner ↔ sale)
-  type               String   @default("booking")
-  bookingId          String?
-  propertyId         String?  // denormalized for filter
-  subject            String?
+  type       String  @default("booking")
+  bookingId  String?
+  propertyId String? // denormalized for filter
+  subject    String?
 
   // Denormalized for inbox listing — tránh JOIN messages khi list
   lastMessageAt      DateTime?
-  lastMessagePreview String?  // first ~120 chars
+  lastMessagePreview String? // first ~120 chars
   lastSenderId       String?
 
-  archivedAt         DateTime?
-  hasDispute         Boolean  @default(false) // set khi có Dispute liên kết → bypass retention
+  archivedAt DateTime?
+  hasDispute Boolean   @default(false) // set khi có Dispute liên kết → bypass retention
 
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  members ConversationMember[]
+  members  ConversationMember[]
   messages Message[]
 
   // NOTE: Race condition khi 2 user mở chat cùng booking đồng thời được handle
@@ -558,7 +572,7 @@ model ConversationMember {
   id             String    @id @default(uuid())
   conversationId String
   userId         String
-  role           String    // 'owner' | 'sale' | 'customer' | 'admin'
+  role           String // 'owner' | 'sale' | 'customer' | 'admin'
   lastReadAt     DateTime?
   unreadCount    Int       @default(0)
   mutedUntil     DateTime?
@@ -577,7 +591,7 @@ model Message {
   conversationId String
   senderId       String
   content        String    @db.Text
-  attachments    Json?     // [{ url, type, name, size }] tối đa 5
+  attachments    Json? // [{ url, type, name, size }] tối đa 5
   isSystem       Boolean   @default(false)
   editedAt       DateTime?
   deletedAt      DateTime?
@@ -593,24 +607,24 @@ model Message {
 // ─── Leads ────────────────────────────────────────────────────────────────────
 
 model Lead {
-  id           String   @id @default(uuid())
-  propertyId   String?  // null nếu lead chung (chưa chọn cơ sở)
-  ownerId      String?  // resolve từ property hoặc do admin assign
-  guestName    String
-  guestPhone   String
-  guestEmail   String?
-  checkIn      DateTime?
-  checkOut     DateTime?
-  numGuests    Int?
-  message      String?  @db.Text
-  source       String?  // 'public_form' | 'landing_page' | 'partner' | ...
-  status       String   @default("new") // new | contacted | rejected | expired | converted
-  assignedToId String?  // SALE đang xử lý
-  contactedAt  DateTime?
+  id            String    @id @default(uuid())
+  propertyId    String? // null nếu lead chung (chưa chọn cơ sở)
+  ownerId       String? // resolve từ property hoặc do admin assign
+  guestName     String
+  guestPhone    String
+  guestEmail    String?
+  checkIn       DateTime?
+  checkOut      DateTime?
+  numGuests     Int?
+  message       String?   @db.Text
+  source        String? // 'public_form' | 'landing_page' | 'partner' | ...
+  status        String    @default("new") // new | contacted | rejected | expired | converted
+  assignedToId  String? // SALE đang xử lý
+  contactedAt   DateTime?
   contactedById String?
-  notes        String?  @db.Text  // ghi chú nội bộ
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  notes         String?   @db.Text // ghi chú nội bộ
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([status, createdAt(sort: Desc)])
   @@index([ownerId])
@@ -623,12 +637,12 @@ model Lead {
 model AuditLog {
   id          String   @id @default(uuid())
   actorId     String
-  actorRole   Int      // 0=ADMIN 1=OWNER 2=SALE 3=CUSTOMER
-  action      String   // 'user.ban' | 'property.approve' | 'subscription.markPaid' | ...
-  targetType  String   // 'user' | 'property' | 'booking' | 'dispute' | 'subscription' | 'review' | 'kyc'
+  actorRole   Int // 0=ADMIN 1=OWNER 2=SALE 3=CUSTOMER
+  action      String // 'user.ban' | 'property.approve' | 'subscription.markPaid' | ...
+  targetType  String // 'user' | 'property' | 'booking' | 'dispute' | 'subscription' | 'review' | 'kyc'
   targetId    String?
-  targetLabel String?  // human-readable summary (name/email/code)
-  metadata    Json?    // arbitrary extra context
+  targetLabel String? // human-readable summary (name/email/code)
+  metadata    Json? // arbitrary extra context
   ipAddress   String?
   userAgent   String?
   createdAt   DateTime @default(now())
@@ -638,4 +652,110 @@ model AuditLog {
   @@index([action, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
   @@map("audit_logs")
+}
+
+// ─── Support Tickets ──────────────────────────────────────────────────────────
+
+model SupportTicket {
+  id          String   @id @default(uuid())
+  userId      String
+  code        String   @unique // HT-XXXXXX
+  subject     String
+  category    String // account | payment | technical | other
+  description String   @db.Text
+  status      String   @default("open") // open | in_progress | resolved | closed
+  attachments Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages SupportTicketMessage[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+model SupportTicketMessage {
+  id          String   @id @default(uuid())
+  ticketId    String
+  fromAdmin   Boolean  @default(false)
+  userId      String
+  message     String   @db.Text
+  attachments Json     @default("[]")
+  createdAt   DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [userId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+// ─── Feedback ─────────────────────────────────────────────────────────────────
+
+model Feedback {
+  id          String   @id @default(uuid())
+  userId      String?
+  category    String // bug | feature | support | other
+  message     String   @db.Text
+  contact     String?
+  deviceInfo  String?
+  attachments Json     @default("[]")
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("feedback")
+}
+
+// ─── Data Export (GDPR) ───────────────────────────────────────────────────────
+
+model DataExportRequest {
+  id          String    @id @default(uuid())
+  userId      String
+  status      String    @default("pending") // pending | processing | ready | expired
+  downloadUrl String?
+  expiresAt   DateTime?
+  requestedAt DateTime  @default(now())
+  completedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, requestedAt(sort: Desc)])
+  @@index([status])
+  @@map("data_export_requests")
+}
+
+// ─── User Consent ─────────────────────────────────────────────────────────────
+
+model UserConsent {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  kyc       Boolean  @default(true)
+  marketing Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_consents")
+}
+
+// ─── Notification Preferences ─────────────────────────────────────────────────
+
+model NotificationPreference {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  booking    Boolean  @default(true)
+  payment    Boolean  @default(true)
+  system     Boolean  @default(true)
+  quietHours Boolean  @default(false)
+  quietFrom  String   @default("22:00")
+  quietTo    String   @default("07:00")
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
 }

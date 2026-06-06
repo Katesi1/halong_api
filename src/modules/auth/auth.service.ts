@@ -466,6 +466,8 @@ export class AuthService {
         subscriptionCycle: true, subscriptionProvider: true, subscriptionPriceOverride: true,
         subscriptionFrozenAt: true, subscriptionFrozenReason: true,
         trialEndsAt: true, nextChargeAt: true,
+        currentPeriodStart: true, currentPeriodEnd: true,
+        pendingPlanId: true, pendingCycle: true, pendingEffectiveAt: true,
         permissions: {
           select: { module: true, canCreate: true, canRead: true, canUpdate: true, canDelete: true },
         },

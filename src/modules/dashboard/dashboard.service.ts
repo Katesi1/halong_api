@@ -139,6 +139,11 @@ export class DashboardService {
       };
     }
 
+    const validPeriods = ['today', 'week', 'month', 'year', 'custom'];
+    if (period && !validPeriods.includes(period)) {
+      throw new BadRequestException(msg.dashboard.invalidPeriod);
+    }
+
     switch (period) {
       case 'today': {
         const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -168,9 +173,17 @@ export class DashboardService {
         }
         const fromDate = new Date(from);
         const toDate = new Date(to);
+        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+          throw new BadRequestException(msg.dashboard.invalidDateRange);
+        }
         toDate.setDate(toDate.getDate() + 1); // inclusive end
         if (fromDate >= toDate) {
           throw new BadRequestException(msg.dashboard.invalidDateRange);
+        }
+        // `to` must not be in the future (compare end-of-today VN)
+        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        if (toDate > todayEnd) {
+          throw new BadRequestException(msg.dashboard.toInFuture);
         }
         return { from: fromDate, to: toDate };
       }

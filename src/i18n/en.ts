@@ -194,6 +194,8 @@ export const en = {
     reportsSuccess: 'Report data retrieved successfully',
     missingDateRange: 'Please provide from and to when using period=custom',
     invalidDateRange: 'from date must be before to date',
+    toInFuture: 'to date cannot be in the future',
+    invalidPeriod: 'Invalid period value (allowed: today | week | month | year | custom)',
   },
 
   // ─── Reviews ───────────────────────────────────────────────────────────────
@@ -269,6 +271,12 @@ export const en = {
     cancelSuccess: 'Payment session cancelled',
     cannotCancel: 'Session is not pending, cannot cancel',
     activeSuccess: 'Active payment session fetched successfully',
+    quoteSuccess: 'Payment quote generated successfully',
+    subscriptionFrozen: 'Your subscription is frozen. Please contact support.',
+    downgradeScheduled: 'Downgrade scheduled. The new plan will be active from the next billing cycle.',
+    cannotDowngradeInTrial: 'Cannot downgrade while in trial period',
+    planNotFound: 'Plan not found',
+    samePlanNoChange: 'You are already on this plan',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -452,6 +460,39 @@ export const en = {
     listSuccess: 'Email templates retrieved successfully',
     testSentSuccess: 'Test email sent',
     smtpDisabled: 'SMTP not configured — could not send email',
+  },
+
+  // ─── Support Tickets ───────────────────────────────────────────────────────
+  supportTickets: {
+    createSuccess: 'Support ticket created successfully',
+    listSuccess: 'Support tickets retrieved successfully',
+    getSuccess: 'Support ticket retrieved successfully',
+    replySuccess: 'Reply sent successfully',
+    notFound: 'Support ticket not found',
+    forbidden: 'You do not have permission to access this ticket',
+  },
+
+  // ─── Feedback ──────────────────────────────────────────────────────────────
+  feedback: {
+    createSuccess: 'Thank you — your feedback has been received',
+  },
+
+  // ─── Data Exports (GDPR) ───────────────────────────────────────────────────
+  dataExports: {
+    createSuccess: 'Data export request created',
+    listSuccess: 'Data export requests retrieved successfully',
+  },
+
+  // ─── Consents ──────────────────────────────────────────────────────────────
+  consents: {
+    getSuccess: 'Consents retrieved successfully',
+    updateSuccess: 'Consents updated successfully',
+  },
+
+  // ─── Notification Preferences ──────────────────────────────────────────────
+  notificationPreferences: {
+    getSuccess: 'Notification preferences retrieved successfully',
+    updateSuccess: 'Notification preferences updated successfully',
   },
 
 };
