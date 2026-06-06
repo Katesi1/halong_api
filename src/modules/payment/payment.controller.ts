@@ -87,6 +87,13 @@ export class PaymentController {
     );
   }
 
+  @Get('active')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({ summary: 'Get current pending payment session (for rehydration after UI reopen)' })
+  getActive(@CurrentUser() user: any, @Lang() msg: Messages) {
+    return this.paymentService.getActiveSession(user, msg);
+  }
+
   @Get(':sessionId/status')
   @Roles(ROLE.OWNER)
   @ApiOperation({ summary: 'Check payment status' })
@@ -96,6 +103,17 @@ export class PaymentController {
     @Lang() msg: Messages,
   ) {
     return this.paymentService.getStatus(user, sessionId, msg);
+  }
+
+  @Post(':sessionId/cancel')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({ summary: 'Cancel a pending payment session' })
+  cancel(
+    @CurrentUser() user: any,
+    @Param('sessionId') sessionId: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.paymentService.cancelSession(user, sessionId, msg);
   }
 
   @Post(':sessionId/refund')

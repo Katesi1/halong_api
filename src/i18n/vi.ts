@@ -266,6 +266,9 @@ export const vi = {
     adminListSuccess: 'Lấy danh sách phiên thanh toán thành công',
     adminMarkPaidSuccess: 'Đã xác nhận thanh toán cho phiên này',
     cannotMarkRefunded: 'Không thể xác nhận thanh toán cho phiên đã hoàn tiền',
+    cancelSuccess: 'Đã hủy phiên thanh toán',
+    cannotCancel: 'Phiên không ở trạng thái chờ, không thể hủy',
+    activeSuccess: 'Lấy phiên thanh toán hiện tại thành công',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────

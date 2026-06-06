@@ -73,9 +73,8 @@ describe('AuthService', () => {
 
       expect(result.data.accessToken).toBeDefined();
       expect(result.data.refreshToken).toBeDefined();
-      expect(result.data.user.id).toBe('user-1');
-      expect(result.data.user.email).toBe('test@example.com');
-      expect((result.data.user as any).password).toBeUndefined();
+      // BREAKING v1.7: auth response KHÔNG còn trả `user` object. FE phải gọi /auth/profile riêng.
+      expect((result.data as any).user).toBeUndefined();
     });
 
     it('should return tokens when login by phone (0xxxxxxxxx)', async () => {

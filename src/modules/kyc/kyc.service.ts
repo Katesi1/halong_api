@@ -415,7 +415,7 @@ export class KycService {
 
   /** Get current KYC status for the logged-in user */
   async getMyStatus(user: { id: string }, msg: Messages) {
-    const [submission, userRow] = await Promise.all([
+    const [submission, userRow, latestPayment] = await Promise.all([
       this.prisma.kycSubmission.findFirst({
         where: { userId: user.id },
         orderBy: { createdAt: 'desc' },
@@ -432,7 +432,39 @@ export class KycService {
           nextChargeAt: true,
         },
       }),
+      this.prisma.paymentSession.findFirst({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          totalAmount: true,
+          expiresAt: true,
+          createdAt: true,
+          planId: true,
+          planLabel: true,
+        },
+      }),
     ]);
+
+    const QR_EXPIRY_MS = 15 * 60_000;
+    const latestPaymentSummary = latestPayment
+      ? {
+          sessionId: latestPayment.id,
+          status: latestPayment.status,
+          totalAmount: latestPayment.totalAmount,
+          planId: latestPayment.planId,
+          planLabel: latestPayment.planLabel,
+          expiresAt: latestPayment.expiresAt,
+          qrExpiresAt: new Date(
+            Math.min(
+              latestPayment.expiresAt.getTime(),
+              latestPayment.createdAt.getTime() + QR_EXPIRY_MS,
+            ),
+          ),
+          createdAt: latestPayment.createdAt,
+        }
+      : null;
 
     const subscription = {
       subscriptionStatus: userRow?.subscriptionStatus ?? 'none',
@@ -449,6 +481,7 @@ export class KycService {
           status: 'draft',
           submissionId: null,
           uploads: {},
+          latestPayment: latestPaymentSummary,
           ...subscription,
         },
       };
@@ -464,6 +497,7 @@ export class KycService {
         approvedAt: submission.approvedAt,
         trialEndsAt: submission.trialEndsAt,
         uploads: this.formatUploadTypes(submission.uploads),
+        latestPayment: latestPaymentSummary,
         ...subscription,
       },
     };

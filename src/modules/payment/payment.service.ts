@@ -33,8 +33,9 @@ import {
 } from './helpers/bank-webhook.helper';
 import { generateInvoiceNumber } from './helpers/invoice.helper';
 
-// 24h — đủ thời gian cho admin manual đối soát (Sepay webhook chưa setup ở phase này).
-// Khi switch sang Sepay auto: có thể giảm lại 15-30 phút.
+// QR code chỉ hợp lệ 15 phút (FE hiển thị countdown bằng `qrExpiresAt`).
+// Session vẫn sống đến 24h để webhook/admin có thời gian đối soát sau khi user chuyển khoản.
+const QR_EXPIRY_MINUTES = 15;
 const SESSION_EXPIRY_MINUTES_BANK = 24 * 60;
 const BANK_AMOUNT_TOLERANCE_VND = 1000;
 
@@ -101,6 +102,7 @@ export class PaymentService {
     redirectUrl: string | null;
     payUrl: string | null;
     expiresAt: Date;
+    qrExpiresAt: Date;
   } {
     if (method !== PAYMENT_METHOD.BANK_TRANSFER) {
       throw new BadRequestException(`Phương thức thanh toán không được hỗ trợ: ${method}`);
@@ -123,12 +125,14 @@ export class PaymentService {
       vietQrPayload,
     };
 
+    const now = Date.now();
     return {
       qrCode: vietQrPayload,
       bankInfo,
       redirectUrl: null,
       payUrl: null,
-      expiresAt: new Date(Date.now() + SESSION_EXPIRY_MINUTES_BANK * 60_000),
+      expiresAt: new Date(now + SESSION_EXPIRY_MINUTES_BANK * 60_000),
+      qrExpiresAt: new Date(now + QR_EXPIRY_MINUTES * 60_000),
     };
   }
 
@@ -141,7 +145,16 @@ export class PaymentService {
     redirectUrl: string | null;
     payUrl: string | null;
     expiresAt: Date;
+    qrExpiresAt?: Date;
   }) {
+    const qrExpiresAt =
+      session.qrExpiresAt ??
+      new Date(
+        Math.min(
+          session.expiresAt.getTime(),
+          Date.now() + QR_EXPIRY_MINUTES * 60_000,
+        ),
+      );
     return {
       sessionId: session.id,
       method: session.method,
@@ -151,6 +164,8 @@ export class PaymentService {
       redirectUrl: session.redirectUrl,
       payUrl: session.payUrl,
       expiresAt: session.expiresAt,
+      qrExpiresAt,
+      reconcileWindowHours: SESSION_EXPIRY_MINUTES_BANK / 60,
     };
   }
 
@@ -355,6 +370,100 @@ export class PaymentService {
     return {
       message: msg.payment.statusSuccess,
       data: { status: session.status },
+    };
+  }
+
+  // ─── Get active (pending) session for current user ──────────────────────
+  async getActiveSession(user: { id: string }, msg: Messages) {
+    const session = await this.prisma.paymentSession.findFirst({
+      where: { userId: user.id, status: PAYMENT_STATUS.PENDING },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        totalAmount: true,
+        method: true,
+        qrCode: true,
+        bankInfo: true,
+        redirectUrl: true,
+        payUrl: true,
+        expiresAt: true,
+        createdAt: true,
+        planId: true,
+        planLabel: true,
+        cycle: true,
+        rooms: true,
+      },
+    });
+
+    if (!session) {
+      return { message: msg.payment.activeSuccess, data: null };
+    }
+
+    const qrExpiresAt = new Date(
+      Math.min(
+        session.expiresAt.getTime(),
+        session.createdAt.getTime() + QR_EXPIRY_MINUTES * 60_000,
+      ),
+    );
+    return {
+      message: msg.payment.activeSuccess,
+      data: {
+        sessionId: session.id,
+        status: session.status,
+        totalAmount: session.totalAmount,
+        method: session.method,
+        qrCode: session.qrCode,
+        bankInfo: session.bankInfo,
+        redirectUrl: session.redirectUrl,
+        payUrl: session.payUrl,
+        expiresAt: session.expiresAt,
+        qrExpiresAt,
+        reconcileWindowHours: SESSION_EXPIRY_MINUTES_BANK / 60,
+        createdAt: session.createdAt,
+        planId: session.planId,
+        planLabel: session.planLabel,
+        cycle: session.cycle,
+        rooms: session.rooms,
+      },
+    };
+  }
+
+  // ─── Cancel a pending session (user-initiated) ───────────────────────────
+  async cancelSession(user: { id: string }, sessionId: string, msg: Messages) {
+    const session = await this.prisma.paymentSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, userId: true, status: true, submissionId: true },
+    });
+    if (!session || session.userId !== user.id) {
+      throw new NotFoundException(msg.payment.sessionNotFound);
+    }
+    if (session.status !== PAYMENT_STATUS.PENDING) {
+      throw new ConflictException(msg.payment.cannotCancel);
+    }
+
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.paymentSession.update({
+        where: { id: session.id },
+        data: { status: PAYMENT_STATUS.FAILED, expiresAt: now },
+      }),
+      ...(session.submissionId
+        ? [
+            this.prisma.kycSubmission.updateMany({
+              where: {
+                id: session.submissionId,
+                status: KYC_SUBMISSION_STATUS.PAYMENT_PENDING,
+              },
+              data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
+            }),
+          ]
+        : []),
+    ]);
+
+    return {
+      message: msg.payment.cancelSuccess,
+      data: { sessionId: session.id, status: PAYMENT_STATUS.FAILED },
     };
   }
 
@@ -668,8 +777,6 @@ export class PaymentService {
     });
   }
 
-  // ─── Cron: expire pending sessions every 5 minutes ───────────────────────
-  @Cron(CronExpression.EVERY_5_MINUTES)
   /**
    * Admin list payment sessions để đối soát thủ công.
    * Filter theo status + date range + search (planLabel / sessionId).
@@ -810,15 +917,43 @@ export class PaymentService {
     };
   }
 
+  // ─── Cron: expire pending sessions every 5 minutes ───────────────────────
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async expirePendingSessions() {
     const now = new Date();
-    const result = await this.prisma.paymentSession.updateMany({
+    const expiring = await this.prisma.paymentSession.findMany({
       where: { status: PAYMENT_STATUS.PENDING, expiresAt: { lt: now } },
-      data: { status: PAYMENT_STATUS.EXPIRED },
+      select: { id: true, submissionId: true },
     });
-    if (result.count > 0) {
-      this.logger.log(`Expired ${result.count} pending payment session(s)`);
-    }
+    if (expiring.length === 0) return;
+
+    const ids = expiring.map((s) => s.id);
+    const submissionIds = Array.from(
+      new Set(expiring.map((s) => s.submissionId).filter((v): v is string => !!v)),
+    );
+
+    await this.prisma.$transaction([
+      this.prisma.paymentSession.updateMany({
+        where: { id: { in: ids } },
+        data: { status: PAYMENT_STATUS.EXPIRED },
+      }),
+      // Revert KYC submission về kyc_submitted để user có thể initiate phiên mới
+      ...(submissionIds.length > 0
+        ? [
+            this.prisma.kycSubmission.updateMany({
+              where: {
+                id: { in: submissionIds },
+                status: KYC_SUBMISSION_STATUS.PAYMENT_PENDING,
+              },
+              data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
+            }),
+          ]
+        : []),
+    ]);
+
+    this.logger.log(
+      `Expired ${ids.length} pending payment session(s); reverted ${submissionIds.length} KYC submission(s)`,
+    );
   }
 
   // ─── Cron: trial → past_due transition (every hour) ──────────────────────

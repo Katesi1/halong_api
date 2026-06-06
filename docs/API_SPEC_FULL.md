@@ -404,6 +404,7 @@ FE flow xử lý 403:
 | `GET /dashboard/stats, /reports` | KPI |
 | `GET /leads` | List lead của team |
 | `POST /payments/initiate, /renew` (OWNER only) | Mua gói |
+| `GET /payments/active, POST /payments/:id/cancel` (OWNER only) | Rehydrate / huỷ session pending |
 | `GET /subscriptions/me` | Xem gói team |
 
 > SALE còn cần row `UserPermission` cho từng module — xem §2A.4.
@@ -767,6 +768,11 @@ Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED`
 
 Body optional: `{ amount? }`. Nếu bỏ trống → BE dùng `totalAmount` hoặc `depositAmount`. Nếu booking đang HOLD → tự chuyển sang CONFIRMED + clear `holdExpireAt`.
 
+> **Phân biệt luồng thanh toán** (FE đa nền tảng phải wire đúng):
+> - `PATCH /bookings/:id/paid` — **OWNER/SALE ghi nhận tiền cọc/tiền phòng của KHÁCH** (chuyển khoản tay, tiền mặt, thanh toán offline). Chỉ ảnh hưởng `Booking.paymentStatus`.
+> - `POST /payments/initiate` (§10.2) — **OWNER mua/gia hạn gói subscription của hệ thống Halong24h** (VietQR). Tạo `PaymentSession`, không liên quan booking khách.
+> - 2 endpoint này không thay thế nhau. Dùng đúng theo use case.
+
 ---
 
 ## 6. Calendar
@@ -778,13 +784,21 @@ Base path: `/calendar`.
 | Method | Path | Auth | Mô tả |
 |---|---|---|---|
 | `GET` | `/calendar/properties?type&ownerId` | Bearer | List properties cho calendar |
-| `GET` | `/calendar/public-grid?startDate&endDate&propertyId&type` | Public | Master calendar không cần auth |
-| `GET` | `/calendar/grid?startDate&endDate&propertyId&type` | Bearer | Same nhưng kèm note (tên khách) |
-| `POST` | `/calendar/lock` | Bearer | `{ propertyId, date, status? }` |
-| `DELETE` | `/calendar/lock` | Bearer | `{ propertyId, date }` |
-| `PATCH` | `/calendar/sold` | Bearer | `{ propertyId, date }` |
+| `GET` | `/calendar/public-grid?startDate&endDate&propertyId?&propertyIds?&type?` | Public | Master calendar không cần auth |
+| `GET` | `/calendar/grid?startDate&endDate&propertyId?&propertyIds?&type?` | Bearer | Same nhưng kèm note (tên khách) |
+| `POST` | `/calendar/lock` | Bearer | `{ propertyId, date, status? }` → `{ message, data: null }` |
+| `DELETE` | `/calendar/lock` | Bearer | `{ propertyId, date }` → `{ message, data: null }` |
+| `PATCH` | `/calendar/sold` | Bearer | `{ propertyId, date }` → `{ message, data: null }` |
 | `POST` | `/calendar/bulk` | Bearer | `{ mode: "lock"\|"unlock", items: [{propertyId, date}] }` (≤100 items) |
 | `GET` | `/calendar/admin-contact` | Public | Phone/email admin để khách liên hệ |
+
+**Query params (grid / public-grid):**
+
+- `startDate`, `endDate` (YYYY-MM-DD, required)
+- `propertyId` (UUID, optional) — chọn 1 property
+- `propertyIds` (optional) — chọn nhiều property cùng lúc. Chấp nhận **CSV** (`?propertyIds=uuid1,uuid2`) **hoặc** array repeat (`?propertyIds=uuid1&propertyIds=uuid2`)
+- `type` (optional, number) — filter theo loại property
+- Nếu không truyền `propertyId` và `propertyIds` → trả tất cả properties của user (grid) hoặc tất cả properties đang hoạt động (public-grid)
 
 ### 6.2 Grid response
 
@@ -943,6 +957,37 @@ Base path: `/kyc`. Role: OWNER.
 
 Status string: `none | pending | approved | rejected`.
 
+**Response `GET /kyc/status`** (v1.7):
+
+```jsonc
+{
+  "status": "draft | kycSubmitted | paymentPending | awaitingApproval | approved | rejected | refunded",
+  "submissionId": "uuid | null",
+  "rejectReason": "string | null",
+  "rejectedItems": ["cccdFront", "selfie"],
+  "approvedAt": "ISO | null",
+  "trialEndsAt": "ISO | null",
+  "uploads": { "cccdFront": true, "cccdBack": true, "selfie": false },
+  "latestPayment": {                       // null nếu user chưa từng tạo session
+    "sessionId": "uuid",
+    "status": "pending | paid | expired | failed | refunded",
+    "totalAmount": 10000,
+    "planId": "starter_test",
+    "planLabel": "Starter Test · Tháng",
+    "expiresAt": "ISO",
+    "qrExpiresAt": "ISO",
+    "createdAt": "ISO"
+  },
+  "subscriptionStatus": "none | trial | active | past_due | cancelled | frozen",
+  "subscriptionPlanId": "string | null",
+  "subscriptionCycle": "monthly | yearly | null",
+  "subscriptionProvider": "string | null",
+  "subscriptionExpiresAt": "ISO | null"
+}
+```
+
+Field `latestPayment` cho phép FE rehydrate paywall/modal QR mà không cần persist `sessionId` ở client. Nếu cần full bank info / qrCode → gọi tiếp `GET /payments/active`.
+
 ### 9.2 Admin KYC
 
 Base path: `/admin/kyc`. Role: ADMIN.
@@ -970,17 +1015,68 @@ Base path: `/admin/kyc`. Role: ADMIN.
 
 Base path: `/payments`. Role: OWNER.
 
-| Method | Path | Body |
+| Method | Path | Body / Note |
 |---|---|---|
-| `POST` | `/payments/initiate` | `{ planId, cycle, method, rooms, totalAmount }` → trả session với `paymentUrl/qrCode` |
+| `POST` | `/payments/initiate` | `{ planId, cycle, method, rooms, totalAmount }` → tạo session VietQR |
 | `POST` | `/payments/renew` | `{ method }` |
+| `GET` | `/payments/active` | Trả session `pending` mới nhất của user (rehydrate UI khi reload). `data = null` nếu không có. |
 | `GET` | `/payments/history?limit&cursor` | — |
-| `GET` | `/payments/:sessionId/status` | — |
+| `GET` | `/payments/:sessionId/status` | Poll trạng thái session |
+| `POST` | `/payments/:sessionId/cancel` | User huỷ session `pending`. Chỉ cho phép khi `status=pending`, ngược lại 409 `cannotCancel`. Đồng thời revert KycSubmission `payment_pending → kyc_submitted` |
 | `POST` | `/payments/:sessionId/refund` | — |
 
 Method values: `bank_transfer` (chỉ hỗ trợ duy nhất — VNPay và Apple IAP đã loại bỏ ở v1.4).
 
-**Session expiry**: VietQR session expire sau **24 giờ** (v1.6). Đủ thời gian cho admin manual đối soát ở phase hiện tại (chưa setup Sepay webhook). Sau khi switch sang auto webhook có thể giảm còn 15-30 phút.
+**Plan IDs hợp lệ** (`BillingPlan.id`):
+
+| planId | name | monthlyPrice (minCharge) | maxRooms | Ghi chú |
+|---|---|---:|---:|---|
+| `starter_test` | Starter Test | 10,000 | 1 | Gói thử/QA/App review. `vatPct=0`, `yearlyDiscountPct=0` |
+| `rooms_1` | Mini | 199,000 | 1 | |
+| `rooms_5` | Starter | 599,000 | 5 | |
+| `rooms_10` | Standard | 999,000 | 10 | |
+| `rooms_20` | Pro | 1,799,000 | 20 | |
+| `rooms_50` | Business | 3,999,000 | 50 | |
+| `enterprise` | Enterprise | 0 | ∞ | Custom price qua `User.subscriptionPriceOverride` |
+
+Công thức `totalAmount` mặc định: `max(pricePerRoom × rooms, minCharge) × months × (1 - yearlyDiscount) × (1 + vatPct/100)`. Khi `User.subscriptionPriceOverride` được set → override toàn bộ. FE phải gửi `totalAmount` khớp (tolerance 1%), sai → 400 `amountMismatch`.
+
+**Response shape** (`initiate` / `renew` / `active`):
+
+```jsonc
+{
+  "sessionId": "uuid",
+  "status": "pending",
+  "totalAmount": 10000,
+  "method": "bank_transfer",
+  "qrCode": "<EMV VietQR payload>",
+  "bankInfo": { "bankName", "accountNumber", "accountName", "bankBin", "content", "vietQrPayload" },
+  "redirectUrl": null,
+  "payUrl": null,
+  "expiresAt": "2026-06-07T10:00:00Z",       // 24h sau createdAt — session expiry cho cron + webhook
+  "qrExpiresAt": "2026-06-06T10:15:00Z",     // 15 phút sau createdAt — countdown QR trên UI
+  "reconcileWindowHours": 24,                  // info để FE label "Đối soát trong tối đa 24h"
+  "createdAt": "2026-06-06T10:00:00Z",
+  "planId": "starter_test",
+  "planLabel": "Starter Test · Tháng",
+  "cycle": "monthly",
+  "rooms": 1
+}
+```
+
+**Hai mốc thời gian** (v1.7):
+
+| Hằng số | Giá trị | Mục đích |
+|---|---:|---|
+| `QR_EXPIRY_MINUTES` | 15 | QR code hết hạn để hiển thị countdown. Hết hạn → FE nên cho tạo session mới (gọi cancel + initiate lại). |
+| `SESSION_EXPIRY_MINUTES_BANK` | 1440 (24h) | Session sống đủ lâu để webhook Sepay/Casso hoặc admin `mark-paid` xác nhận. Cron `expirePendingSessions` chạy mỗi 5 phút chuyển `pending → expired` khi quá `expiresAt`, đồng thời revert KycSubmission về `kyc_submitted` để user initiate lại được. |
+
+**Hành vi khi initiate lần 2 trên cùng submission**: BE tự `updateMany` mọi session `pending` cũ của submission đó về `expired`. FE không cần gọi cancel trước.
+
+**Quan hệ với KYC submission**:
+- `POST /payments/initiate` thành công → `KycSubmission.status = payment_pending`.
+- `POST /payments/:id/cancel` hoặc cron auto-expire → revert về `kyc_submitted`.
+- Webhook / admin mark-paid → `paid` → `KycSubmission.status = awaiting_approval`.
 
 ### 10.3 Admin manual reconcile (v1.6)
 
@@ -1063,8 +1159,46 @@ ADMIN dùng `?ownerId=` để filter theo OWNER cụ thể, không truyền → 
 
 | Method | Path | Body |
 |---|---|---|
-| `GET` | `/staff/invites/verify/:token` | — (token đầy đủ 64 chars hoặc short `HL-XXXXXX`) |
+| `GET` | `/staff/invites/verify/:token` | — |
 | `POST` | `/staff/invites/accept` | `{ token, method: "google"\|"password", idToken?, name?, password?, phone? }` |
+
+**Token format** (FE gửi 1 trong 2 dạng — BE tự nhận dạng):
+- **Full token** (64 chars hex) — dùng khi click link trong email (`/staff/accept?token=<64chars>`)
+- **Short code** `HL-XXXXXX` — dùng khi nhập tay (OWNER share cho nhân viên qua chat/SMS)
+
+**Response `/staff/invites/accept`** — giống `/auth/login`, **CHỈ trả tokens** (FE tự gọi `/auth/profile` sau):
+
+```jsonc
+{
+  "success": true,
+  "message": "Tham gia thành công",
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
+  }
+}
+```
+
+**Response `/staff/invites/verify/:token`** — trả info đủ để render trang accept (KHÔNG có tokens):
+
+```jsonc
+{
+  "success": true,
+  "message": "ok",
+  "data": {
+    "email": "sale@example.com",
+    "owner": {
+      "name": "Nguyễn Văn A",
+      "avatar": "https://...",
+      "homestayName": "Halong Bay Villa"
+    },
+    "expiresAt": "2026-06-13T10:00:00.000Z",
+    "status": "pending"
+  }
+}
+```
+
+Lỗi có thể gặp: `404 inviteNotFound`, `410 inviteAlreadyAccepted | inviteCancelled | inviteExpired`.
 
 ### 11.3 Status invite
 
@@ -1424,6 +1558,7 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 - [ ] `/admin/emails/templates` + `/test`
 - [ ] `/admin/reviews` + restore + count-flagged
 - [ ] `/conversations/*` + Socket.IO `/chat` namespace
+- [ ] `/uploads` POST/DELETE — generic file upload cho chat attachment + dispute evidence (xem §23)
 
 #### Bỏ mock cũ
 - [ ] Bỏ logic FE ghi audit log từ client — BE tự ghi
@@ -1443,6 +1578,7 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 - [ ] Force-update check ở splash (`GET /app/version`)
 - [ ] Countdown timer cho booking HOLD (`holdRemainingSeconds`)
 - [ ] Multipart upload cho KYC (compress < 5MB)
+- [ ] Generic `/uploads` POST/DELETE cho chat attachment + dispute evidence (xem §23)
 - [ ] Chrome Custom Tab cho payment URL + deeplink return
 
 #### Chat
@@ -1490,6 +1626,22 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 ---
 
 ## 21. Changelog & Bug fixes
+
+### v1.9 — 2026-06-06 (Payment session lifecycle + Starter Test plan)
+
+Khắc phục bug "loading mãi ở trang chờ đối soát" khi user đóng/mở lại app sau khi initiate session, và bổ sung plan thử nghiệm cho QA / App Store review.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| Thêm plan `starter_test` (10,000đ/tháng, 1 phòng, VAT 0%) | Reseed DB hoặc tạo thủ công qua admin |
+| `POST /payments/:sessionId/cancel` | User huỷ session pending. Revert `KycSubmission.payment_pending → kyc_submitted` |
+| `GET /payments/active` | Lấy session pending mới nhất (rehydrate sau khi đóng modal) |
+| `GET /kyc/status` thêm field `latestPayment` | FE không cần persist sessionId ở client |
+| Tách 2 mốc thời gian: `QR_EXPIRY_MINUTES=15` + `SESSION_EXPIRY_MINUTES_BANK=1440` | Response thêm `qrExpiresAt`, `reconcileWindowHours` |
+| Cron `expirePendingSessions` (mỗi 5 phút) revert KYC submission khi expire | Fix bug pre-existing: `@Cron` decorator gắn nhầm trên `adminListSessions` |
+| i18n keys mới (en/vi) | `payment.cancelSuccess`, `payment.cannotCancel`, `payment.activeSuccess` |
+
+**Breaking?** Không — tất cả trường mới đều additive. Hành vi `expiresAt = 24h` không đổi. FE cũ vẫn chạy được, chỉ là không có nút huỷ + không rehydrate được modal sau khi đóng.
 
 ### v1.8 — 2026-06-05 (Authorization rules)
 

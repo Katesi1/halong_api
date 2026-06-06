@@ -266,6 +266,9 @@ export const en = {
     adminListSuccess: 'Payment sessions retrieved',
     adminMarkPaidSuccess: 'Session marked as paid',
     cannotMarkRefunded: 'Cannot mark a refunded session as paid',
+    cancelSuccess: 'Payment session cancelled',
+    cannotCancel: 'Session is not pending, cannot cancel',
+    activeSuccess: 'Active payment session fetched successfully',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────

@@ -65,6 +65,19 @@ async function main() {
   await prisma.billingPlan.createMany({
     data: [
       {
+        id: 'starter_test',
+        name: 'Starter Test',
+        pricePerRoom: 10000,
+        minCharge: 10000,
+        yearlyPrice: 100000,
+        maxRooms: 1,
+        yearlyDiscountPct: 0,
+        vatPct: 0,
+        features: ['Gói thử nghiệm 10.000đ/tháng', 'Dùng cho QA / Apple review', '1 phòng'],
+        active: true,
+        sortOrder: -1,
+      },
+      {
         id: 'rooms_1',
         name: 'Mini',
         pricePerRoom: 199000,
