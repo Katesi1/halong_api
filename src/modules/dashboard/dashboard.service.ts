@@ -3,9 +3,54 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Messages } from '../../i18n';
 import { BOOKING_STATUS, getEffectiveOwnerId } from '../../common/constants';
 
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
+
+  /** UTC instant corresponding to Asia/Ho_Chi_Minh midnight of (y, m, d). */
+  private vnDayStartUtc(y: number, m: number, d: number): Date {
+    return new Date(Date.UTC(y, m, d) - VN_OFFSET_MS);
+  }
+
+  /** Current VN calendar date parts (y, m=0-based, d). */
+  private vnTodayParts(now: Date): { y: number; m: number; d: number } {
+    const shifted = new Date(now.getTime() + VN_OFFSET_MS);
+    return {
+      y: shifted.getUTCFullYear(),
+      m: shifted.getUTCMonth(),
+      d: shifted.getUTCDate(),
+    };
+  }
+
+  /** Parse "YYYY-MM-DD" as a VN midnight in UTC. Returns null if invalid. */
+  private parseVnDate(s: string): Date | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    if (!match) return null;
+    const y = Number(match[1]);
+    const m = Number(match[2]);
+    const d = Number(match[3]);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    const dt = this.vnDayStartUtc(y, m - 1, d);
+    // Round-trip guard: reject overflow like 2026-02-31.
+    const back = new Date(dt.getTime() + VN_OFFSET_MS);
+    if (back.getUTCFullYear() !== y || back.getUTCMonth() !== m - 1 || back.getUTCDate() !== d) {
+      return null;
+    }
+    return dt;
+  }
+
+  /** ISO date string (YYYY-MM-DD) for the VN calendar day containing `d`. */
+  private vnDateString(d: Date): string {
+    return new Date(d.getTime() + VN_OFFSET_MS).toISOString().split('T')[0];
+  }
+
+  /** Day-of-week index (0=Mon … 6=Sun) for the VN calendar day containing `d`. */
+  private vnIsoDayOfWeek(d: Date): number {
+    const jsDay = new Date(d.getTime() + VN_OFFSET_MS).getUTCDay();
+    return jsDay === 0 ? 6 : jsDay - 1;
+  }
 
   private async getScopedPropertyIds(user: { id: string; role: number; ownerId?: string | null }): Promise<string[] | null> {
     const effectiveOwnerId = getEffectiveOwnerId(user);
@@ -20,12 +65,12 @@ export class DashboardService {
 
   async getStats(user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart);
-    todayEnd.setDate(todayEnd.getDate() + 1);
+    const today = this.vnTodayParts(now);
+    const todayStart = this.vnDayStartUtc(today.y, today.m, today.d);
+    const todayEnd = this.vnDayStartUtc(today.y, today.m, today.d + 1);
 
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const monthStart = this.vnDayStartUtc(today.y, today.m, 1);
+    const monthEnd = this.vnDayStartUtc(today.y, today.m + 1, 1);
 
     const scopedPropertyIds = await this.getScopedPropertyIds(user);
     const propertyWhere: any = scopedPropertyIds ? { id: { in: scopedPropertyIds } } : {};
@@ -128,14 +173,15 @@ export class DashboardService {
     year?: number,
   ): { from: Date; to: Date } {
     const now = new Date();
+    const today = this.vnTodayParts(now);
 
-    // Legacy support: month/year → treat as period=month
+    // Legacy support: month/year → treat as period=month (VN calendar)
     if (!period && (month || year)) {
-      const targetYear = year || now.getFullYear();
-      const targetMonth = (month || now.getMonth() + 1) - 1;
+      const targetYear = year || today.y;
+      const targetMonth = (month || today.m + 1) - 1;
       return {
-        from: new Date(targetYear, targetMonth, 1),
-        to: new Date(targetYear, targetMonth + 1, 1),
+        from: this.vnDayStartUtc(targetYear, targetMonth, 1),
+        to: this.vnDayStartUtc(targetYear, targetMonth + 1, 1),
       };
     }
 
@@ -146,54 +192,54 @@ export class DashboardService {
 
     switch (period) {
       case 'today': {
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const end = new Date(start);
-        end.setDate(end.getDate() + 1);
-        return { from: start, to: end };
+        return {
+          from: this.vnDayStartUtc(today.y, today.m, today.d),
+          to: this.vnDayStartUtc(today.y, today.m, today.d + 1),
+        };
       }
       case 'week': {
-        // Monday-based week
-        const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-        const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-        const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
-        const sunday = new Date(monday);
-        sunday.setDate(sunday.getDate() + 7);
-        return { from: monday, to: sunday };
+        // Monday-based week in VN tz
+        const diffToMonday = this.vnIsoDayOfWeek(now);
+        return {
+          from: this.vnDayStartUtc(today.y, today.m, today.d - diffToMonday),
+          to: this.vnDayStartUtc(today.y, today.m, today.d - diffToMonday + 7),
+        };
       }
       case 'year': {
-        const targetYear = year || now.getFullYear();
+        const targetYear = year || today.y;
         return {
-          from: new Date(targetYear, 0, 1),
-          to: new Date(targetYear + 1, 0, 1),
+          from: this.vnDayStartUtc(targetYear, 0, 1),
+          to: this.vnDayStartUtc(targetYear + 1, 0, 1),
         };
       }
       case 'custom': {
         if (!from || !to) {
           throw new BadRequestException(msg.dashboard.missingDateRange);
         }
-        const fromDate = new Date(from);
-        const toDate = new Date(to);
-        if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+        const fromDate = this.parseVnDate(from);
+        const toDateInclusive = this.parseVnDate(to);
+        if (!fromDate || !toDateInclusive) {
           throw new BadRequestException(msg.dashboard.invalidDateRange);
         }
-        toDate.setDate(toDate.getDate() + 1); // inclusive end
+        // `to` is inclusive: range end is VN start of (to + 1 day).
+        const toDate = new Date(toDateInclusive.getTime() + 24 * 60 * 60 * 1000);
         if (fromDate >= toDate) {
           throw new BadRequestException(msg.dashboard.invalidDateRange);
         }
-        // `to` must not be in the future (compare end-of-today VN)
-        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-        if (toDate > todayEnd) {
+        // `to` must not be after today (VN): compare inclusive `to` against VN today.
+        const todayStart = this.vnDayStartUtc(today.y, today.m, today.d);
+        if (toDateInclusive > todayStart) {
           throw new BadRequestException(msg.dashboard.toInFuture);
         }
         return { from: fromDate, to: toDate };
       }
       default: {
-        // Default: current month (period=month or no period)
-        const targetYear = year || now.getFullYear();
-        const targetMonth = (month || now.getMonth() + 1) - 1;
+        // Default: current VN month (period=month or no period)
+        const targetYear = year || today.y;
+        const targetMonth = (month || today.m + 1) - 1;
         return {
-          from: new Date(targetYear, targetMonth, 1),
-          to: new Date(targetYear, targetMonth + 1, 1),
+          from: this.vnDayStartUtc(targetYear, targetMonth, 1),
+          to: this.vnDayStartUtc(targetYear, targetMonth + 1, 1),
         };
       }
     }
@@ -389,7 +435,7 @@ export class DashboardService {
     const current = new Date(from);
 
     while (current < to) {
-      const dateStr = current.toISOString().split('T')[0];
+      const dateStr = this.vnDateString(current);
       let dayRevenue = 0;
       let dayBookings = 0;
 
@@ -723,9 +769,7 @@ export class DashboardService {
 
     const current = new Date(from);
     while (current < to) {
-      // Convert JS day (0=Sun) to ISO day index (0=Mon, 6=Sun)
-      const jsDay = current.getDay();
-      const isoIndex = jsDay === 0 ? 6 : jsDay - 1;
+      const isoIndex = this.vnIsoDayOfWeek(current);
       dowDays[isoIndex]++;
 
       for (const b of bookings) {

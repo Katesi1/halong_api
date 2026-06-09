@@ -244,6 +244,13 @@ export const en = {
     listSuccess: 'Billing plans retrieved successfully',
     planNotFound: 'Plan not found or no longer available',
     roomCountExceedsPlan: 'Room count exceeds the plan limit',
+    adminListSuccess: 'Admin billing plans retrieved successfully',
+    createSuccess: 'Billing plan created successfully',
+    updateSuccess: 'Billing plan updated successfully',
+    deleteSuccess: 'Billing plan deleted successfully',
+    deactivateSuccess: 'Billing plan deactivated (still referenced by existing subscriptions)',
+    idExists: 'A plan with this ID already exists',
+    idInvalid: 'Plan ID must be lowercase letters, digits or underscores (a-z, 0-9, _)',
   },
 
   // ─── Payment ───────────────────────────────────────────────────────────────
@@ -277,6 +284,10 @@ export const en = {
     cannotDowngradeInTrial: 'Cannot downgrade while in trial period',
     planNotFound: 'Plan not found',
     samePlanNoChange: 'You are already on this plan',
+    kycNotApproved:
+      'Complete KYC verification and wait for admin approval before purchasing a plan',
+    paymentPending:
+      'You already have a pending payment. Please complete or cancel it before creating a new one.',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -293,6 +304,10 @@ export const en = {
     ownerIdRequired: 'ADMIN must provide ownerId when creating an invite on behalf of an OWNER',
     kycRequired: 'Complete KYC before inviting staff',
     subscriptionRequired: 'An active subscription is required to invite staff',
+    staffNotAllowedOnPlan: (planName: string) =>
+      `The ${planName} plan does not include staff invites. Upgrade to Starter or higher to invite staff.`,
+    staffSlotLimitReached: (planName: string, max: number) =>
+      `The ${planName} plan allows up to ${max} staff members (limit reached, including pending invites). Upgrade to Pro or higher for unlimited staff.`,
     emailInvalid: 'Invalid email',
     inviteSelf: 'Cannot invite yourself',
     emailHasAccount: 'Email already has an account. Contact that account owner.',
@@ -330,6 +345,7 @@ export const en = {
     rejectSuccess: 'KYC submission rejected successfully',
     alreadyProcessed: 'This submission has already been processed',
     invalidStatus: 'Submission is not in awaiting_approval status',
+    invalidFilter: 'filter must be 0 (all), 1 (pending), 2 (approved), or 3 (rejected)',
   },
 
   // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────

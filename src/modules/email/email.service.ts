@@ -11,6 +11,12 @@ export interface StaffInviteEmailData {
   expiresAt: Date;
 }
 
+export interface PasswordResetEmailData {
+  to: string;
+  resetLink: string;
+  expiresInMinutes: number;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -98,6 +104,56 @@ Nếu bạn không biết người gửi, có thể bỏ qua email này.
     }
   }
 
+  async sendPasswordReset(data: PasswordResetEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping password reset email to ${data.to} — SMTP not configured`);
+      return;
+    }
+
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+
+    const text = `Xin chào,
+
+Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản Halong24h gắn với email này.
+
+Bấm vào link sau để đặt mật khẩu mới (hết hạn sau ${data.expiresInMinutes} phút):
+
+  ${data.resetLink}
+
+Nếu bạn không yêu cầu đặt lại mật khẩu, có thể bỏ qua email này — tài khoản của bạn vẫn an toàn.
+
+— Halong24h Team`;
+
+    const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Đặt lại mật khẩu — Halong24h</h2>
+  <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản Halong24h gắn với email này.</p>
+  <p style="margin:24px 0">
+    <a href="${data.resetLink}"
+       style="background:#0d6efd;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">
+      Đặt lại mật khẩu
+    </a>
+  </p>
+  <p style="color:#666;font-size:13px">Hoặc copy link sau vào trình duyệt:</p>
+  <p style="word-break:break-all;background:#f5f5f5;padding:10px;border-radius:4px;font-size:13px"><a href="${data.resetLink}">${data.resetLink}</a></p>
+  <p style="color:#666;font-size:13px">Link hết hạn sau <strong>${data.expiresInMinutes} phút</strong>. Nếu bạn không yêu cầu đặt lại mật khẩu, có thể bỏ qua email này — tài khoản của bạn vẫn an toàn.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to: data.to,
+        subject: 'Đặt lại mật khẩu — Halong24h',
+        text,
+        html,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send password reset to ${data.to}: ${(err as Error).message}`);
+      throw err;
+    }
+  }
+
   /**
    * Generic test send — admin clicks "Send test" on a template card.
    * Renders sample data and dispatches to a target email so admin can verify rendering.
@@ -165,9 +221,9 @@ const EMAIL_TEMPLATE_SAMPLES: Record<string, EmailSample> = {
     html: '<p>Bạn đã được thêm vào đội ngũ. Đăng nhập để bắt đầu.</p>',
   },
   password_reset: {
-    subject: 'Đặt lại mật khẩu',
-    text: 'Mã/đường link reset password sẽ được gửi tại đây.',
-    html: '<p>Mã/đường link reset password sẽ được gửi tại đây.</p>',
+    subject: 'Đặt lại mật khẩu — Halong24h',
+    text: 'Bấm vào link để đặt mật khẩu mới. Link hết hạn sau 10 phút. Nếu không phải bạn, có thể bỏ qua email này.',
+    html: '<p>Bấm vào link để đặt mật khẩu mới. Link hết hạn sau <strong>10 phút</strong>. Nếu không phải bạn, có thể bỏ qua email này.</p>',
   },
   booking_confirmed: {
     subject: 'Đặt phòng đã xác nhận',

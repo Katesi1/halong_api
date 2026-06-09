@@ -23,6 +23,9 @@ import * as bcrypt from 'bcryptjs';
 import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import * as appleSignin from 'apple-signin-auth';
 import { AppleAuthDto } from './dto/apple-auth.dto';
+import { EmailService } from '../email/email.service';
+
+const RESET_TOKEN_TTL_MINUTES = 10;
 
 @Injectable()
 export class AuthService {
@@ -33,6 +36,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   async register(
@@ -366,14 +370,28 @@ export class AuthService {
     // Sinh reset token: TTL 10 phút, có purpose='reset' để verify chặn nhầm token.
     const resetToken = this.jwtService.sign(
       { sub: user.id, purpose: 'reset' },
-      { secret: this.getResetSecret(), expiresIn: '10m' },
+      { secret: this.getResetSecret(), expiresIn: `${RESET_TOKEN_TTL_MINUTES}m` },
     );
 
-    // Gửi qua email nếu có; nếu chưa cấu hình SMTP → log để dev/admin lấy thủ công.
+    // Gửi qua email nếu user có email + SMTP configured.
     // KHÔNG bao giờ trả token trong response (tránh leak qua proxy / log access).
     // TODO: tích hợp SMS provider cho user chỉ có phone.
     this.logger.log(`Password reset issued for user=${user.id}`);
-    if (process.env.NODE_ENV !== 'production') {
+
+    if (user.email && this.emailService.isEnabled()) {
+      const base = (this.configService.get<string>('FRONTEND_BASE_URL') || 'https://halong24h.com').replace(/\/+$/, '');
+      const resetLink = `${base}/auth/reset-password?token=${encodeURIComponent(resetToken)}`;
+      try {
+        await this.emailService.sendPasswordReset({
+          to: user.email,
+          resetLink,
+          expiresInMinutes: RESET_TOKEN_TTL_MINUTES,
+        });
+      } catch (err) {
+        // Không leak failure ra ngoài — vẫn trả success để chống enumeration.
+        this.logger.error(`sendPasswordReset failed for user=${user.id}: ${(err as Error).message}`);
+      }
+    } else if (process.env.NODE_ENV !== 'production') {
       this.logger.warn(`[DEV ONLY] reset token for ${user.id}: ${resetToken}`);
     }
 

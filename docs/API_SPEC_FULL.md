@@ -155,8 +155,8 @@ Retry request gốc
 | `POST` | `/auth/google` | Public | `{ idToken, role? }` (`role` bắt buộc cho user mới) |
 | `POST` | `/auth/apple` | Public | `{ idToken, role?, email?, name?, identityToken? }` |
 | `POST` | `/auth/refresh` | Public | `{ refreshToken }` |
-| `POST` | `/auth/forgot-password` | Public | `{ identifier }` |
-| `POST` | `/auth/reset-password` | Public | `{ token, newPassword }` |
+| `POST` | `/auth/forgot-password` | Public | `{ identifier }` — `identifier` = email **hoặc** phone đã đăng ký. BE gửi link reset (hết hạn **10 phút**) qua email nếu user có email + SMTP đã cấu hình. Luôn trả `200 success` kể cả khi user không tồn tại (chống enumeration). SMS chưa hỗ trợ — user chỉ có phone phải dùng email khác để reset. |
+| `POST` | `/auth/reset-password` | Public | `{ token, newPassword }` — `token` là JWT (purpose='reset') lấy từ query `?token=...` trong link email. `newPassword` ≥ 6 ký tự. Sau khi reset BE clear `refreshToken` → mọi device bị logout. |
 | `POST` | `/auth/logout` | Bearer | — |
 | `GET` | `/auth/profile` | Bearer | — |
 | `POST` | `/auth/change-password` | Bearer | `{ currentPassword, newPassword }` |
@@ -281,6 +281,11 @@ state.setUser(user.data);
     "subscriptionFrozenReason": null,
     "trialEndsAt": "2026-06-12T15:32:13.062Z",
     "nextChargeAt": "2026-06-12T15:32:13.062Z",
+    "currentPeriodStart": "2026-06-06T00:00:00.000Z",
+    "currentPeriodEnd": "2026-07-06T00:00:00.000Z",
+    "pendingPlanId": null,
+    "pendingCycle": null,
+    "pendingEffectiveAt": null,
     "permissions": [],
     "createdAt": "2026-06-05T15:21:20.741Z",
     "updatedAt": "2026-06-05T15:39:23.505Z"
@@ -429,7 +434,8 @@ FE flow xử lý 403:
 | `PATCH /users/:id/role, /:id/kyc-bypass` | Đổi role, cấp bypass |
 | `DELETE /users/:id` | Xoá user |
 | `POST /properties/:id/approve, /reject, /suspend` | Moderation cơ sở |
-| `GET /admin/kyc/queue, /count-pending` | Queue KYC |
+| `GET /admin/kyc/queue?filter=0\|1\|2\|3` | Danh sách KYC admin (một endpoint) |
+| `GET /admin/kyc/count-pending` | Badge (deprecated — dùng `pendingCount` trong queue) |
 | `POST /admin/kyc/submissions/:id/approve, /reject` | Duyệt KYC |
 | `GET /admin/subscriptions, /count-overdue, /sum-paid` | Báo cáo subscription |
 | `GET /admin/users/:id/subscription` | Snapshot |
@@ -807,6 +813,7 @@ Base path: `/calendar`.
   "properties": [
     {
       "id": "uuid", "name": "...", "type": 0,
+      "ownerPhone": "0912345678",
       "days": [
         { "date": "2026-06-15", "status": "available", "note": null, "bookingId": null },
         { "date": "2026-06-16", "status": "hold", "note": "Nguyễn Văn A", "bookingId": "..." },
@@ -819,6 +826,8 @@ Base path: `/calendar`.
 ```
 
 Status string: `available | hold | booked | locked`.
+
+`ownerPhone`: số điện thoại owner của property (lấy từ `User.phone` qua `Property.ownerId`). Có thể `null` nếu owner chưa cập nhật phone — FE phải handle gracefully (vd nút Zalo no-op). Trả về ở cả `/calendar/grid` và `/calendar/public-grid`.
 
 ### 6.3 Bulk response
 
@@ -913,6 +922,8 @@ Endpoints KPI cho Owner/Sale/Admin. Auth: Bearer. Roles: ADMIN, OWNER, SALE.
 | `year` | Năm dương lịch hiện tại |
 | `custom` | `[from 00:00, to 23:59]` inclusive |
 
+> ⏱ **Timezone**: Mọi ranh giới ngày (today/week/month/year/custom, validation `to`, label `revenueByDay`, `dayOfWeekOccupancy`) đều tính theo **Asia/Ho_Chi_Minh (UTC+7)**, không phụ thuộc TZ của server. `from`/`to` định dạng `YYYY-MM-DD` được hiểu là ngày VN.
+
 **`previousPeriod`** = kỳ ngay trước cùng độ dài. `custom` N ngày → N ngày trước `from`.
 
 ### 7A.3 Validation 400 (mới v1.10)
@@ -921,7 +932,7 @@ Endpoints KPI cho Owner/Sale/Admin. Auth: Bearer. Roles: ADMIN, OWNER, SALE.
 |---|---|---|
 | `period=custom` thiếu `from` hoặc `to` | `dashboard.missingDateRange` | "Vui lòng cung cấp from và to khi dùng period=custom" |
 | `from >= to` hoặc date parse fail | `dashboard.invalidDateRange` | "Ngày from phải trước ngày to" |
-| `to` ở tương lai (sau cuối ngày hôm nay) | `dashboard.toInFuture` | "Ngày to không được ở tương lai" |
+| `to` ở tương lai (sau ngày hôm nay theo giờ VN) | `dashboard.toInFuture` | "Ngày to không được ở tương lai" |
 | `period` không thuộc 5 giá trị hợp lệ | `dashboard.invalidPeriod` | "Giá trị period không hợp lệ (today \| week \| month \| year \| custom)" |
 
 ### 7A.4 Response data shape
@@ -1156,13 +1167,80 @@ Field `latestPayment` cho phép FE rehydrate paywall/modal QR mà không cần p
 
 Base path: `/admin/kyc`. Role: ADMIN.
 
-| Method | Path | Body |
+> **Một endpoint list — không gọi 3–4 API song song.** FE chỉ cần `GET /admin/kyc/queue?filter=0|1|2|3` khi đổi tab. Text tab hiển thị ở FE; BE nhận/trả số enum.
+
+#### Tab filter (`filter` query param)
+
+| `filter` | Tab FE (gợi ý) | DB `KycSubmission.status` gom vào |
+|---:|---|---|
+| `0` | Tất cả | Mọi status **trừ** `draft` |
+| `1` | Chờ duyệt | `kyc_submitted`, `payment_pending`, `awaiting_approval` |
+| `2` | Đã duyệt | `approved`, `refunded` |
+| `3` | Đã từ chối | `rejected` |
+
+Mặc định khi không truyền `filter`: **`1` (chờ duyệt)**.
+
+Query `status` string (vd. `awaiting_approval`) **deprecated** — map sang `filter` tương ứng để tương thích client cũ.
+
+#### Endpoints
+
+| Method | Path | Body / Query |
 |---|---|---|
-| `GET` | `/admin/kyc/queue?page&pageSize&status` | — |
-| `GET` | `/admin/kyc/count-pending` | Badge |
+| `GET` | `/admin/kyc/queue?page&pageSize&filter` | `filter`: 0–3 (xem bảng trên). Response kèm `pendingCount` (badge) — **không cần** gọi thêm API badge. |
+| `GET` | `/admin/kyc/count-pending` | **Deprecated** — dùng `data.pendingCount` từ `GET /queue`. |
 | `GET` | `/kyc/submissions/:id` | Detail (admin gọi được) |
 | `POST` | `/admin/kyc/submissions/:id/approve` | `{ trialDays? }` (default 7) |
 | `POST` | `/admin/kyc/submissions/:id/reject` | `{ reason, items?[] }` |
+
+#### Response `GET /admin/kyc/queue`
+
+```jsonc
+{
+  "success": true,
+  "message": "...",
+  "data": {
+    "filter": 1,              // tab đang lọc (0–3)
+    "pendingCount": 3,        // số hồ sơ chờ duyệt (filter=1), dùng badge sidebar
+    "total": 12,
+    "page": 1,
+    "pageSize": 20,
+    "items": [
+      {
+        "id": "uuid",
+        "status": "awaitingApproval",  // chi tiết nội bộ (camelCase)
+        "statusFilter": 1,             // 1=chờ duyệt | 2=đã duyệt | 3=đã từ chối — FE map text tab
+        "user": { "id", "name", "phone", "email" },
+        "submittedAt": "ISO",
+        "uploads": { "cccdFront", "cccdBack", "selfie" },
+        "expectedRooms": 1,
+        "plan": "starter_test | null",
+        "totalPaid": 0,
+        "createdAt": "ISO"
+      }
+    ]
+  }
+}
+```
+
+#### Luồng duyệt KYC (Option A — duyệt trước, thanh toán sau)
+
+```
+Owner upload + POST /kyc/submit  →  awaiting_approval  (user.kycStatus = pending)
+Admin approve                    →  approved             (user.kycStatus = approved, chưa có subscription)
+Owner POST /payments/initiate    →  payment_pending    (chỉ khi kycStatus = approved)
+Thanh toán thành công            →  approved + kích hoạt subscription/trial
+```
+
+Admin queue tab **Chờ duyệt** (`filter=1`) hiển thị mọi hồ sơ owner đã nộp đủ ảnh và chờ admin xử lý.
+
+#### Migration client (iOS / Android / Web)
+
+| Trước (sai pattern) | Sau |
+|---|---|
+| 3× `GET /queue?status=awaiting_approval` + `approved` + `rejected` song song | 1× `GET /queue?filter=0\|1\|2\|3` mỗi lần đổi tab |
+| `GET /count-pending` riêng | Dùng `data.pendingCount` từ response `GET /queue` |
+| Map text tab ở BE | FE tự map: `0→Tất cả`, `1→Chờ duyệt`, `2→Đã duyệt`, `3→Đã từ chối` |
+| Hiển thị `status` string | Ưu tiên `statusFilter` (1\|2\|3) cho badge/tab; `status` giữ cho màn chi tiết |
 
 ---
 
@@ -1172,8 +1250,41 @@ Base path: `/admin/kyc`. Role: ADMIN.
 
 | Method | Path | Role | Mô tả |
 |---|---|---|---|
-| `GET` | `/billing/plans` | Public | Danh sách gói (rooms_1, rooms_5, ...) |
+| `GET` | `/billing/plans` | Public | Danh sách gói active (rooms_1, rooms_5, ...) |
+| `GET` | `/admin/billing-plans` | ADMIN | List toàn bộ gói (cả `active=false`) |
+| `POST` | `/admin/billing-plans` | ADMIN | Tạo gói mới |
+| `PUT` | `/admin/billing-plans/:id` | ADMIN | Cập nhật gói |
+| `DELETE` | `/admin/billing-plans/:id` | ADMIN | Xoá gói — hard delete nếu không có sub/payment, ngược lại soft delete (`active=false`) |
 | `GET` | `/subscriptions/me` | OWNER/SALE | Subscription của mình (SALE tự resolve theo ownerId) |
+
+**POST /admin/billing-plans body** (`CreateBillingPlanDto`):
+
+```json
+{
+  "id": "rooms_5",                    // a-z0-9_ only, unique
+  "name": "Starter",
+  "pricePerRoom": 119800,              // VND/phòng (label legacy)
+  "minCharge": 599000,                 // VND/tháng hiển thị
+  "yearlyPrice": 5999000,              // optional, VND/năm
+  "maxRooms": 5,                       // optional; null hoặc -1 = unlimited
+  "yearlyDiscountPct": 16,             // optional, default 20
+  "vatPct": 10,                        // optional, default 10
+  "features": ["Booking + Calendar"],  // optional, default []
+  "active": true,                      // optional, default true
+  "sortOrder": 1                       // optional, default 0
+}
+```
+
+**PUT /admin/billing-plans/:id body**: tất cả field giống POST nhưng đều optional (`UpdateBillingPlanDto`, không cho đổi `id`).
+
+**Validation errors:**
+- `billing.idInvalid` — id chứa ký tự ngoài `a-z 0-9 _`
+- `billing.idExists` — đã có gói với id này
+- `billing.planNotFound` — id không tồn tại (PUT/DELETE)
+
+**DELETE behavior:**
+- Nếu plan không bị bất kỳ `Subscription` / `PaymentSession` nào reference → hard delete, response `{ id, softDeleted: false }`, message `billing.deleteSuccess`.
+- Nếu còn reference → soft delete (`active=false`), response `{ ...plan, softDeleted: true, subCount, payCount }`, message `billing.deactivateSuccess`. Gói vẫn còn trong DB để giữ FK nhưng không xuất hiện trong `/billing/plans`.
 
 ### 10.2 Owner payment
 
@@ -1196,7 +1307,7 @@ BE tự nhận diện loại giao dịch — FE chỉ gửi `planId + cycle + ro
 
 | Trạng thái user | Điều kiện | `kind` trả về | Charge | Side-effect khi paid |
 |---|---|---|---|---|
-| Chưa có subscription (`none`) | Cần KYC submission `kyc_submitted` | `subscription` | Full 1 kỳ | KYC → `awaiting_approval`, user kycStatus → `pending` |
+| Chưa có subscription (`none`) | KYC **đã được admin duyệt** (`user.kycStatus=approved`, submission `approved`) | `subscription` | Full 1 kỳ | Kích hoạt subscription/trial (không quay lại chờ duyệt) |
 | Active/trial/past_due, cùng `planId + cycle` | — | `renew` | Full 1 kỳ | `currentPeriodEnd = max(now, currentPeriodEnd) + 1 cycle` |
 | Active/trial/past_due, tier mới **cao hơn** | `tier(new) > tier(current)` | `upgrade` | **Prorate** (xem §10.2.2) | Đổi plan ngay, giữ nguyên `currentPeriodEnd` |
 | Active/trial/past_due, tier mới **thấp hơn** | `tier(new) < tier(current)` | — | — | **409 `downgradeScheduled`** + `effectiveAt` + `pendingPlanId`; ghi `User.pendingPlanId/Cycle/EffectiveAt` |
@@ -1261,6 +1372,8 @@ Response (200):
 
 Quote **không** tạo session, không ghi DB. FE có thể gọi mỗi khi user đổi plan/cycle để re-render order summary. Khi user confirm, FE gọi `POST /payments/initiate` với `totalAmount` lấy từ quote — BE vẫn tính lại và validate ±1%.
 
+**Riêng nhánh `upgrade`** BE **không** validate `totalAmount` FE gửi (vì FE cũ gửi full giá gói mới chưa biết prorate). BE override `totalAmount` trong response session bằng số đã prorate; FE đọc lại từ response thay vì tự tính. Nhánh `subscription` / `renew` vẫn validate ±1% như cũ.
+
 ### 10.2.4 Mở rộng response của `initiate` / `renew`
 
 Session response (trên hai endpoint này) trả thêm so với spec cũ:
@@ -1292,7 +1405,39 @@ Session response (trên hai endpoint này) trả thêm so với spec cũ:
 | `subscriptionFrozen` | 409 | Mọi initiate/renew/quote khi `subscriptionStatus = frozen` |
 | `downgradeScheduled` | 409 | `POST /payments/initiate` với tier thấp hơn. Body kèm `effectiveAt` + `pendingPlanId` |
 | `cannotDowngradeInTrial` | 409 | (reserved) Trial chưa hết mà muốn hạ gói |
+| `paymentPending` | 409 | User đã có session `pending` đang chờ duyệt/đối soát. Body kèm `pendingSession` (xem §10.2.6) |
 | `markPaidDuplicate` | 409 | Đã paid trước đó |
+
+### 10.2.6 Chặn tạo session khi đang có pending (v1.8+)
+
+Khi user gọi `POST /payments/initiate` hoặc `POST /payments/renew` mà đã có session `status=pending` (bất kỳ kind nào) → **409 `paymentPending`**, KHÔNG tạo session mới.
+
+```json
+{
+  "success": false,
+  "statusCode": 409,
+  "code": "paymentPending",
+  "message": "Bạn đang có phiên thanh toán chờ duyệt. Vui lòng hoàn tất hoặc hủy phiên hiện tại trước khi tạo mới.",
+  "pendingSession": {
+    "sessionId": "uuid",
+    "kind": "upgrade",
+    "totalAmount": 769450,
+    "planId": "rooms_10",
+    "planLabel": "Standard · Tháng",
+    "cycle": "monthly",
+    "method": "bank_transfer",
+    "createdAt": "2026-06-06T10:00:00.000Z",
+    "expiresAt": "2026-06-07T10:00:00.000Z"
+  }
+}
+```
+
+**FE handle:**
+- Khi nhận 409 `paymentPending` → điều hướng user về màn QR / order summary của `pendingSession.sessionId` (gọi `GET /payments/active` hoặc `GET /payments/:sessionId/status` để rehydrate).
+- Hiển thị `message` BE trả về.
+- Cho user 2 lựa chọn: **chờ duyệt** (tiếp tục) hoặc **hủy session cũ** (gọi `POST /payments/:sessionId/cancel` rồi mới tạo session mới).
+
+**Auto-cancel 24h:** Session `pending` quá `expiresAt` (24h sau `createdAt`) sẽ tự động chuyển `expired` qua cron `expirePendingSessions` (chạy mỗi 5 phút). Đồng thời revert `KycSubmission.payment_pending → kyc_submitted` cho session thuộc nhánh subscription lần đầu. User KHÔNG cần thao tác — sau 24h sẽ tự động tạo session mới được.
 
 Method values: `bank_transfer` (chỉ hỗ trợ duy nhất — VNPay và Apple IAP đã loại bỏ ở v1.4).
 
@@ -1347,6 +1492,34 @@ Công thức `totalAmount` mặc định: `max(pricePerRoom × rooms, minCharge)
 - `POST /payments/:id/cancel` hoặc cron auto-expire → revert về `kyc_submitted`.
 - Webhook / admin mark-paid → `paid` → `KycSubmission.status = awaiting_approval`.
 
+### 10.2.7 Error response shape — extras nằm ở ROOT body
+
+Mọi 4xx/5xx đi qua global filter `AllExceptionsFilter`. Shape chuẩn:
+
+```jsonc
+{
+  "success": false,
+  "statusCode": 409,
+  "message": "string",        // i18n vi/en
+  "code": "string | null",    // machine-readable: paymentPending, downgradeScheduled, ...
+  "errors": null,             // field-level errors object (ValidationPipe)
+  "path": "/payments/initiate",
+  "timestamp": "ISO"
+  // + extras
+}
+```
+
+**Extras ở root**, KHÔNG nằm trong `data` (vì error response không có `data` wrapper):
+
+| Code | Extras root-level |
+|---|---|
+| `paymentPending` | `pendingSession: { sessionId, kind, totalAmount, planId, planLabel, cycle, method, createdAt, expiresAt }` |
+| `downgradeScheduled` | `effectiveAt: ISO`, `pendingPlanId: string` |
+
+**Reserved keys** filter giữ riêng, không cho phép exception override: `message`, `errors`, `code`, `statusCode`, `error`. Mọi key khác trong `throw new HttpException(obj, status)` sẽ được **spread thẳng ra root body**.
+
+**Tại sao note riêng:** Trước v1.8.1 filter chỉ extract `message`/`code`/`errors`, mọi field tùy chỉnh khác (`pendingSession`, `effectiveAt`, `pendingPlanId`) **bị drop** → FE nhận 409 trống extras. Fixed 2026-06-06. FE phải đọc các extras từ root `response.data` (axios) hoặc root JSON body, KHÔNG unwrap qua `.data`.
+
 ### 10.3 Admin manual reconcile (v1.6)
 
 Phase hiện tại CHƯA setup webhook Sepay/Casso → ADMIN tự đối soát thủ công:
@@ -1355,6 +1528,41 @@ Phase hiện tại CHƯA setup webhook Sepay/Casso → ADMIN tự đối soát t
 |---|---|---|
 | `GET` | `/admin/payments?status=pending&from&to&search&page&limit` | List session để đối soát. Hydrate user info |
 | `POST` | `/admin/payments/:sessionId/mark-paid` | Body `{ reference? }`. Idempotent. Cho phép mark cả session đã expired |
+
+**Response shape `GET /admin/payments`** (per item):
+
+```json
+{
+  "id": "uuid",
+  "userId": "uuid",
+  "kind": "subscription | renew | upgrade | refund",
+  "planId": "rooms_1 | rooms_5 | rooms_10 | rooms_30",
+  "planLabel": "Gói 5 phòng",
+  "cycle": "monthly | yearly",
+  "rooms": 5,
+  "totalAmount": 250000,
+  "method": "bank_transfer",
+  "status": "pending | paid | failed | expired | refunded",
+  "provider": "manual_bank | manual | casso | sepay | null",
+  "providerTxnId": "string | null",
+  "referenceCode": "FT26060512345678 | null",
+  "reference": "FT26060512345678 | null",
+  "invoiceNumber": "INV-2026-0001 | null",
+  "bankInfo": { "bankName": "...", "accountNumber": "...", "accountName": "...", "bankBin": "...", "content": "HALONG24H abc123", "vietQrPayload": "..." },
+  "ckContent": "HALONG24H abc123",
+  "paidAt": "ISO | null",
+  "refundedAt": "ISO | null",
+  "expiresAt": "ISO",
+  "createdAt": "ISO",
+  "updatedAt": "ISO",
+  "user": { "id": "uuid", "name": "string | null", "email": "string", "phone": "string | null" }
+}
+```
+
+- `ckContent` = nội dung CK user thấy trên QR / app banking (deterministic `HALONG24H {sessionId}`, lấy từ `bankInfo.content`).
+- `reference` = alias của `referenceCode` (FE chấp nhận cả 2 key).
+- `user.email` luôn có để FE fallback hiển thị khi `user.name = null`.
+- `search` match `id`, `planLabel`, `referenceCode`, `user.name`, `user.email`, `user.phone`.
 
 **Workflow ADMIN**:
 1. User trong app tạo session qua `POST /payments/initiate` → app hiện QR + nội dung `HALONG24H <sessionId>`
@@ -1423,6 +1631,34 @@ Base path: `/staff`.
 | `DELETE` | `/staff/:userId` | OWNER/ADMIN | Remove SALE |
 
 ADMIN dùng `?ownerId=` để filter theo OWNER cụ thể, không truyền → xem tất cả.
+
+### 11.1.1 Quota mời nhân viên theo gói (plan entitlement)
+
+`POST /staff/invites` enforce quota server-side, **mirror FE `StaffEntitlement`** trong `app/lib/core/utils/staff_entitlement.dart`. Khi đổi quota, phải sửa cả 2 nơi.
+
+| planId | Tên gói | Tối đa SALE |
+|---|---|---|
+| `rooms_1` | Mini | **0** — không cho mời |
+| `rooms_5` | Starter | 3 |
+| `rooms_10` | Standard | 3 |
+| `rooms_20` | Pro | không giới hạn |
+| `rooms_50` | Business | không giới hạn |
+| `enterprise` | Enterprise | không giới hạn |
+
+Điều kiện được mời (enforce trong `createInvite`):
+1. `user.role = OWNER` (ADMIN có thể thay mặt qua `ownerId`).
+2. KYC approved hoặc `kycBypass=true`.
+3. `subscriptionStatus ∈ { trial, active }` — `past_due | cancelled | expired | frozen | none` đều bị chặn.
+4. `subscriptionPlanId` cho phép mời (`maxSlots > 0`).
+5. Tổng `SALE active + invite pending chưa hết hạn < maxSlots` (nếu `maxSlots != null`).
+
+**ADMIN bypass toàn bộ 4 check trên** (để seed/khắc phục thủ công).
+
+Lỗi quota:
+- `403 staffNotAllowedOnPlan` — gói hiện tại không có quyền mời (Mini hoặc planId lạ).
+- `409 staffSlotLimitReached` — gói Starter/Standard đã đạt 3 slot.
+
+Message i18n nhúng tên gói + số slot để FE hiện thị trực tiếp.
 
 ### 11.2 Public endpoints (cho landing page accept invite)
 
@@ -1896,6 +2132,16 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 
 ## 21. Changelog & Bug fixes
 
+### v1.11 — 2026-06-07 (KYC Option A + admin queue filter enum)
+
+| Thay đổi | Chi tiết |
+|---|---|
+| **Luồng KYC** | Duyệt trước → thanh toán sau. `POST /kyc/submit` → `awaiting_approval`. Admin approve → `approved` (chưa subscription). `POST /payments/initiate` yêu cầu `kycStatus=approved`. |
+| **Admin queue** | **Một endpoint** `GET /admin/kyc/queue?filter=0\|1\|2\|3` thay cho 3 request song song `status=...`. Response thêm `pendingCount`, mỗi item thêm `statusFilter` (1\|2\|3). |
+| **`GET /count-pending`** | Deprecated — dùng `data.pendingCount` từ queue. |
+| **Migration DB** | Hồ sơ legacy `kyc_submitted` + `user.kycStatus=pending` → `awaiting_approval`. |
+| **403 mới** | `payment.kycNotApproved` khi initiate subscription trước khi admin duyệt KYC. |
+
 ### v1.10 — 2026-06-06 (Reports validation + spec sync cho FE đa nền tảng)
 
 Đồng bộ spec với code sau khi FE mobile wire xong tab Báo cáo và ghép thêm KYC/Apple IAP.
@@ -2306,10 +2552,21 @@ GET/PATCH lead trả thêm:
 
 Web admin chỉ cần 4 state: `none | pending | approved | rejected`.
 
-8-state lifecycle mobile spec cũ (`draft | kyc_submitted | payment_pending | paid | awaiting_approval | approved | rejected | refunded`) là **internal BE state** cho mobile flow. Web UI map xuống:
-- `draft`, `kyc_submitted`, `payment_pending`, `paid`, `awaiting_approval` → web hiển thị **pending**
-- `approved` → **approved**
-- `rejected` → **rejected**
+Web admin KYC list: **một API** `GET /admin/kyc/queue?filter=0|1|2|3`.
+
+| `filter` | Tab web |
+|---:|---|
+| `0` | Tất cả |
+| `1` | Chờ duyệt |
+| `2` | Đã duyệt |
+| `3` | Đã từ chối |
+
+Mỗi item có `statusFilter` (1|2|3) — FE map text. Chi tiết nội bộ vẫn có field `status` (camelCase).
+
+8-state lifecycle DB (`draft | kyc_submitted | payment_pending | awaiting_approval | approved | rejected | refunded`) là **internal BE**. Admin tab gom:
+- `kyc_submitted`, `payment_pending`, `awaiting_approval` → **filter=1 (chờ duyệt)**
+- `approved`, `refunded` → **filter=2 (đã duyệt)**
+- `rejected` → **filter=3 (đã từ chối)**
 - `refunded` → **none** (đã thoái KYC)
 
 Field BE trả về web: `kycStatus: 'none' | 'pending' | 'approved' | 'rejected'` (4 state) — đã map sẵn ở `/auth/profile` và `/kyc/status`.

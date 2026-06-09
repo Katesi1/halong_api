@@ -20,6 +20,7 @@ interface GridProperty {
   weekdayPrice?: number | null;
   weekendPrice?: number | null;
   holidayPrice?: number | null;
+  owner?: { phone: string | null } | null;
 }
 
 @Injectable()
@@ -41,6 +42,7 @@ export class CalendarService {
     weekdayPrice: true,
     weekendPrice: true,
     holidayPrice: true,
+    owner: { select: { phone: true } },
   } as const;
 
   // ─── Property list for calendar sidebar ────────────────────────────────────
@@ -502,6 +504,7 @@ export class CalendarService {
         type: property.type,
         view: property.view,
         address: property.address,
+        ownerPhone: property.owner?.phone ?? null,
         days,
       };
     });

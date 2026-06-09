@@ -276,10 +276,16 @@ export class KycService {
         where: { id: submissionId },
       });
       if (sub && sub.status === KYC_SUBMISSION_STATUS.DRAFT) {
-        await this.prisma.kycSubmission.update({
-          where: { id: submissionId },
-          data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
-        });
+        await this.prisma.$transaction([
+          this.prisma.kycSubmission.update({
+            where: { id: submissionId },
+            data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
+          }),
+          this.prisma.user.update({
+            where: { id: sub.userId },
+            data: { kycStatus: KYC_STATUS.PENDING },
+          }),
+        ]);
       }
     }
   }
@@ -329,7 +335,7 @@ export class KycService {
     await this.prisma.$transaction([
       this.prisma.kycSubmission.update({
         where: { id: submission.id },
-        data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
+        data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
       }),
       // Mirror sang User.kycStatus để guard ở các API khác hoạt động
       this.prisma.user.update({
@@ -342,7 +348,7 @@ export class KycService {
       message: msg.kyc.submitSuccess,
       data: {
         submissionId: submission.id,
-        status: KYC_STATUS_API_MAP[KYC_SUBMISSION_STATUS.KYC_SUBMITTED],
+        status: KYC_STATUS_API_MAP[KYC_SUBMISSION_STATUS.AWAITING_APPROVAL],
       },
     };
   }

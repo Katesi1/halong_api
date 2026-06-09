@@ -25,6 +25,7 @@ import {
 } from '../../common/constants';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import { getMaxSaleStaff, getPlanDisplayName } from '../../common/staff-entitlement';
 
 const INVITE_TTL_DAYS = 7;
 const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // bỏ I,O,1,0 cho dễ đọc
@@ -52,7 +53,11 @@ export class StaffService {
 
     const owner = await this.prisma.user.findUnique({
       where: { id: ownerId },
-      select: { id: true, name: true, email: true, role: true, kycStatus: true, kycBypass: true, subscriptionStatus: true },
+      select: {
+        id: true, name: true, email: true, role: true,
+        kycStatus: true, kycBypass: true,
+        subscriptionStatus: true, subscriptionPlanId: true,
+      },
     });
     if (!owner || owner.role !== ROLE.OWNER) {
       throw new ForbiddenException(msg.staff.ownerOnly);
@@ -65,6 +70,30 @@ export class StaffService {
         || owner.subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE;
       if (!subOk) {
         throw new ForbiddenException(msg.staff.subscriptionRequired);
+      }
+
+      // Plan entitlement: số slot SALE theo gói. Mirror FE StaffEntitlement.
+      // ADMIN bypass để có thể seed/khắc phục thủ công.
+      const maxSlots = getMaxSaleStaff(owner.subscriptionPlanId);
+      const planName = getPlanDisplayName(owner.subscriptionPlanId);
+      if (maxSlots === 0) {
+        throw new ForbiddenException(msg.staff.staffNotAllowedOnPlan(planName));
+      }
+      if (maxSlots !== null) {
+        // Đếm SALE active + invite pending chưa hết hạn → tính cả "đang giữ slot".
+        const [activeStaff, pendingInvites] = await Promise.all([
+          this.prisma.user.count({
+            where: { ownerId, role: ROLE.SALE, isActive: true, deletedAt: null },
+          }),
+          this.prisma.staffInvite.count({
+            where: { ownerId, status: 'pending', expiresAt: { gt: new Date() } },
+          }),
+        ]);
+        if (activeStaff + pendingInvites >= maxSlots) {
+          throw new ConflictException(
+            msg.staff.staffSlotLimitReached(planName, maxSlots),
+          );
+        }
       }
     }
 

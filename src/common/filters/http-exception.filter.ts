@@ -23,6 +23,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let message: string | string[] = msg.common.serverError;
     let errors: any = null;
     let code: string | null = null;
+    // Extra fields từ HttpException response object (vd: pendingSession,
+    // effectiveAt, pendingPlanId trên các 409 billing). Filter sẽ spread
+    // chúng ra root body để FE đọc được mà không cần unwrap `data`.
+    let extras: Record<string, unknown> = {};
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -41,6 +45,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
         errors = obj.errors ?? null;
         // Preserve machine-readable code (e.g. KYC_ALREADY_PENDING)
         if (typeof obj.code === 'string') code = obj.code;
+        // Forward mọi field khác (vd: pendingSession, effectiveAt) ra root body.
+        // Skip các key đã được handle riêng + key chuẩn của HttpException.
+        const reservedKeys = new Set([
+          'message',
+          'errors',
+          'code',
+          'statusCode',
+          'error',
+        ]);
+        for (const [key, value] of Object.entries(obj)) {
+          if (!reservedKeys.has(key)) extras[key] = value;
+        }
       }
     } else {
       this.logger.error('Unhandled exception', exception);
@@ -52,6 +68,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message: Array.isArray(message) ? message.join(', ') : message,
       code,
       errors,
+      ...extras,
       path: request.url,
       timestamp: new Date().toISOString(),
     });

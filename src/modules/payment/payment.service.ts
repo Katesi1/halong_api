@@ -83,7 +83,12 @@ export class PaymentService {
   }
 
   private computeExpectedTotal(
-    plan: { pricePerRoom: number; minCharge: number; yearlyDiscountPct: number; vatPct: number },
+    plan: {
+      pricePerRoom: number;
+      minCharge: number;
+      yearlyDiscountPct: number;
+      vatPct: number;
+    },
     cycle: string,
     rooms: number,
     priceOverride?: number | null,
@@ -133,7 +138,11 @@ export class PaymentService {
       where: {
         userId: user.id,
         status: {
-          in: [SUBSCRIPTION_STATUS.ACTIVE, SUBSCRIPTION_STATUS.PAST_DUE, SUBSCRIPTION_STATUS.TRIAL],
+          in: [
+            SUBSCRIPTION_STATUS.ACTIVE,
+            SUBSCRIPTION_STATUS.PAST_DUE,
+            SUBSCRIPTION_STATUS.TRIAL,
+          ],
         },
       },
       orderBy: { endsAt: 'desc' },
@@ -161,37 +170,42 @@ export class PaymentService {
         rooms,
         callerUser?.subscriptionPriceOverride,
       );
-    } else if (sub!.planId === dto.planId && sub!.cycle === cycle) {
+    } else if (sub.planId === dto.planId && sub.cycle === cycle) {
       // Same plan + cycle → renew (stack)
       kind = 'renew';
-      currentPlanId = sub!.planId;
+      currentPlanId = sub.planId;
       breakdown = computeFullCycleTotal(
-        sub!.plan,
+        sub.plan,
         cycle,
-        sub!.rooms,
+        sub.rooms,
         callerUser?.subscriptionPriceOverride,
       );
-    } else if (isUpgrade(sub!.planId, dto.planId)) {
+    } else if (isUpgrade(sub.planId, dto.planId)) {
       kind = 'upgrade';
-      currentPlanId = sub!.planId;
+      currentPlanId = sub.planId;
       breakdown = computeUpgradeProrate(
         plan,
         cycle,
         rooms,
         callerUser?.subscriptionPriceOverride,
-        sub!.plan,
-        sub!.cycle as Cycle,
-        sub!.rooms,
+        sub.plan,
+        sub.cycle as Cycle,
+        sub.rooms,
         callerUser?.subscriptionPriceOverride,
-        callerUser?.currentPeriodEnd ?? sub!.endsAt,
+        callerUser?.currentPeriodEnd ?? sub.endsAt,
       );
-    } else if (isDowngrade(sub!.planId, dto.planId)) {
+    } else if (isDowngrade(sub.planId, dto.planId)) {
       kind = 'downgrade';
-      currentPlanId = sub!.planId;
+      currentPlanId = sub.planId;
       pendingPlanId = dto.planId;
-      effectiveAt = callerUser?.currentPeriodEnd ?? sub!.endsAt;
+      effectiveAt = callerUser?.currentPeriodEnd ?? sub.endsAt;
       breakdown = {
-        listPrice: planSubtotal(plan, cycle, rooms, callerUser?.subscriptionPriceOverride),
+        listPrice: planSubtotal(
+          plan,
+          cycle,
+          rooms,
+          callerUser?.subscriptionPriceOverride,
+        ),
         creditApplied: 0,
         vat: 0,
         total: 0,
@@ -200,7 +214,7 @@ export class PaymentService {
     } else {
       // Different cycle, same tier → treat as renew with new cycle (no prorate)
       kind = 'renew';
-      currentPlanId = sub!.planId;
+      currentPlanId = sub.planId;
       breakdown = computeFullCycleTotal(
         plan,
         cycle,
@@ -226,9 +240,7 @@ export class PaymentService {
           currentPlanId,
           periodExtension: breakdown.periodExtension ?? null,
         },
-        ...(kind === 'downgrade'
-          ? { effectiveAt, pendingPlanId }
-          : {}),
+        ...(kind === 'downgrade' ? { effectiveAt, pendingPlanId } : {}),
       },
     };
   }
@@ -250,7 +262,9 @@ export class PaymentService {
     qrExpiresAt: Date;
   } {
     if (method !== PAYMENT_METHOD.BANK_TRANSFER) {
-      throw new BadRequestException(`Phương thức thanh toán không được hỗ trợ: ${method}`);
+      throw new BadRequestException(
+        `Phương thức thanh toán không được hỗ trợ: ${method}`,
+      );
     }
 
     const bank = this.getBankConfig();
@@ -345,6 +359,7 @@ export class PaymentService {
     const callerUser = await this.prisma.user.findUnique({
       where: { id: user.id },
       select: {
+        kycStatus: true,
         subscriptionPriceOverride: true,
         subscriptionStatus: true,
         currentPeriodEnd: true,
@@ -353,6 +368,8 @@ export class PaymentService {
     if (callerUser?.subscriptionStatus === SUBSCRIPTION_STATUS.FROZEN) {
       throw new ConflictException(msg.payment.subscriptionFrozen);
     }
+
+    await this.ensureNoPendingSession(user.id, msg);
 
     const sub = await this.prisma.subscription.findFirst({
       where: {
@@ -405,6 +422,9 @@ export class PaymentService {
         priceOverride,
         callerUser?.currentPeriodEnd ?? sub.endsAt,
       );
+      // Bỏ validate `clientAmount` cho upgrade: FE cũ gửi full giá gói mới
+      // (chưa biết prorate). BE là source of truth — `totalAmount` trong response
+      // session sẽ là số đã prorate. FE đọc lại từ response thay vì tự tính.
       return this.createBillingSession({
         user,
         plan,
@@ -414,7 +434,7 @@ export class PaymentService {
         ipAddr,
         kind: PAYMENT_KIND.UPGRADE,
         breakdown,
-        clientAmount: dto.totalAmount,
+        // clientAmount intentionally omitted for upgrade
         orderVerb: 'Nang cap',
         successMsg: msg.payment.initiateSuccess,
         msg,
@@ -447,13 +467,17 @@ export class PaymentService {
       });
     }
 
-    // ─── First-time subscription (KYC required) ───────────────────────────
+    // ─── First-time subscription (KYC approved, payment after admin review) ─
+    if (callerUser?.kycStatus !== KYC_STATUS.APPROVED) {
+      throw new ForbiddenException(msg.payment.kycNotApproved);
+    }
+
     const submission = await this.prisma.kycSubmission.findFirst({
       where: {
         userId: user.id,
         status: {
           in: [
-            KYC_SUBMISSION_STATUS.KYC_SUBMITTED,
+            KYC_SUBMISSION_STATUS.APPROVED,
             KYC_SUBMISSION_STATUS.PAYMENT_PENDING,
           ],
         },
@@ -471,7 +495,12 @@ export class PaymentService {
       throw new ConflictException(msg.payment.alreadyPaid);
     }
 
-    const breakdown = computeFullCycleTotal(plan, cycle, dto.rooms, priceOverride);
+    const breakdown = computeFullCycleTotal(
+      plan,
+      cycle,
+      dto.rooms,
+      priceOverride,
+    );
     const tolerance = breakdown.total * 0.01;
     if (Math.abs(dto.totalAmount - breakdown.total) > tolerance) {
       throw new BadRequestException(msg.payment.amountMismatch);
@@ -534,6 +563,48 @@ export class PaymentService {
     };
   }
 
+  /**
+   * Chặn user tạo session mới khi đang có session `pending` (chờ admin duyệt
+   * hoặc đối soát ngân hàng). 24h sau cron `expirePendingSessions` sẽ tự
+   * chuyển `pending → expired`, lúc đó user mới được tạo session khác.
+   */
+  private async ensureNoPendingSession(
+    userId: string,
+    msg: Messages,
+  ): Promise<void> {
+    const pending = await this.prisma.paymentSession.findFirst({
+      where: { userId, status: PAYMENT_STATUS.PENDING },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        kind: true,
+        totalAmount: true,
+        planId: true,
+        planLabel: true,
+        cycle: true,
+        method: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+    });
+    if (!pending) return;
+    throw new ConflictException({
+      code: 'paymentPending',
+      message: msg.payment.paymentPending,
+      pendingSession: {
+        sessionId: pending.id,
+        kind: pending.kind,
+        totalAmount: pending.totalAmount,
+        planId: pending.planId,
+        planLabel: pending.planLabel,
+        cycle: pending.cycle,
+        method: pending.method,
+        createdAt: pending.createdAt,
+        expiresAt: pending.expiresAt,
+      },
+    });
+  }
+
   /** Shared helper to create a renew/upgrade payment session and return FE shape. */
   private async createBillingSession(opts: {
     user: { id: string };
@@ -550,8 +621,18 @@ export class PaymentService {
     msg: Messages;
   }) {
     const {
-      user, plan, cycle, rooms, method, ipAddr, kind, breakdown,
-      clientAmount, orderVerb, successMsg, msg,
+      user,
+      plan,
+      cycle,
+      rooms,
+      method,
+      ipAddr,
+      kind,
+      breakdown,
+      clientAmount,
+      orderVerb,
+      successMsg,
+      msg,
     } = opts;
 
     // Validate amount if FE provided one (legacy contract).
@@ -779,7 +860,7 @@ export class PaymentService {
                 id: session.submissionId,
                 status: KYC_SUBMISSION_STATUS.PAYMENT_PENDING,
               },
-              data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
+              data: { status: KYC_SUBMISSION_STATUS.APPROVED },
             }),
           ]
         : []),
@@ -868,6 +949,7 @@ export class PaymentService {
     const allowed = [
       KYC_SUBMISSION_STATUS.REJECTED,
       KYC_SUBMISSION_STATUS.AWAITING_APPROVAL,
+      KYC_SUBMISSION_STATUS.APPROVED,
     ];
     if (!allowed.includes(session.submission.status as any)) {
       throw new BadRequestException(msg.payment.cannotRefund);
@@ -927,11 +1009,15 @@ export class PaymentService {
     payload: Record<string, any>,
     headerSecret: string | undefined,
   ): Promise<{ success: boolean; message?: string }> {
-    const expectedSecret = this.configService.get<string>('BANK_WEBHOOK_SECRET');
+    const expectedSecret = this.configService.get<string>(
+      'BANK_WEBHOOK_SECRET',
+    );
     if (!expectedSecret) {
       // Bắt buộc cấu hình — nếu thiếu, từ chối toàn bộ webhook thay vì
       // im lặng cho qua (kẻ tấn công có thể bơm thanh toán giả).
-      this.logger.error('BANK_WEBHOOK_SECRET chưa được cấu hình — từ chối webhook');
+      this.logger.error(
+        'BANK_WEBHOOK_SECRET chưa được cấu hình — từ chối webhook',
+      );
       throw new ForbiddenException('Webhook authentication is not configured');
     }
     if (headerSecret !== expectedSecret) {
@@ -968,7 +1054,9 @@ export class PaymentService {
       return { success: true, message: `ignored: status=${session.status}` };
     }
 
-    if (Math.abs(txn.amount - session.totalAmount) > BANK_AMOUNT_TOLERANCE_VND) {
+    if (
+      Math.abs(txn.amount - session.totalAmount) > BANK_AMOUNT_TOLERANCE_VND
+    ) {
       this.logger.warn(
         `Bank webhook: amount mismatch sess=${session.totalAmount} txn=${txn.amount}`,
       );
@@ -1009,7 +1097,9 @@ export class PaymentService {
         providerTxnId: info.providerTxnId ?? null,
         referenceCode: info.referenceCode ?? null,
         invoiceNumber,
-        ...(info.providerPayload ? { providerPayload: info.providerPayload } : {}),
+        ...(info.providerPayload
+          ? { providerPayload: info.providerPayload }
+          : {}),
       },
     });
 
@@ -1024,63 +1114,179 @@ export class PaymentService {
     if (!session) return;
 
     if (session.kind === PAYMENT_KIND.SUBSCRIPTION && session.submissionId) {
-      await this.prisma.$transaction([
-        this.prisma.kycSubmission.update({
+      const [submission, userRow] = await Promise.all([
+        this.prisma.kycSubmission.findUnique({
           where: { id: session.submissionId },
-          data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
+          select: {
+            id: true,
+            trialEndsAt: true,
+            chargeStartsAt: true,
+            expectedRooms: true,
+          },
         }),
-        this.prisma.user.update({
+        this.prisma.user.findUnique({
           where: { id: session.userId },
-          data: { kycStatus: KYC_STATUS.PENDING },
+          select: { kycStatus: true },
         }),
       ]);
-      void this.notifications.notifyUser(
-        session.userId,
-        'Thanh toán thành công',
-        `${session.planLabel ?? 'Gói'} đã thanh toán, hồ sơ KYC đang chờ duyệt`,
-        NOTIFICATION_TYPE.PAYMENT,
-        session.id,
-        'payment',
-        { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
-      ).catch(() => undefined);
+
+      if (userRow?.kycStatus === KYC_STATUS.APPROVED && submission) {
+        await this.activateSubscriptionAfterPayment(session, submission);
+        void this.notifications
+          .notifyUser(
+            session.userId,
+            'Thanh toán thành công',
+            `${session.planLabel ?? 'Gói'} đã được kích hoạt`,
+            NOTIFICATION_TYPE.PAYMENT,
+            session.id,
+            'payment',
+            { pushType: 'payment_succeeded', deepLink: '/dashboard' },
+          )
+          .catch(() => undefined);
+      } else {
+        // Legacy: payment before KYC admin review
+        await this.prisma.$transaction([
+          this.prisma.kycSubmission.update({
+            where: { id: session.submissionId },
+            data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
+          }),
+          this.prisma.user.update({
+            where: { id: session.userId },
+            data: { kycStatus: KYC_STATUS.PENDING },
+          }),
+        ]);
+        void this.notifications
+          .notifyUser(
+            session.userId,
+            'Thanh toán thành công',
+            `${session.planLabel ?? 'Gói'} đã thanh toán, hồ sơ KYC đang chờ duyệt`,
+            NOTIFICATION_TYPE.PAYMENT,
+            session.id,
+            'payment',
+            { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
+          )
+          .catch(() => undefined);
+      }
     } else if (session.kind === PAYMENT_KIND.RENEW) {
       await this.extendSubscription(session);
-      void this.notifications.notifyUser(
-        session.userId,
-        'Gia hạn thành công',
-        `${session.planLabel ?? 'Gói'} đã được gia hạn`,
-        NOTIFICATION_TYPE.PAYMENT,
-        session.id,
-        'payment',
-        { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
-      ).catch(() => undefined);
+      void this.notifications
+        .notifyUser(
+          session.userId,
+          'Gia hạn thành công',
+          `${session.planLabel ?? 'Gói'} đã được gia hạn`,
+          NOTIFICATION_TYPE.PAYMENT,
+          session.id,
+          'payment',
+          { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
+        )
+        .catch(() => undefined);
     } else if (session.kind === PAYMENT_KIND.UPGRADE) {
       await this.applyUpgrade(session);
-      void this.notifications.notifyUser(
-        session.userId,
-        'Nâng cấp thành công',
-        `${session.planLabel ?? 'Gói'} đã được nâng cấp`,
-        NOTIFICATION_TYPE.PAYMENT,
-        session.id,
-        'payment',
-        { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
-      ).catch(() => undefined);
+      void this.notifications
+        .notifyUser(
+          session.userId,
+          'Nâng cấp thành công',
+          `${session.planLabel ?? 'Gói'} đã được nâng cấp`,
+          NOTIFICATION_TYPE.PAYMENT,
+          session.id,
+          'payment',
+          { pushType: 'payment_succeeded', deepLink: '/my-bookings' },
+        )
+        .catch(() => undefined);
     }
 
-    void this.auditLog.log({
-      actorId: session.userId,
-      actorRole: 1, // OWNER
-      action: 'payment.session_mark_paid',
-      targetType: 'subscription',
-      targetId: session.userId,
-      targetLabel: `Session ${session.id}`,
-      metadata: {
-        kind: session.kind,
-        amount: session.totalAmount,
-        planId: session.planId,
-        cycle: session.cycle,
-      },
-    }).catch(() => undefined);
+    void this.auditLog
+      .log({
+        actorId: session.userId,
+        actorRole: 1, // OWNER
+        action: 'payment.session_mark_paid',
+        targetType: 'subscription',
+        targetId: session.userId,
+        targetLabel: `Session ${session.id}`,
+        metadata: {
+          kind: session.kind,
+          amount: session.totalAmount,
+          planId: session.planId,
+          cycle: session.cycle,
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * First subscription payment after KYC admin approval (Option A flow).
+   * Uses trialEndsAt/chargeStartsAt set during admin KYC approve.
+   */
+  private async activateSubscriptionAfterPayment(
+    session: {
+      userId: string;
+      submissionId: string | null;
+      planId: string;
+      cycle: string;
+      rooms: number;
+    },
+    submission: {
+      id: string;
+      trialEndsAt: Date | null;
+      chargeStartsAt: Date | null;
+      expectedRooms: number | null;
+    },
+  ): Promise<void> {
+    const now = new Date();
+    const cycle = session.cycle as Cycle;
+    const trialEndsAt =
+      submission.trialEndsAt ??
+      submission.chargeStartsAt ??
+      extendPeriod(now, cycle);
+    // Paid period = trial + 1 billing cycle.
+    const paidEndsAt = extendPeriod(trialEndsAt, cycle);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.kycSubmission.update({
+        where: { id: submission.id },
+        data: { status: KYC_SUBMISSION_STATUS.APPROVED },
+      });
+
+      const existing = await tx.subscription.findFirst({
+        where: { userId: session.userId, planId: session.planId },
+      });
+      if (!existing) {
+        await tx.subscription.create({
+          data: {
+            userId: session.userId,
+            planId: session.planId,
+            cycle: session.cycle,
+            rooms: session.rooms ?? submission.expectedRooms ?? 1,
+            status: SUBSCRIPTION_STATUS.ACTIVE,
+            startsAt: now,
+            endsAt: paidEndsAt,
+          },
+        });
+      } else {
+        await tx.subscription.update({
+          where: { id: existing.id },
+          data: {
+            cycle: session.cycle,
+            rooms: session.rooms ?? submission.expectedRooms ?? 1,
+            status: SUBSCRIPTION_STATUS.ACTIVE,
+            endsAt: paidEndsAt,
+          },
+        });
+      }
+
+      await tx.user.update({
+        where: { id: session.userId },
+        data: {
+          subscriptionStatus: SUBSCRIPTION_STATUS.TRIAL,
+          subscriptionPlanId: session.planId,
+          subscriptionCycle: session.cycle,
+          trialEndsAt,
+          nextChargeAt: paidEndsAt,
+          currentPeriodStart: now,
+          currentPeriodEnd: paidEndsAt,
+        },
+      });
+    });
   }
 
   /** Extend the user's subscription endsAt by one cycle from max(now, currentPeriodEnd). */
@@ -1127,9 +1333,7 @@ export class PaymentService {
         subscriptionCycle: session.cycle,
         nextChargeAt: nextEnd,
         currentPeriodEnd: nextEnd,
-        ...(wasFuture
-          ? {}
-          : { currentPeriodStart: now, trialEndsAt: null }),
+        ...(wasFuture ? {} : { currentPeriodStart: now, trialEndsAt: null }),
       },
     });
   }
@@ -1213,10 +1417,27 @@ export class PaymentService {
       if (filters.to) where.createdAt.lte = new Date(filters.to);
     }
     if (filters.search) {
+      const q = filters.search;
+      const matchingUserIds = await this.prisma.user
+        .findMany({
+          where: {
+            OR: [
+              { name: { contains: q, mode: 'insensitive' } },
+              { email: { contains: q, mode: 'insensitive' } },
+              { phone: { contains: q } },
+            ],
+          },
+          select: { id: true },
+        })
+        .then((rows) => rows.map((r) => r.id));
+
       where.OR = [
-        { id: { contains: filters.search } },
-        { planLabel: { contains: filters.search, mode: 'insensitive' } },
-        { referenceCode: { contains: filters.search } },
+        { id: { contains: q } },
+        { planLabel: { contains: q, mode: 'insensitive' } },
+        { referenceCode: { contains: q } },
+        ...(matchingUserIds.length > 0
+          ? [{ userId: { in: matchingUserIds } }]
+          : []),
       ];
     }
 
@@ -1228,11 +1449,26 @@ export class PaymentService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         select: {
-          id: true, userId: true, kind: true, planId: true, planLabel: true,
-          cycle: true, rooms: true, totalAmount: true, method: true,
-          status: true, provider: true, providerTxnId: true, referenceCode: true,
-          invoiceNumber: true, paidAt: true, refundedAt: true,
-          expiresAt: true, createdAt: true,
+          id: true,
+          userId: true,
+          kind: true,
+          planId: true,
+          planLabel: true,
+          cycle: true,
+          rooms: true,
+          totalAmount: true,
+          method: true,
+          status: true,
+          provider: true,
+          providerTxnId: true,
+          referenceCode: true,
+          invoiceNumber: true,
+          bankInfo: true,
+          paidAt: true,
+          refundedAt: true,
+          expiresAt: true,
+          createdAt: true,
+          updatedAt: true,
         },
       }),
     ]);
@@ -1250,8 +1486,20 @@ export class PaymentService {
     return {
       message: msg.payment.adminListSuccess,
       data: {
-        items: items.map((s) => ({ ...s, user: userMap.get(s.userId) ?? null })),
-        total, page, limit,
+        items: items.map((s) => {
+          const ckContent =
+            (s.bankInfo as { content?: string } | null)?.content ??
+            `HALONG24H ${s.id}`;
+          return {
+            ...s,
+            ckContent,
+            reference: s.referenceCode,
+            user: userMap.get(s.userId) ?? null,
+          };
+        }),
+        total,
+        page,
+        limit,
         totalPages: Math.ceil(total / limit),
       },
     };
@@ -1281,7 +1529,10 @@ export class PaymentService {
     }
 
     // Reset về PENDING nếu đã expired để markSessionPaid claim được
-    if (session.status === PAYMENT_STATUS.EXPIRED || session.status === PAYMENT_STATUS.FAILED) {
+    if (
+      session.status === PAYMENT_STATUS.EXPIRED ||
+      session.status === PAYMENT_STATUS.FAILED
+    ) {
       await this.prisma.paymentSession.update({
         where: { id: sessionId },
         data: { status: PAYMENT_STATUS.PENDING },
@@ -1292,7 +1543,10 @@ export class PaymentService {
       provider: PAYMENT_PROVIDER.MANUAL,
       providerTxnId: reference,
       referenceCode: reference,
-      providerPayload: { markedBy: adminId, markedAt: new Date().toISOString() },
+      providerPayload: {
+        markedBy: adminId,
+        markedAt: new Date().toISOString(),
+      },
     });
 
     this.logger.log(
@@ -1336,7 +1590,9 @@ export class PaymentService {
 
     const ids = expiring.map((s) => s.id);
     const submissionIds = Array.from(
-      new Set(expiring.map((s) => s.submissionId).filter((v): v is string => !!v)),
+      new Set(
+        expiring.map((s) => s.submissionId).filter((v): v is string => !!v),
+      ),
     );
 
     await this.prisma.$transaction([
@@ -1344,7 +1600,7 @@ export class PaymentService {
         where: { id: { in: ids } },
         data: { status: PAYMENT_STATUS.EXPIRED },
       }),
-      // Revert KYC submission về kyc_submitted để user có thể initiate phiên mới
+      // Revert KYC submission về approved để user có thể initiate phiên mới
       ...(submissionIds.length > 0
         ? [
             this.prisma.kycSubmission.updateMany({
@@ -1352,7 +1608,7 @@ export class PaymentService {
                 id: { in: submissionIds },
                 status: KYC_SUBMISSION_STATUS.PAYMENT_PENDING,
               },
-              data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
+              data: { status: KYC_SUBMISSION_STATUS.APPROVED },
             }),
           ]
         : []),

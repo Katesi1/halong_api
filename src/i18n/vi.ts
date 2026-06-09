@@ -244,6 +244,13 @@ export const vi = {
     listSuccess: 'Lấy danh sách gói dịch vụ thành công',
     planNotFound: 'Gói không tồn tại hoặc đã ngừng cung cấp',
     roomCountExceedsPlan: 'Số phòng vượt quá giới hạn của gói',
+    adminListSuccess: 'Lấy danh sách gói (admin) thành công',
+    createSuccess: 'Tạo gói thành công',
+    updateSuccess: 'Cập nhật gói thành công',
+    deleteSuccess: 'Xoá gói thành công',
+    deactivateSuccess: 'Gói đã được vô hiệu hoá (vẫn còn subscription đang dùng nên không thể xoá cứng)',
+    idExists: 'Đã có gói với ID này',
+    idInvalid: 'ID gói chỉ được chứa chữ thường, số hoặc dấu gạch dưới (a-z, 0-9, _)',
   },
 
   // ─── Payment ───────────────────────────────────────────────────────────────
@@ -277,6 +284,10 @@ export const vi = {
     cannotDowngradeInTrial: 'Không thể hạ gói trong thời gian dùng thử',
     planNotFound: 'Không tìm thấy gói dịch vụ',
     samePlanNoChange: 'Bạn đang sử dụng gói này',
+    kycNotApproved:
+      'Cần hoàn tất xác minh KYC và được admin duyệt trước khi mua gói',
+    paymentPending:
+      'Bạn đang có phiên thanh toán chờ duyệt. Vui lòng hoàn tất hoặc hủy phiên hiện tại trước khi tạo mới.',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -293,6 +304,10 @@ export const vi = {
     ownerIdRequired: 'ADMIN phải truyền ownerId khi tạo invite thay mặt OWNER',
     kycRequired: 'Cần hoàn tất KYC trước khi mời nhân viên',
     subscriptionRequired: 'Cần subscription đang hoạt động để mời nhân viên',
+    staffNotAllowedOnPlan: (planName: string) =>
+      `Gói ${planName} không bao gồm quyền mời nhân viên. Nâng cấp lên Starter trở lên để có thể mời nhân viên.`,
+    staffSlotLimitReached: (planName: string, max: number) =>
+      `Gói ${planName} chỉ cho phép tối đa ${max} nhân viên (đã đạt giới hạn, tính cả lời mời chờ accept). Nâng cấp lên Pro trở lên để mời không giới hạn.`,
     emailInvalid: 'Email không hợp lệ',
     inviteSelf: 'Không thể tự mời chính mình',
     emailHasAccount: 'Email đã có tài khoản. Liên hệ chủ tài khoản đó.',
@@ -330,6 +345,7 @@ export const vi = {
     rejectSuccess: 'Từ chối hồ sơ xác minh thành công',
     alreadyProcessed: 'Hồ sơ này đã được xử lý rồi',
     invalidStatus: 'Hồ sơ không ở trạng thái chờ duyệt',
+    invalidFilter: 'filter phải là 0 (tất cả), 1 (chờ duyệt), 2 (đã duyệt) hoặc 3 (đã từ chối)',
   },
 
   // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────

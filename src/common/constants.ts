@@ -89,6 +89,29 @@ export const KYC_SUBMISSION_STATUS = {
   REFUNDED: 'refunded',
 } as const;
 
+/** Admin KYC queue tab filter — FE gửi số, BE map sang DB status. */
+export const KYC_ADMIN_FILTER = {
+  ALL: 0,
+  PENDING: 1,
+  APPROVED: 2,
+  REJECTED: 3,
+} as const;
+
+export const KYC_ADMIN_PENDING_STATUSES = [
+  KYC_SUBMISSION_STATUS.KYC_SUBMITTED,
+  KYC_SUBMISSION_STATUS.PAYMENT_PENDING,
+  KYC_SUBMISSION_STATUS.AWAITING_APPROVAL,
+] as const;
+
+export const KYC_ADMIN_APPROVED_STATUSES = [
+  KYC_SUBMISSION_STATUS.APPROVED,
+  KYC_SUBMISSION_STATUS.REFUNDED,
+] as const;
+
+export const KYC_ADMIN_REJECTED_STATUSES = [
+  KYC_SUBMISSION_STATUS.REJECTED,
+] as const;
+
 export const PAYMENT_STATUS = {
   PENDING: 'pending',
   PAID: 'paid',
@@ -259,3 +282,19 @@ export const KYC_STATUS_API_MAP: Record<string, string> = {
   rejected: 'rejected',
   refunded: 'refunded',
 };
+
+/** Map KycSubmission.status → admin tab filter (1|2|3). Draft → null. */
+export function kycSubmissionToAdminFilter(
+  status: string,
+): (typeof KYC_ADMIN_FILTER)[keyof typeof KYC_ADMIN_FILTER] | null {
+  if ((KYC_ADMIN_PENDING_STATUSES as readonly string[]).includes(status)) {
+    return KYC_ADMIN_FILTER.PENDING;
+  }
+  if ((KYC_ADMIN_APPROVED_STATUSES as readonly string[]).includes(status)) {
+    return KYC_ADMIN_FILTER.APPROVED;
+  }
+  if ((KYC_ADMIN_REJECTED_STATUSES as readonly string[]).includes(status)) {
+    return KYC_ADMIN_FILTER.REJECTED;
+  }
+  return null;
+}
