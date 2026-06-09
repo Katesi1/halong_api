@@ -13,9 +13,9 @@ export class UpdateBookingDto {
   @IsString()
   customerPhone?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'VND, integer' })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
   @Type(() => Number)
   depositAmount?: number;

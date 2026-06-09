@@ -323,9 +323,6 @@ export class LoginDataDto {
 
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIs...' })
   refreshToken: string;
-
-  @ApiProperty({ type: UserDto })
-  user: UserDto;
 }
 
 // ─── Wrapped Responses (for Swagger Schema tab) ─────────────────────────────

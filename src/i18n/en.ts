@@ -7,30 +7,32 @@ export const en = {
 
   // ─── Auth ───────────────────────────────────────────────────────────────────
   auth: {
-    invalidCredentials: 'Phone number or password is incorrect',
+    invalidCredentials: 'Email/phone or password is incorrect',
+    identifierRequired: 'Please enter your email or phone number',
+    identifierInvalid: 'Email or phone number is invalid',
     invalidToken: 'Invalid token',
     invalidRefreshToken: 'Invalid refresh token',
     expiredRefreshToken: 'Refresh token is invalid or expired',
-    accountDisabled: 'Account does not exist or has been disabled',
+    accountDisabled: 'Account does not exist or has been deactivated',
     loginSuccess: 'Login successful',
     registerSuccess: 'Registration successful',
-    invalidRole: 'Invalid role. Only OWNER, SALE or CUSTOMER are accepted',
+    invalidRole: 'Invalid role — only OWNER (1), SALE (2) or CUSTOMER (3) are accepted',
     phoneDuplicate: 'Phone number is already registered',
     emailDuplicate: 'Email is already in use',
-    googleTokenInvalid: 'Invalid Google token',
-    googleRoleRequired: 'Role is required for new users',
+    googleTokenInvalid: 'Google token is invalid or expired',
+    googleRoleRequired: 'Please choose a role (OWNER or CUSTOMER) for the new account',
     googleAdminForbidden: 'Cannot register admin role via Google',
     googleSaleForbidden: 'Staff (SALE) must accept an invite from a homestay owner; self-registration is not allowed. Please contact your owner to be invited.',
-    googleRoleInvalid: 'Invalid role',
-    googleEmailNotVerified: 'Google email is not verified',
-    googleNewUserPrompt: 'Please select a role',
-    appleTokenInvalid: 'Invalid Apple token',
-    appleEmailRequired: 'Apple did not return an email — please allow email sharing when signing in',
-    accountInactive: 'Account has been deactivated',
+    googleRoleInvalid: 'Invalid role — only OWNER (1) or CUSTOMER (3) are accepted',
+    googleEmailNotVerified: 'Google email is not verified — please use a verified email',
+    googleNewUserPrompt: 'Please select a role to complete registration',
+    appleTokenInvalid: 'Apple token is invalid or expired',
+    appleEmailRequired: 'Apple did not return an email — please choose "Share my email" when signing in with Apple',
+    accountInactive: 'Account has been deactivated. Please contact support.',
     tooManyRegisters: 'Too many accounts registered from this device/network. Please try again in 24 hours.',
-    forgotPasswordSuccess: 'Verification code sent',
-    resetPasswordSuccess: 'Password reset successful',
-    resetTokenInvalid: 'Invalid reset token',
+    forgotPasswordSuccess: 'Password reset instructions sent (if the account exists)',
+    resetPasswordSuccess: 'Password reset successful. Please log in again.',
+    resetTokenInvalid: 'Reset token is invalid or expired',
     refreshSuccess: 'Token refreshed successfully',
     logoutSuccess: 'Logout successful',
     profileSuccess: 'Profile retrieved successfully',
@@ -68,6 +70,18 @@ export const en = {
     saleNotAssigned: 'You have not been assigned to any owner yet',
     kycBypassGranted: 'KYC bypass granted — user can manage properties without KYC',
     kycBypassRevoked: 'KYC bypass revoked — user must complete KYC to manage properties',
+    banSuccess: 'User banned',
+    unbanSuccess: 'User unbanned',
+    revokeSessionsSuccess: 'All user sessions revoked',
+    resetPasswordSuccess: 'Password reset',
+    changeRoleSuccess: 'User role changed',
+    banReasonRequired: 'Ban reason must be at least 5 characters',
+    cannotSelfTarget: 'Cannot perform this action on yourself',
+    alreadyBanned: 'User is already banned',
+    notBanned: 'User is not currently banned',
+    passwordTooShort: 'Password must be at least 8 characters',
+    passwordWeak: 'Password must contain at least 1 letter and 1 digit',
+    invalidRole: 'Invalid role (only 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -90,6 +104,10 @@ export const en = {
     setCoverSuccess: 'Cover image set successfully',
     updatePricesSuccess: 'Property prices updated successfully',
     shareSuccess: 'Property share info retrieved successfully',
+    approveSuccess: 'Property approved',
+    rejectSuccess: 'Property rejected',
+    suspendSuccess: 'Property suspended',
+    rejectReasonRequired: 'Rejection reason must be at least 5 characters',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -118,6 +136,8 @@ export const en = {
     confirmSuccess: 'Booking confirmed successfully',
     cancelSuccess: 'Booking cancelled successfully',
     updateSuccess: 'Booking updated successfully',
+    markPaidSuccess: 'Booking payment recorded',
+    paidAmountRequired: 'Paid amount must be > 0 (pass amount or booking must have totalAmount/depositAmount set)',
   },
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
@@ -140,6 +160,10 @@ export const en = {
     dateAlreadyLocked: 'This date is already locked or booked',
     lockNotFound: 'Lock not found for this date',
     propertyNotFound: 'Property not found',
+    bulkEmpty: 'Items list is empty',
+    bulkTooMany: 'Bulk requests are limited to 100 dates per call',
+    bulkSuccess: (mode: string, ok: number, total: number) =>
+      `${mode === 'lock' ? 'Locked' : 'Unlocked'} ${ok}/${total} dates successfully`,
   },
 
   // ─── Notifications ──────────────────────────────────────────────────────────
@@ -170,6 +194,8 @@ export const en = {
     reportsSuccess: 'Report data retrieved successfully',
     missingDateRange: 'Please provide from and to when using period=custom',
     invalidDateRange: 'from date must be before to date',
+    toInFuture: 'to date cannot be in the future',
+    invalidPeriod: 'Invalid period value (allowed: today | week | month | year | custom)',
   },
 
   // ─── Reviews ───────────────────────────────────────────────────────────────
@@ -185,6 +211,10 @@ export const en = {
     alreadyReviewed: 'This booking has already been reviewed',
     invalidScore: 'Score must be an integer between 1 and 5',
     forbidden: 'You do not have permission to perform this action',
+    restoreSuccess: 'Review restored successfully',
+    notHidden: 'Review is not currently hidden',
+    countFlaggedSuccess: 'Moderated reviews counted',
+    getSuccess: 'Review retrieved successfully',
   },
 
   // ─── KYC ───────────────────────────────────────────────────────────────────
@@ -201,6 +231,10 @@ export const en = {
     cannotResubmit: 'Submission cannot be resubmitted in its current status',
     getSuccess: 'KYC submission retrieved successfully',
     statusSuccess: 'KYC status retrieved successfully',
+    alreadyPending: 'KYC submission is pending review and cannot be re-submitted.',
+    alreadyApproved: 'Account is already verified.',
+    locked: 'KYC documents are locked while pending or approved.',
+    propertyRequiresKyc: 'Complete identity verification before adding or editing properties.',
     ownerNotVerified: 'Owner has not completed identity verification',
     kycRequired: 'You must complete KYC verification before managing properties',
   },
@@ -210,6 +244,13 @@ export const en = {
     listSuccess: 'Billing plans retrieved successfully',
     planNotFound: 'Plan not found or no longer available',
     roomCountExceedsPlan: 'Room count exceeds the plan limit',
+    adminListSuccess: 'Admin billing plans retrieved successfully',
+    createSuccess: 'Billing plan created successfully',
+    updateSuccess: 'Billing plan updated successfully',
+    deleteSuccess: 'Billing plan deleted successfully',
+    deactivateSuccess: 'Billing plan deactivated (still referenced by existing subscriptions)',
+    idExists: 'A plan with this ID already exists',
+    idInvalid: 'Plan ID must be lowercase letters, digits or underscores (a-z, 0-9, _)',
   },
 
   // ─── Payment ───────────────────────────────────────────────────────────────
@@ -231,6 +272,22 @@ export const en = {
     invalidWebhookSecret: 'Invalid webhook secret',
     invalidSignature: 'Invalid signature',
     cannotMatchTransfer: 'Could not match transfer description to a payment session',
+    adminListSuccess: 'Payment sessions retrieved',
+    adminMarkPaidSuccess: 'Session marked as paid',
+    cannotMarkRefunded: 'Cannot mark a refunded session as paid',
+    cancelSuccess: 'Payment session cancelled',
+    cannotCancel: 'Session is not pending, cannot cancel',
+    activeSuccess: 'Active payment session fetched successfully',
+    quoteSuccess: 'Payment quote generated successfully',
+    subscriptionFrozen: 'Your subscription is frozen. Please contact support.',
+    downgradeScheduled: 'Downgrade scheduled. The new plan will be active from the next billing cycle.',
+    cannotDowngradeInTrial: 'Cannot downgrade while in trial period',
+    planNotFound: 'Plan not found',
+    samePlanNoChange: 'You are already on this plan',
+    kycNotApproved:
+      'Complete KYC verification and wait for admin approval before purchasing a plan',
+    paymentPending:
+      'You already have a pending payment. Please complete or cancel it before creating a new one.',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -244,8 +301,13 @@ export const en = {
   // ─── Staff Invites ─────────────────────────────────────────────────────────
   staff: {
     ownerOnly: 'Only homestay owners can invite staff',
+    ownerIdRequired: 'ADMIN must provide ownerId when creating an invite on behalf of an OWNER',
     kycRequired: 'Complete KYC before inviting staff',
     subscriptionRequired: 'An active subscription is required to invite staff',
+    staffNotAllowedOnPlan: (planName: string) =>
+      `The ${planName} plan does not include staff invites. Upgrade to Starter or higher to invite staff.`,
+    staffSlotLimitReached: (planName: string, max: number) =>
+      `The ${planName} plan allows up to ${max} staff members (limit reached, including pending invites). Upgrade to Pro or higher for unlimited staff.`,
     emailInvalid: 'Invalid email',
     inviteSelf: 'Cannot invite yourself',
     emailHasAccount: 'Email already has an account. Contact that account owner.',
@@ -278,9 +340,175 @@ export const en = {
   // ─── Admin KYC ─────────────────────────────────────────────────────────────
   adminKyc: {
     queueSuccess: 'KYC queue retrieved successfully',
+    countPendingSuccess: 'Pending submissions counted',
     approveSuccess: 'KYC submission approved successfully',
     rejectSuccess: 'KYC submission rejected successfully',
     alreadyProcessed: 'This submission has already been processed',
     invalidStatus: 'Submission is not in awaiting_approval status',
+    invalidFilter: 'filter must be 0 (all), 1 (pending), 2 (approved), or 3 (rejected)',
   },
+
+  // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────
+  adminSubscription: {
+    getSuccess: 'Subscription retrieved successfully',
+    grantSuccess: 'Trial granted successfully',
+    extendSuccess: 'Trial extended successfully',
+    revokeSuccess: 'Trial revoked successfully',
+    onlyOwner: 'Trial can only be granted to OWNER accounts',
+    userInactive: 'User account is inactive',
+    alreadyActive: 'User has an active paid subscription — cannot grant trial',
+    notInTrial: 'User is not currently in trial — nothing to revoke',
+    planRequired: 'planId is required when the user has no subscription history',
+    planNotFound: 'Billing plan (planId) does not exist',
+    notifyGrantedTitle: 'You received a free trial',
+    notifyGrantedBody: (days: number, endsAt: Date) =>
+      `Your OWNER account was granted a ${days}-day free trial. Valid until ${endsAt.toLocaleDateString('en-GB')}.`,
+    notifyExtendedTitle: 'Trial extended',
+    notifyExtendedBody: (days: number, endsAt: Date) =>
+      `Your trial was extended by ${days} days. New expiry: ${endsAt.toLocaleDateString('en-GB')}.`,
+    notifyRevokedTitle: 'Trial revoked',
+    notifyRevokedBody: 'Your trial was revoked by an administrator.',
+    listSuccess: 'Subscriptions listed successfully',
+    countSuccess: 'Subscription count retrieved',
+    sumPaidSuccess: 'Paid revenue total',
+    priceSetSuccess: 'Custom price updated',
+    priceInvalid: 'Custom price must be a non-negative integer, or null to clear override',
+    markPaidSuccess: 'Manual payment recorded',
+    markPaidAmountRequired: 'Amount is required when marking paid',
+    freezeSuccess: 'Subscription frozen',
+    unfreezeSuccess: 'Subscription unfrozen',
+    notFrozen: 'Subscription is not currently frozen',
+    alreadyFrozen: 'Subscription is already frozen',
+    cannotGrantTrialFrozen: 'Cannot grant trial while account is frozen — please unfreeze first',
+    markPaidDuplicate: 'A mark-paid action was just performed in the last 10 seconds — please wait and retry',
+    freezeReasonRequired: 'Freeze reason is required',
+    selfSuccess: 'Your subscription retrieved',
+    notifyPriceSetTitle: 'Plan price updated',
+    notifyPriceSetBody: (price: number) =>
+      `An administrator updated your plan price to ${price.toLocaleString('en-GB')} VND per cycle.`,
+    notifyPriceClearedTitle: 'Plan price reset to default',
+    notifyPriceClearedBody: 'Your custom price was cleared. Default plan pricing applies again.',
+    notifyMarkPaidTitle: 'Payment recorded',
+    notifyMarkPaidBody: (amount: number, endsAt: Date) =>
+      `An administrator recorded a payment of ${amount.toLocaleString('en-GB')} VND. Plan renewed until ${endsAt.toLocaleDateString('en-GB')}.`,
+    notifyFrozenTitle: 'Subscription frozen',
+    notifyFrozenBody: (reason: string) => `Your subscription was frozen. Reason: ${reason}`,
+    notifyUnfrozenTitle: 'Subscription reactivated',
+    notifyUnfrozenBody: 'Your subscription is active again.',
+  },
+
+  // ─── Disputes ──────────────────────────────────────────────────────────────
+  disputes: {
+    openSuccess: 'Dispute opened',
+    listSuccess: 'Disputes retrieved successfully',
+    getSuccess: 'Dispute retrieved successfully',
+    countSuccess: 'Active disputes counted',
+    investigateSuccess: 'Dispute moved to investigating',
+    resolveSuccess: 'Dispute resolved',
+    rejectSuccess: 'Dispute rejected',
+    notFound: 'Dispute not found',
+    onlyPendingCanInvestigate: 'Only pending disputes can move to investigating',
+    alreadyClosed: 'Dispute is already closed (resolved/rejected) — no further action allowed',
+    forbiddenOpen: 'You are not allowed to open a dispute for this booking',
+  },
+
+  // ─── Audit Log ─────────────────────────────────────────────────────────────
+  auditLog: {
+    listSuccess: 'Audit log retrieved successfully',
+  },
+
+  // ─── Leads ─────────────────────────────────────────────────────────────────
+  leads: {
+    createSuccess: 'Lead recorded — the host will contact you soon',
+    listSuccess: 'Leads retrieved successfully',
+    getSuccess: 'Lead retrieved successfully',
+    updateSuccess: 'Lead updated successfully',
+    notFound: 'Lead not found',
+    propertyNotFound: 'Property not found or inactive',
+    invalidDates: 'Check-out must be after check-in',
+    forbidden: 'You are not allowed to access this lead',
+  },
+
+  // ─── Chat / Conversations ─────────────────────────────────────────────────
+  chat: {
+    conversationListSuccess: 'Conversations retrieved successfully',
+    conversationGetSuccess: 'Conversation retrieved successfully',
+    conversationCreateSuccess: 'Conversation created',
+    conversationNotFound: 'Conversation not found',
+    notMember: 'You are not a member of this conversation',
+    messageListSuccess: 'Messages retrieved successfully',
+    messageSendSuccess: 'Message sent',
+    messageEmpty: 'Message content cannot be empty',
+    messageTooLong: (max: number) => `Message exceeds ${max} characters`,
+    attachmentsTooMany: (max: number) => `Maximum ${max} attachments allowed`,
+    bookingRequired: 'booking-type conversation requires bookingId',
+    invalidCursor: 'Invalid cursor — restarting from beginning',
+    invalidConversationId: 'Invalid conversationId',
+    messageNotFound: 'Message not found or already deleted',
+    cannotEditSystem: 'System messages cannot be edited or deleted',
+    onlySenderCanEdit: 'Only the sender can edit a message',
+    onlySenderCanDelete: 'Only the sender or an admin can delete a message',
+    editWindowExpired: 'Edit window expired (15 minutes)',
+    editSuccess: 'Message edited',
+    deleteSuccess: 'Message deleted',
+    readSuccess: 'Marked as read',
+    unreadCountSuccess: 'Unread count retrieved',
+  },
+
+  // ─── Uploads ──────────────────────────────────────────────────────────────
+  uploads: {
+    fileRequired: 'Please select a file to upload',
+    fileEmpty: 'File is empty',
+    fileTooLarge: (maxMB: number) => `File exceeds ${maxMB}MB limit`,
+    unsupportedType:
+      'Unsupported file type. Allowed: JPEG, PNG, WEBP, GIF, PDF',
+    uploadFailed: 'Upload failed, please try again',
+    uploadSuccess: 'File uploaded',
+    deleteSuccess: 'File deleted',
+    notFound: 'File not found',
+    forbidden: 'You are not allowed to delete this file',
+    alreadyAttached:
+      'File is already attached to a message — delete the message instead',
+  },
+
+  // ─── Admin Emails ──────────────────────────────────────────────────────────
+  adminEmails: {
+    listSuccess: 'Email templates retrieved successfully',
+    testSentSuccess: 'Test email sent',
+    smtpDisabled: 'SMTP not configured — could not send email',
+  },
+
+  // ─── Support Tickets ───────────────────────────────────────────────────────
+  supportTickets: {
+    createSuccess: 'Support ticket created successfully',
+    listSuccess: 'Support tickets retrieved successfully',
+    getSuccess: 'Support ticket retrieved successfully',
+    replySuccess: 'Reply sent successfully',
+    notFound: 'Support ticket not found',
+    forbidden: 'You do not have permission to access this ticket',
+  },
+
+  // ─── Feedback ──────────────────────────────────────────────────────────────
+  feedback: {
+    createSuccess: 'Thank you — your feedback has been received',
+  },
+
+  // ─── Data Exports (GDPR) ───────────────────────────────────────────────────
+  dataExports: {
+    createSuccess: 'Data export request created',
+    listSuccess: 'Data export requests retrieved successfully',
+  },
+
+  // ─── Consents ──────────────────────────────────────────────────────────────
+  consents: {
+    getSuccess: 'Consents retrieved successfully',
+    updateSuccess: 'Consents updated successfully',
+  },
+
+  // ─── Notification Preferences ──────────────────────────────────────────────
+  notificationPreferences: {
+    getSuccess: 'Notification preferences retrieved successfully',
+    updateSuccess: 'Notification preferences updated successfully',
+  },
+
 };

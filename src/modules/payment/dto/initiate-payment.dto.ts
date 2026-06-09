@@ -3,7 +3,7 @@ import { IsString, IsIn, IsInt, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class InitiatePaymentDto {
-  @ApiProperty({ example: 'professional' })
+  @ApiProperty({ example: 'rooms_10', description: 'Plan id (rooms_1 | rooms_5 | rooms_10 | rooms_20 | rooms_50 | enterprise)' })
   @IsString()
   planId: string;
 
@@ -11,8 +11,8 @@ export class InitiatePaymentDto {
   @IsIn(['monthly', 'yearly'])
   cycle: string;
 
-  @ApiProperty({ example: 'vnpay_qr', enum: ['vnpay_qr', 'bank_transfer', 'card'] })
-  @IsIn(['vnpay_qr', 'bank_transfer', 'card'])
+  @ApiProperty({ example: 'bank_transfer', enum: ['bank_transfer'], description: 'Hiện chỉ hỗ trợ bank_transfer (VietQR + auto reconcile qua webhook Casso/Sepay)' })
+  @IsIn(['bank_transfer'])
   method: string;
 
   @ApiProperty({ example: 15 })

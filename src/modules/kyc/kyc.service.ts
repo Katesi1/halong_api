@@ -15,6 +15,11 @@ import {
 } from '../../common/constants';
 import { Prisma } from '@prisma/client';
 import type { Messages } from '../../i18n';
+import {
+  kycAlreadyApproved,
+  kycAlreadyPending,
+  kycLocked,
+} from '../../common/errors/kyc.errors';
 
 const REJECTABLE_ITEM_TO_TYPE: Record<string, string> = {
   cccdFront: KYC_UPLOAD_TYPE.CCCD_FRONT,
@@ -30,6 +35,24 @@ export class KycService {
     private prisma: PrismaService,
     private cloudinary: CloudinaryService,
   ) {}
+
+  /**
+   * Đọc kycStatus hiện tại của user.
+   * Throw 403 KYC_LOCKED nếu pending/approved (dùng cho upload endpoints).
+   */
+  private async assertUploadAllowed(userId: string, msg: Messages) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kycStatus: true },
+    });
+    if (!u) return;
+    if (
+      u.kycStatus === KYC_STATUS.PENDING ||
+      u.kycStatus === KYC_STATUS.APPROVED
+    ) {
+      throw kycLocked(msg.kyc.locked);
+    }
+  }
 
   /** Get or create a draft/rejected submission for this user */
   private async getOrCreateSubmission(userId: string) {
@@ -68,6 +91,7 @@ export class KycService {
     ocrResultStr: string | undefined,
     msg: Messages,
   ) {
+    await this.assertUploadAllowed(user.id, msg);
     const submission = await this.getOrCreateSubmission(user.id);
 
     // Upload to Cloudinary (private folder for KYC)
@@ -127,6 +151,7 @@ export class KycService {
     ocrResultStr: string | undefined,
     msg: Messages,
   ) {
+    await this.assertUploadAllowed(user.id, msg);
     const submission = await this.getOrCreateSubmission(user.id);
 
     const uploadResult = await this.cloudinary.uploadImage(file, 'kyc/cccd');
@@ -181,6 +206,7 @@ export class KycService {
     file: Express.Multer.File,
     msg: Messages,
   ) {
+    await this.assertUploadAllowed(user.id, msg);
     const submission = await this.getOrCreateSubmission(user.id);
 
     const uploadResult = await this.cloudinary.uploadImage(file, 'kyc/selfie');
@@ -250,16 +276,34 @@ export class KycService {
         where: { id: submissionId },
       });
       if (sub && sub.status === KYC_SUBMISSION_STATUS.DRAFT) {
-        await this.prisma.kycSubmission.update({
-          where: { id: submissionId },
-          data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
-        });
+        await this.prisma.$transaction([
+          this.prisma.kycSubmission.update({
+            where: { id: submissionId },
+            data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
+          }),
+          this.prisma.user.update({
+            where: { id: sub.userId },
+            data: { kycStatus: KYC_STATUS.PENDING },
+          }),
+        ]);
       }
     }
   }
 
   /** Manual submit for approval */
   async submit(user: { id: string }, msg: Messages) {
+    // Guard theo kycStatus của user (chống submit trùng/sai trạng thái)
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { kycStatus: true },
+    });
+    if (u?.kycStatus === KYC_STATUS.PENDING) {
+      throw kycAlreadyPending(msg.kyc.alreadyPending);
+    }
+    if (u?.kycStatus === KYC_STATUS.APPROVED) {
+      throw kycAlreadyApproved(msg.kyc.alreadyApproved);
+    }
+
     const submission = await this.prisma.kycSubmission.findFirst({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
@@ -288,16 +332,23 @@ export class KycService {
       throw new BadRequestException(msg.kyc.cannotSubmit);
     }
 
-    await this.prisma.kycSubmission.update({
-      where: { id: submission.id },
-      data: { status: KYC_SUBMISSION_STATUS.KYC_SUBMITTED },
-    });
+    await this.prisma.$transaction([
+      this.prisma.kycSubmission.update({
+        where: { id: submission.id },
+        data: { status: KYC_SUBMISSION_STATUS.AWAITING_APPROVAL },
+      }),
+      // Mirror sang User.kycStatus để guard ở các API khác hoạt động
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { kycStatus: KYC_STATUS.PENDING },
+      }),
+    ]);
 
     return {
       message: msg.kyc.submitSuccess,
       data: {
         submissionId: submission.id,
-        status: KYC_STATUS_API_MAP[KYC_SUBMISSION_STATUS.KYC_SUBMITTED],
+        status: KYC_STATUS_API_MAP[KYC_SUBMISSION_STATUS.AWAITING_APPROVAL],
       },
     };
   }
@@ -370,18 +421,75 @@ export class KycService {
 
   /** Get current KYC status for the logged-in user */
   async getMyStatus(user: { id: string }, msg: Messages) {
-    const submission = await this.prisma.kycSubmission.findFirst({
-      where: { userId: user.id },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        uploads: { select: { type: true } },
-      },
-    });
+    const [submission, userRow, latestPayment] = await Promise.all([
+      this.prisma.kycSubmission.findFirst({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        include: { uploads: { select: { type: true } } },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: {
+          subscriptionStatus: true,
+          subscriptionPlanId: true,
+          subscriptionCycle: true,
+          subscriptionProvider: true,
+          trialEndsAt: true,
+          nextChargeAt: true,
+        },
+      }),
+      this.prisma.paymentSession.findFirst({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          status: true,
+          totalAmount: true,
+          expiresAt: true,
+          createdAt: true,
+          planId: true,
+          planLabel: true,
+        },
+      }),
+    ]);
+
+    const QR_EXPIRY_MS = 15 * 60_000;
+    const latestPaymentSummary = latestPayment
+      ? {
+          sessionId: latestPayment.id,
+          status: latestPayment.status,
+          totalAmount: latestPayment.totalAmount,
+          planId: latestPayment.planId,
+          planLabel: latestPayment.planLabel,
+          expiresAt: latestPayment.expiresAt,
+          qrExpiresAt: new Date(
+            Math.min(
+              latestPayment.expiresAt.getTime(),
+              latestPayment.createdAt.getTime() + QR_EXPIRY_MS,
+            ),
+          ),
+          createdAt: latestPayment.createdAt,
+        }
+      : null;
+
+    const subscription = {
+      subscriptionStatus: userRow?.subscriptionStatus ?? 'none',
+      subscriptionPlanId: userRow?.subscriptionPlanId ?? null,
+      subscriptionCycle: userRow?.subscriptionCycle ?? null,
+      subscriptionProvider: userRow?.subscriptionProvider ?? null,
+      subscriptionExpiresAt: userRow?.nextChargeAt ?? userRow?.trialEndsAt ?? null,
+    };
 
     if (!submission) {
       return {
         message: msg.kyc.statusSuccess,
-        data: { status: 'draft', submissionId: null, uploads: {} },
+        data: {
+          status: 'draft',
+          submissionId: null,
+          uploads: {},
+          latestPayment: latestPaymentSummary,
+          ...subscription,
+        },
       };
     }
 
@@ -395,6 +503,8 @@ export class KycService {
         approvedAt: submission.approvedAt,
         trialEndsAt: submission.trialEndsAt,
         uploads: this.formatUploadTypes(submission.uploads),
+        latestPayment: latestPaymentSummary,
+        ...subscription,
       },
     };
   }

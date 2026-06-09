@@ -41,8 +41,10 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @Throttle({ default: { limit: 10, ttl: 900_000 } }) // 10 req / 15 phút / IP — chống credential stuffing
   @ApiOperation({ summary: 'Đăng nhập', description: 'Trả về accessToken và refreshToken' })
   @ApiResponse({ status: 200, type: LoginResponse })
+  @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng nhập sai' })
   login(@Body() dto: LoginDto, @Lang() msg: Messages) {
     return this.authService.login(dto, msg);
   }
@@ -98,6 +100,7 @@ export class AuthController {
 
   @Public()
   @Post('reset-password')
+  @Throttle({ default: { limit: 5, ttl: 3600_000 } }) // 5 req / giờ / IP — chống brute force token
   @ApiOperation({ summary: 'Đặt lại mật khẩu', description: 'Đặt lại mật khẩu bằng token' })
   @ApiResponse({ status: 200, type: MessageResponse })
   resetPassword(@Body() dto: ResetPasswordDto, @Lang() msg: Messages) {

@@ -95,8 +95,12 @@ export class PermissionsService {
 
   /**
    * Check if a user has a specific permission.
-   * ADMIN always returns true. CUSTOMER always returns true (they use their own endpoints).
-   * OWNER/SALE: check UserPermission record; no record = read-only default.
+   * - ADMIN  → always allowed (system-wide bypass)
+   * - OWNER  → always allowed on their own data scope (they own the resources;
+   *            row-level scoping is handled by getEffectiveOwnerId elsewhere)
+   * - CUSTOMER → always allowed (uses dedicated customer endpoints)
+   * - SALE   → checked against UserPermission table (configured by their OWNER).
+   *            No record = read-only default.
    */
   async hasPermission(
     userId: string,
@@ -107,10 +111,14 @@ export class PermissionsService {
     // ADMIN bypasses all permission checks
     if (role === ROLE.ADMIN) return true;
 
+    // OWNER has full access on their own scope — data isolation is enforced
+    // separately via getEffectiveOwnerId in each service layer.
+    if (role === ROLE.OWNER) return true;
+
     // CUSTOMER uses their own endpoints, not affected
     if (role === ROLE.CUSTOMER) return true;
 
-    // Read is always allowed by default
+    // SALE: read is always allowed by default
     if (action === 'canRead') return true;
 
     const permission = await this.prisma.userPermission.findUnique({

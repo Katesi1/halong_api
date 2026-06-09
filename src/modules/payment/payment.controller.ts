@@ -20,6 +20,7 @@ import type { Request } from 'express';
 import { PaymentService } from './payment.service';
 import { InitiatePaymentDto } from './dto/initiate-payment.dto';
 import { RenewPaymentDto } from './dto/renew-payment.dto';
+import { QuotePaymentDto } from './dto/quote-payment.dto';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -59,6 +60,19 @@ export class PaymentController {
     return this.paymentService.initiate(user, dto, getClientIp(req), msg);
   }
 
+  @Post('quote')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({
+    summary: 'Quote payment for plan + cycle (returns kind + breakdown without creating a session)',
+  })
+  quote(
+    @CurrentUser() user: any,
+    @Body() dto: QuotePaymentDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.paymentService.quote(user, dto, msg);
+  }
+
   @Post('renew')
   @Roles(ROLE.OWNER)
   @ApiOperation({ summary: 'Create renewal payment session' })
@@ -87,6 +101,13 @@ export class PaymentController {
     );
   }
 
+  @Get('active')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({ summary: 'Get current pending payment session (for rehydration after UI reopen)' })
+  getActive(@CurrentUser() user: any, @Lang() msg: Messages) {
+    return this.paymentService.getActiveSession(user, msg);
+  }
+
   @Get(':sessionId/status')
   @Roles(ROLE.OWNER)
   @ApiOperation({ summary: 'Check payment status' })
@@ -98,6 +119,17 @@ export class PaymentController {
     return this.paymentService.getStatus(user, sessionId, msg);
   }
 
+  @Post(':sessionId/cancel')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({ summary: 'Cancel a pending payment session' })
+  cancel(
+    @CurrentUser() user: any,
+    @Param('sessionId') sessionId: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.paymentService.cancelSession(user, sessionId, msg);
+  }
+
   @Post(':sessionId/refund')
   @Roles(ROLE.OWNER)
   @ApiOperation({ summary: 'Request refund' })
@@ -107,16 +139,6 @@ export class PaymentController {
     @Lang() msg: Messages,
   ) {
     return this.paymentService.refund(user, sessionId, msg);
-  }
-
-  @Public()
-  @Post('vnpay/ipn')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'VNPay IPN webhook (public, HMAC-verified)' })
-  vnpayIpn(@Body() payload: Record<string, string>, @Req() req: Request) {
-    // VNPay can send query string or form body — merge both
-    const merged = { ...(req.query as Record<string, string>), ...(payload || {}) };
-    return this.paymentService.handleVnpayWebhook(merged);
   }
 
   @Public()

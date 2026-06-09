@@ -6,6 +6,7 @@ import {
   Body,
   Query,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -17,12 +18,13 @@ import {
 import { AdminKycService } from './admin-kyc.service';
 import { ApproveKycDto } from './dto/approve-kyc.dto';
 import { RejectKycDto } from './dto/reject-kyc.dto';
+import { GetKycQueueDto } from './dto/get-kyc-queue.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { KYC_ADMIN_FILTER, ROLE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Admin KYC')
@@ -39,22 +41,42 @@ export class AdminKycController {
 
   @Get('queue')
   @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'Get KYC approval queue' })
-  @ApiQuery({ name: 'page', required: false, type: Number })
-  @ApiQuery({ name: 'pageSize', required: false, type: Number })
-  @ApiQuery({ name: 'status', required: false, description: 'Filter by status' })
-  getQueue(
-    @Query('page') page: string,
-    @Query('pageSize') pageSize: string,
-    @Query('status') status: string,
-    @Lang() msg: Messages,
-  ) {
+  @ApiOperation({
+    summary: 'Danh sách hồ sơ KYC (một endpoint, filter tab 0–3)',
+  })
+  @ApiQuery({
+    name: 'filter',
+    required: false,
+    enum: [0, 1, 2, 3],
+    description: '0=tất cả, 1=chờ duyệt, 2=đã duyệt, 3=đã từ chối',
+  })
+  getQueue(@Query() query: GetKycQueueDto, @Lang() msg: Messages) {
+    const filter = this.adminKycService.resolveFilter(
+      query.filter,
+      query.status,
+    );
+    if (
+      filter < KYC_ADMIN_FILTER.ALL ||
+      filter > KYC_ADMIN_FILTER.REJECTED
+    ) {
+      throw new BadRequestException(msg.adminKyc.invalidFilter);
+    }
     return this.adminKycService.getQueue(
-      parseInt(page) || 1,
-      parseInt(pageSize) || 20,
-      status || undefined,
+      query.page ?? 1,
+      query.pageSize ?? 20,
+      filter,
       msg,
     );
+  }
+
+  @Get('count-pending')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({
+    summary:
+      'Badge chờ duyệt (deprecated — dùng pendingCount trong GET /queue)',
+  })
+  countPending(@Lang() msg: Messages) {
+    return this.adminKycService.countPending(msg);
   }
 
   @Post('submissions/:id/approve')

@@ -1,40 +1,85 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, Logger, ValidationError, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { AuditContextInterceptor } from './common/interceptors/audit-context.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const isProd = process.env.NODE_ENV === 'production';
 
-  // Trust reverse proxy (nginx) → @Ip() đọc đúng X-Forwarded-For thay vì 127.0.0.1
-  app.set('trust proxy', true);
+  // Trust reverse proxy (1 hop: nginx). Không dùng `true` để tránh X-Forwarded-For spoof.
+  app.set('trust proxy', 1);
+
+  // Graceful shutdown — Prisma/Redis OnModuleDestroy chạy đúng khi nhận SIGTERM
+  app.enableShutdownHooks();
+
+  // Giới hạn body để tránh OOM / event-loop block
+  app.use(json({ limit: '1mb' }));
+  app.use(urlencoded({ extended: true, limit: '1mb' }));
 
   // Redirect root về Swagger
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.get('/', (_req: any, res: any) => res.redirect('/index.html'));
 
-  // Global prefix
-  // No global prefix — endpoints at root: /auth, /users, /properties, etc.
-
-  // CORS
+  // CORS — production phải set ALLOWED_ORIGINS=https://a.com,https://b.com
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: '*', // Thay bằng domain cụ thể khi production
+    origin: isProd ? (allowedOrigins.length > 0 ? allowedOrigins : false) : true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Partner-Key', 'X-Device-Id', 'Accept-Language'],
+    credentials: true,
   });
 
   // Logging interceptor toàn cục
-  app.useGlobalInterceptors(new LoggingInterceptor());
+  // AuditContextInterceptor phải register TRƯỚC để mọi luồng async sau (kể cả lỗi)
+  // đều có access vào IP/UA qua AsyncLocalStorage.
+  app.useGlobalInterceptors(new AuditContextInterceptor(), new LoggingInterceptor());
 
   // Validation pipe toàn cục
+  // exceptionFactory: tách lỗi validate theo field thay vì concat 1 string.
+  // FE web/mobile có thể đọc `errors[field]` để hiện inline error per-field.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,        // Tự loại bỏ fields không có trong DTO
       forbidNonWhitelisted: false,
       transform: true,        // Auto transform types
       transformOptions: { enableImplicitConversion: true },
+      stopAtFirstError: false, // Trả về toàn bộ lỗi của 1 field (không dừng ở lỗi đầu)
+      exceptionFactory: (errors: ValidationError[]) => {
+        // Build payload dạng { firstMessage, errors: { field: [msg, msg], ... } }
+        const fieldErrors: Record<string, string[]> = {};
+        let firstMessage = 'Validation failed';
+
+        const collect = (err: ValidationError, path: string) => {
+          const key = path ? `${path}.${err.property}` : err.property;
+          if (err.constraints) {
+            const messages = Object.values(err.constraints);
+            if (messages.length > 0) {
+              fieldErrors[key] = messages;
+              if (firstMessage === 'Validation failed') {
+                firstMessage = messages[0];
+              }
+            }
+          }
+          if (err.children && err.children.length > 0) {
+            for (const child of err.children) collect(child, key);
+          }
+        };
+
+        for (const err of errors) collect(err, '');
+
+        return new BadRequestException({
+          message: firstMessage,
+          errors: fieldErrors,
+        });
+      },
     }),
   );
 
@@ -68,6 +113,6 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  new Logger('Bootstrap').log(`Server running at http://localhost:${port}/index.html`);
+  new Logger('Bootstrap').log(`Server running on port ${port} (prod=${isProd})`);
 }
 bootstrap();

@@ -8,6 +8,7 @@ import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
+import { MarkBookingPaidDto } from './dto/mark-paid.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -38,22 +39,36 @@ export class BookingsController {
     @CurrentUser() user: any,
     @Query('propertyId') propertyId: string,
     @Query('status') status: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
     @Lang() msg: Messages,
   ) {
     return this.bookingsService.findAll(
       user, msg, propertyId,
       status !== undefined ? parseInt(status) : undefined,
+      page ? parseInt(page) : undefined,
+      limit ? parseInt(limit) : undefined,
     );
   }
 
   @Get('my-bookings')
   @ApiOperation({ summary: 'Booking của customer hiện tại' })
   @ApiQuery({ name: 'status', required: false, description: '0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, type: BookingListResponse })
-  getMyBookings(@CurrentUser() user: any, @Query('status') status: string, @Lang() msg: Messages) {
+  getMyBookings(
+    @CurrentUser() user: any,
+    @Query('status') status: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
+    @Lang() msg: Messages,
+  ) {
     return this.bookingsService.getMyBookings(
       user, msg,
       status !== undefined ? parseInt(status) : undefined,
+      page ? parseInt(page) : undefined,
+      limit ? parseInt(limit) : undefined,
     );
   }
 
@@ -93,8 +108,9 @@ export class BookingsController {
   }
 
   @Post('hold')
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.CREATE)
-  @ApiOperation({ summary: 'Giữ chỗ — hold 30 phút (mọi authenticated user)' })
+  @ApiOperation({ summary: 'Giữ chỗ — hold 30 phút (Admin/Owner/Sale). Customer dùng /bookings/customer-hold' })
   @ApiResponse({ status: 201, type: BookingResponse })
   holdProperty(@Body() dto: CreateBookingDto, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.holdProperty(dto, user, msg);
@@ -107,6 +123,20 @@ export class BookingsController {
   @ApiResponse({ status: 200, type: BookingResponse })
   confirmBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.confirmBooking(id, user, msg);
+  }
+
+  @Patch(':id/paid')
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.UPDATE)
+  @ApiOperation({ summary: 'Ghi nhận thanh toán booking (Admin/Owner/Sale)' })
+  @ApiResponse({ status: 200, type: BookingResponse })
+  markPaid(
+    @Param('id') id: string,
+    @Body() dto: MarkBookingPaidDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.bookingsService.markPaid(id, dto.amount, user, msg);
   }
 
   @Patch(':id/cancel')

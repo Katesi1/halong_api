@@ -35,3 +35,14 @@ secrets/
 *service-account*.json
 *.pem
 *.key
+
+# Deploy / VPS secrets — never commit
+.deploy-secrets.json
+.pgpassword.txt
+.git.broken-bak/
+
+# VPS-local binaries (44MB+ installers, not part of source)
+.installers/
+
+# Claude Code local state (lock files, etc.)
+.claude/scheduled_tasks.lock

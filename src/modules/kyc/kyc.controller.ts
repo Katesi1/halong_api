@@ -17,7 +17,20 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { BadRequestException } from '@nestjs/common';
 import { KycService } from './kyc.service';
+
+const IMAGE_MIME_REGEX = /^image\/(jpeg|jpg|png|webp|heic|heif)$/i;
+const KYC_UPLOAD_OPTIONS = {
+  storage: memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req: any, file: Express.Multer.File, cb: any) => {
+    if (!IMAGE_MIME_REGEX.test(file.mimetype)) {
+      return cb(new BadRequestException('Only JPG/PNG/WEBP/HEIC images allowed'), false);
+    }
+    cb(null, true);
+  },
+};
 import { ResubmitKycDto } from './dto/resubmit-kyc.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -44,7 +57,7 @@ export class KycController {
   @ApiOperation({ summary: 'Upload CCCD front' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('image', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('image', KYC_UPLOAD_OPTIONS),
   )
   uploadCccdFront(
     @CurrentUser() user: any,
@@ -60,7 +73,7 @@ export class KycController {
   @ApiOperation({ summary: 'Upload CCCD back' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('image', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('image', KYC_UPLOAD_OPTIONS),
   )
   uploadCccdBack(
     @CurrentUser() user: any,
@@ -76,7 +89,7 @@ export class KycController {
   @ApiOperation({ summary: 'Upload selfie for face match' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('image', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }),
+    FileInterceptor('image', KYC_UPLOAD_OPTIONS),
   )
   uploadSelfie(
     @CurrentUser() user: any,

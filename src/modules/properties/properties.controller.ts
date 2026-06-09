@@ -10,6 +10,7 @@ import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { UpdatePricesDto } from './dto/update-prices.dto';
+import { RejectPropertyDto, SuspendPropertyDto } from './dto/moderation.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -197,5 +198,42 @@ export class PropertiesController {
     @Lang() msg: Messages,
   ) {
     return this.propertiesService.setCoverImage(propertyId, imageId, user, msg);
+  }
+
+  // ─── Admin moderation ─────────────────────────────────────────────────────
+
+  @Post(':id/approve')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'ADMIN duyệt property (chuyển moderationStatus → approved)' })
+  approveProperty(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.approveProperty(user.id, id, msg);
+  }
+
+  @Post(':id/reject')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'ADMIN từ chối property' })
+  rejectProperty(
+    @Param('id') id: string,
+    @Body() dto: RejectPropertyDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.rejectProperty(user.id, id, dto.reason, msg);
+  }
+
+  @Post(':id/suspend')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'ADMIN tạm ngưng property đang hoạt động' })
+  suspendProperty(
+    @Param('id') id: string,
+    @Body() dto: SuspendPropertyDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.suspendProperty(user.id, id, dto.reason, msg);
   }
 }

@@ -30,18 +30,31 @@ export class NotificationsService {
 
   // ─── User-facing endpoints ─────────────────────────────────────────────────
 
-  async findAll(userId: string, msg: Messages) {
-    const notifications = await this.prisma.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll(userId: string, msg: Messages, page?: number, limit?: number) {
+    const take = Math.min(Math.max(1, Number(limit) || 50), 100);
+    const currentPage = Math.max(1, Number(page) || 1);
+    const skip = (currentPage - 1) * take;
 
-    const data = notifications.map(n => ({
+    const [notifications, total] = await this.prisma.$transaction([
+      this.prisma.notification.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      this.prisma.notification.count({ where: { userId } }),
+    ]);
+
+    const data = notifications.map((n) => ({
       ...n,
       type: TYPE_LABELS[n.type] || 'system',
     }));
 
-    return { message: msg.notifications.listSuccess, data };
+    return {
+      message: msg.notifications.listSuccess,
+      data,
+      meta: { total, page: currentPage, limit: take },
+    };
   }
 
   async getUnreadCount(userId: string, msg: Messages) {

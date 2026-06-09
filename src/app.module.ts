@@ -20,6 +20,7 @@ import { KycModule } from './modules/kyc/kyc.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { AdminKycModule } from './modules/admin-kyc/admin-kyc.module';
+import { AdminSubscriptionModule } from './modules/admin-subscription/admin-subscription.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { EmailModule } from './modules/email/email.module';
@@ -27,6 +28,17 @@ import { StaffModule } from './modules/staff/staff.module';
 import { FirebaseModule } from './modules/firebase/firebase.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { AppVersionModule } from './modules/app-version/app-version.module';
+import { AuditLogModule } from './modules/audit-log/audit-log.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { LeadsModule } from './modules/leads/leads.module';
+import { AdminEmailsModule } from './modules/admin-emails/admin-emails.module';
+import { ChatModule } from './modules/chat/chat.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
+import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
+import { DataExportsModule } from './modules/data-exports/data-exports.module';
+import { ConsentsModule } from './modules/consents/consents.module';
+import { NotificationPreferencesModule } from './modules/notification-preferences/notification-preferences.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -54,6 +66,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     BillingModule,
     PaymentModule,
     AdminKycModule,
+    AdminSubscriptionModule,
     ReviewsModule,
     PermissionsModule,
     EmailModule,
@@ -61,6 +74,17 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     FirebaseModule,
     DevicesModule,
     AppVersionModule,
+    AuditLogModule,
+    DisputesModule,
+    LeadsModule,
+    AdminEmailsModule,
+    ChatModule,
+    UploadsModule,
+    SupportTicketsModule,
+    FeedbackModule,
+    DataExportsModule,
+    ConsentsModule,
+    NotificationPreferencesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
@@ -22,15 +23,20 @@ import * as bcrypt from 'bcryptjs';
 import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import * as appleSignin from 'apple-signin-auth';
 import { AppleAuthDto } from './dto/apple-auth.dto';
+import { EmailService } from '../email/email.service';
+
+const RESET_TOKEN_TTL_MINUTES = 10;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly googleClient = new OAuth2Client();
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {}
 
   async register(
@@ -80,14 +86,30 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
   }
 
   async login(dto: LoginDto, msg: Messages) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase().trim() },
+    // Ưu tiên identifier (chuẩn mới), fallback email/phone (backward-compat FE cũ)
+    const raw = (dto.identifier || dto.email || dto.phone || '').trim();
+    if (!raw) {
+      throw new UnauthorizedException(msg.auth.invalidCredentials);
+    }
+
+    // Detect identifier: email vs phone
+    // Phone VN: 0xxxxxxxxx hoặc +84xxxxxxxxx → chuẩn hoá về 0xxxxxxxxx (cách lưu DB)
+    const phoneRegex = /^(0\d{9}|\+84\d{9})$/;
+    const isPhone = phoneRegex.test(raw);
+    const normalizedPhone = isPhone
+      ? raw.startsWith('+84')
+        ? '0' + raw.slice(3)
+        : raw
+      : null;
+    const normalizedEmail = !isPhone ? raw.toLowerCase() : null;
+
+    const user = await this.prisma.user.findFirst({
+      where: isPhone ? { phone: normalizedPhone! } : { email: normalizedEmail! },
     });
 
     if (!user || !user.isActive || user.deletedAt || !user.password) {
@@ -107,7 +129,6 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -207,7 +228,6 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
   }
@@ -273,6 +293,7 @@ export class AuthService {
           },
         };
       }
+      // Apple chia sẻ business rule với Google: ADMIN/SALE không tự đăng ký được
       if (dto.role === ROLE.ADMIN) {
         throw new ForbiddenException(msg.auth.googleAdminForbidden);
       }
@@ -311,9 +332,23 @@ export class AuthService {
       data: {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
-        user: this.serializeAuthUser(user),
       },
     };
+  }
+
+  /**
+   * Reset-token bí mật riêng (không dùng JWT_SECRET của access-token để tránh
+   * dùng access-token làm reset-token). Fallback JWT_SECRET chỉ khi env chưa
+   * có — dev convenience; prod phải set rõ JWT_RESET_SECRET.
+   */
+  private getResetSecret(): string {
+    const secret =
+      this.configService.get<string>('JWT_RESET_SECRET') ||
+      this.configService.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_RESET_SECRET / JWT_SECRET chưa được cấu hình');
+    }
+    return secret;
   }
 
   async forgotPassword(dto: ForgotPasswordDto, msg: Messages) {
@@ -324,65 +359,110 @@ export class AuthService {
           { email: dto.identifier },
         ],
       },
+      select: { id: true, email: true, phone: true, isActive: true, deletedAt: true },
     });
 
-    if (!user) {
+    // Trả success ngay cả khi user không tồn tại để tránh enumeration.
+    if (!user || !user.isActive || user.deletedAt) {
       return { message: msg.auth.forgotPasswordSuccess, data: null };
+    }
+
+    // Sinh reset token: TTL 10 phút, có purpose='reset' để verify chặn nhầm token.
+    const resetToken = this.jwtService.sign(
+      { sub: user.id, purpose: 'reset' },
+      { secret: this.getResetSecret(), expiresIn: `${RESET_TOKEN_TTL_MINUTES}m` },
+    );
+
+    // Gửi qua email nếu user có email + SMTP configured.
+    // KHÔNG bao giờ trả token trong response (tránh leak qua proxy / log access).
+    // TODO: tích hợp SMS provider cho user chỉ có phone.
+    this.logger.log(`Password reset issued for user=${user.id}`);
+
+    if (user.email && this.emailService.isEnabled()) {
+      const base = (this.configService.get<string>('FRONTEND_BASE_URL') || 'https://halong24h.com').replace(/\/+$/, '');
+      const resetLink = `${base}/auth/reset-password?token=${encodeURIComponent(resetToken)}`;
+      try {
+        await this.emailService.sendPasswordReset({
+          to: user.email,
+          resetLink,
+          expiresInMinutes: RESET_TOKEN_TTL_MINUTES,
+        });
+      } catch (err) {
+        // Không leak failure ra ngoài — vẫn trả success để chống enumeration.
+        this.logger.error(`sendPasswordReset failed for user=${user.id}: ${(err as Error).message}`);
+      }
+    } else if (process.env.NODE_ENV !== 'production') {
+      this.logger.warn(`[DEV ONLY] reset token for ${user.id}: ${resetToken}`);
     }
 
     return { message: msg.auth.forgotPasswordSuccess, data: null };
   }
 
   async resetPassword(dto: ResetPasswordDto, msg: Messages) {
+    let payload: { sub: string; purpose?: string };
     try {
-      const payload = this.jwtService.verify(dto.token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
-      });
-
-      const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
-      await this.prisma.user.update({
-        where: { id: payload.sub },
-        data: { password: hashedPassword },
-      });
-
-      return { message: msg.auth.resetPasswordSuccess, data: null };
+      payload = this.jwtService.verify(dto.token, { secret: this.getResetSecret() });
     } catch {
       throw new BadRequestException(msg.auth.resetTokenInvalid);
     }
+
+    // Bắt buộc purpose='reset' — chặn dùng access-token làm reset-token.
+    if (payload.purpose !== 'reset' || !payload.sub) {
+      throw new BadRequestException(msg.auth.resetTokenInvalid);
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, isActive: true, deletedAt: true },
+    });
+    if (!user || !user.isActive || user.deletedAt) {
+      throw new BadRequestException(msg.auth.resetTokenInvalid);
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword, refreshToken: null },
+    });
+
+    return { message: msg.auth.resetPasswordSuccess, data: null };
   }
 
   async refreshToken(refreshToken: string, msg: Messages) {
+    // Verify chữ ký + hạn JWT. Chỉ block try/catch quanh verify để không nuốt
+    // các ForbiddenException ném ở dưới (vd: user bị xoá, token DB không khớp).
+    let payload: { sub: string };
     try {
-      const payload = this.jwtService.verify(refreshToken, {
+      payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
-
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-      });
-
-      if (!user || !user.refreshToken || !user.isActive) {
-        throw new ForbiddenException(msg.auth.invalidRefreshToken);
-      }
-
-      const isRefreshTokenValid = await bcrypt.compare(
-        refreshToken,
-        user.refreshToken,
-      );
-      if (!isRefreshTokenValid) {
-        throw new ForbiddenException(msg.auth.invalidRefreshToken);
-      }
-
-      const tokens = await this.generateTokens(user.id, user.email, user.role);
-      await this.updateRefreshToken(user.id, tokens.refreshToken);
-
-      return {
-        message: msg.auth.refreshSuccess,
-        data: tokens,
-      };
     } catch {
+      // JWT malformed / sai chữ ký / quá hạn
       throw new ForbiddenException(msg.auth.expiredRefreshToken);
     }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+
+    // Reject nếu: user không tồn tại / đã soft-delete / bị disable / đã logout (refreshToken=null)
+    if (!user || user.deletedAt || !user.isActive || !user.refreshToken) {
+      throw new ForbiddenException(msg.auth.invalidRefreshToken);
+    }
+
+    // Compare với hash trong DB để chống dùng lại token cũ đã rotate
+    const isRefreshTokenValid = await bcrypt.compare(refreshToken, user.refreshToken);
+    if (!isRefreshTokenValid) {
+      throw new ForbiddenException(msg.auth.invalidRefreshToken);
+    }
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    return {
+      message: msg.auth.refreshSuccess,
+      data: tokens,
+    };
   }
 
   async logout(userId: string, msg: Messages) {
@@ -401,7 +481,11 @@ export class AuthService {
         role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
         emailVerified: true, createdAt: true, updatedAt: true,
         kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
-        subscriptionCycle: true, trialEndsAt: true, nextChargeAt: true,
+        subscriptionCycle: true, subscriptionProvider: true, subscriptionPriceOverride: true,
+        subscriptionFrozenAt: true, subscriptionFrozenReason: true,
+        trialEndsAt: true, nextChargeAt: true,
+        currentPeriodStart: true, currentPeriodEnd: true,
+        pendingPlanId: true, pendingCycle: true, pendingEffectiveAt: true,
         permissions: {
           select: { module: true, canCreate: true, canRead: true, canUpdate: true, canDelete: true },
         },
@@ -465,27 +549,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * Shape user object dùng chung cho mọi auth response (login/register/google/profile).
-   */
-  private serializeAuthUser(user: any) {
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar ?? null,
-      phone: user.phone ?? null,
-      role: user.role,
-      ownerId: user.ownerId ?? null,
-      isActive: user.isActive,
-      emailVerified: user.emailVerified ?? false,
-      kycStatus: user.kycStatus ?? null,
-      subscriptionStatus: user.subscriptionStatus ?? null,
-      trialEndsAt: user.trialEndsAt ?? null,
-      createdAt: user.createdAt ?? null,
-      updatedAt: user.updatedAt ?? null,
-    };
-  }
 
   /**
    * Verify Google idToken (audience = GOOGLE_OAUTH_WEB_CLIENT_ID).

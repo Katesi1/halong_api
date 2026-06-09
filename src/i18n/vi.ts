@@ -7,33 +7,35 @@ export const vi = {
 
   // ─── Auth ───────────────────────────────────────────────────────────────────
   auth: {
-    invalidCredentials: 'Số điện thoại hoặc mật khẩu không đúng',
+    invalidCredentials: 'Email/số điện thoại hoặc mật khẩu không đúng',
+    identifierRequired: 'Vui lòng nhập email hoặc số điện thoại',
+    identifierInvalid: 'Email hoặc số điện thoại không hợp lệ',
     invalidToken: 'Token không hợp lệ',
     invalidRefreshToken: 'Refresh token không hợp lệ',
     expiredRefreshToken: 'Refresh token không hợp lệ hoặc đã hết hạn',
-    accountDisabled: 'Tài khoản không tồn tại hoặc đã bị vô hiệu hóa',
+    accountDisabled: 'Tài khoản không tồn tại hoặc đã bị vô hiệu hoá',
     loginSuccess: 'Đăng nhập thành công',
     registerSuccess: 'Đăng ký thành công',
-    invalidRole: 'Role không hợp lệ. Chỉ chấp nhận OWNER, SALE hoặc CUSTOMER',
+    invalidRole: 'Role không hợp lệ — chỉ chấp nhận OWNER (1), SALE (2) hoặc CUSTOMER (3)',
     phoneDuplicate: 'Số điện thoại đã được đăng ký',
     emailDuplicate: 'Email đã được sử dụng',
-    googleTokenInvalid: 'Token Google không hợp lệ',
-    googleRoleRequired: 'Thiếu role cho user mới',
-    googleAdminForbidden: 'Không thể đăng ký role admin qua Google',
-    googleSaleForbidden: 'Nhân viên (SALE) phải accept invite từ chủ homestay, không thể tự đăng ký. Liên hệ chủ homestay của bạn để được mời.',
-    googleRoleInvalid: 'Role không hợp lệ',
-    googleEmailNotVerified: 'Email Google chưa được xác thực',
-    googleNewUserPrompt: 'Vui lòng chọn vai trò',
-    appleTokenInvalid: 'Token Apple không hợp lệ',
-    appleEmailRequired: 'Apple không trả email — vui lòng cho phép chia sẻ email khi đăng nhập',
-    accountInactive: 'Tài khoản đã bị vô hiệu hoá',
-    tooManyRegisters: 'Đã đăng ký quá nhiều tài khoản từ thiết bị/mạng này. Thử lại sau 24 giờ.',
-    forgotPasswordSuccess: 'Đã gửi mã xác nhận',
-    resetPasswordSuccess: 'Đặt lại mật khẩu thành công',
-    resetTokenInvalid: 'Token đặt lại mật khẩu không hợp lệ',
-    refreshSuccess: 'Refresh token thành công',
+    googleTokenInvalid: 'Token Google không hợp lệ hoặc đã hết hạn',
+    googleRoleRequired: 'Vui lòng chọn vai trò (OWNER hoặc CUSTOMER) cho tài khoản mới',
+    googleAdminForbidden: 'Không thể đăng ký vai trò Admin qua Google',
+    googleSaleForbidden: 'Nhân viên (SALE) phải nhận lời mời từ chủ homestay, không thể tự đăng ký. Vui lòng liên hệ chủ homestay để được mời.',
+    googleRoleInvalid: 'Vai trò không hợp lệ — chỉ chấp nhận OWNER (1) hoặc CUSTOMER (3)',
+    googleEmailNotVerified: 'Email Google chưa được xác thực — vui lòng dùng email đã verified',
+    googleNewUserPrompt: 'Vui lòng chọn vai trò để hoàn tất đăng ký',
+    appleTokenInvalid: 'Token Apple không hợp lệ hoặc đã hết hạn',
+    appleEmailRequired: 'Apple không trả email — vui lòng chọn "Chia sẻ email của tôi" khi đăng nhập Apple',
+    accountInactive: 'Tài khoản đã bị vô hiệu hoá. Vui lòng liên hệ hỗ trợ.',
+    tooManyRegisters: 'Đã đăng ký quá nhiều tài khoản từ thiết bị/mạng này. Vui lòng thử lại sau 24 giờ.',
+    forgotPasswordSuccess: 'Đã gửi hướng dẫn đặt lại mật khẩu (nếu tài khoản tồn tại)',
+    resetPasswordSuccess: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.',
+    resetTokenInvalid: 'Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn',
+    refreshSuccess: 'Làm mới token thành công',
     logoutSuccess: 'Đăng xuất thành công',
-    profileSuccess: 'Lấy thông tin thành công',
+    profileSuccess: 'Lấy thông tin tài khoản thành công',
     changePasswordSuccess: 'Đổi mật khẩu thành công',
     currentPasswordIncorrect: 'Mật khẩu hiện tại không đúng',
   },
@@ -68,6 +70,18 @@ export const vi = {
     saleNotAssigned: 'Bạn chưa được gán cho chủ nhà nào',
     kycBypassGranted: 'Đã cấp quyền bỏ qua KYC — người dùng có thể quản lý cơ sở mà không cần KYC',
     kycBypassRevoked: 'Đã thu hồi quyền bỏ qua KYC — người dùng cần hoàn thành KYC để quản lý cơ sở',
+    banSuccess: 'Đã ban người dùng',
+    unbanSuccess: 'Đã gỡ ban người dùng',
+    revokeSessionsSuccess: 'Đã thu hồi toàn bộ phiên đăng nhập của người dùng',
+    resetPasswordSuccess: 'Đã đặt lại mật khẩu',
+    changeRoleSuccess: 'Đã đổi vai trò người dùng',
+    banReasonRequired: 'Lý do ban phải tối thiểu 5 ký tự',
+    cannotSelfTarget: 'Không thể thực hiện thao tác này lên chính mình',
+    alreadyBanned: 'Người dùng đang bị ban',
+    notBanned: 'Người dùng hiện không bị ban',
+    passwordTooShort: 'Mật khẩu mới phải có ít nhất 8 ký tự',
+    passwordWeak: 'Mật khẩu phải chứa ít nhất 1 chữ cái và 1 số',
+    invalidRole: 'Role không hợp lệ (chỉ 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)',
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -90,6 +104,10 @@ export const vi = {
     setCoverSuccess: 'Đặt ảnh cover thành công',
     updatePricesSuccess: 'Cập nhật giá cơ sở thành công',
     shareSuccess: 'Lấy thông tin chia sẻ cơ sở thành công',
+    approveSuccess: 'Duyệt cơ sở thành công',
+    rejectSuccess: 'Từ chối cơ sở thành công',
+    suspendSuccess: 'Tạm ngưng cơ sở thành công',
+    rejectReasonRequired: 'Lý do từ chối phải tối thiểu 5 ký tự',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -118,6 +136,8 @@ export const vi = {
     confirmSuccess: 'Xác nhận booking thành công',
     cancelSuccess: 'Huỷ booking thành công',
     updateSuccess: 'Cập nhật booking thành công',
+    markPaidSuccess: 'Đã ghi nhận thanh toán booking',
+    paidAmountRequired: 'Số tiền thanh toán phải > 0 (truyền amount hoặc booking cần có totalAmount/depositAmount)',
   },
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
@@ -140,6 +160,10 @@ export const vi = {
     dateAlreadyLocked: 'Ngày này đã được khoá hoặc đặt',
     lockNotFound: 'Không tìm thấy ngày bị khoá',
     propertyNotFound: 'Cơ sở không tồn tại',
+    bulkEmpty: 'Danh sách items rỗng',
+    bulkTooMany: 'Bulk tối đa 100 ngày trong 1 request',
+    bulkSuccess: (mode: string, ok: number, total: number) =>
+      `${mode === 'lock' ? 'Khoá' : 'Mở khoá'} ${ok}/${total} ngày thành công`,
   },
 
   // ─── Notifications ──────────────────────────────────────────────────────────
@@ -170,6 +194,8 @@ export const vi = {
     reportsSuccess: 'Lấy dữ liệu báo cáo thành công',
     missingDateRange: 'Vui lòng cung cấp from và to khi dùng period=custom',
     invalidDateRange: 'Ngày from phải trước ngày to',
+    toInFuture: 'Ngày to không được ở tương lai',
+    invalidPeriod: 'Giá trị period không hợp lệ (today | week | month | year | custom)',
   },
 
   // ─── Reviews ───────────────────────────────────────────────────────────────
@@ -185,6 +211,10 @@ export const vi = {
     alreadyReviewed: 'Booking này đã được đánh giá rồi',
     invalidScore: 'Điểm đánh giá phải là số nguyên từ 1 đến 5',
     forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    restoreSuccess: 'Đã khôi phục đánh giá',
+    notHidden: 'Đánh giá hiện không bị ẩn',
+    countFlaggedSuccess: 'Đếm đánh giá đã moderate thành công',
+    getSuccess: 'Lấy chi tiết đánh giá thành công',
   },
 
   // ─── KYC ───────────────────────────────────────────────────────────────────
@@ -203,6 +233,10 @@ export const vi = {
     statusSuccess: 'Lấy trạng thái KYC thành công',
     ownerNotVerified: 'Chủ nhà chưa hoàn thành xác minh danh tính',
     kycRequired: 'Bạn cần hoàn thành xác minh KYC trước khi quản lý cơ sở',
+    alreadyPending: 'Hồ sơ đang chờ duyệt, không thể gửi lại.',
+    alreadyApproved: 'Tài khoản đã được xác thực.',
+    locked: 'Hồ sơ đang chờ duyệt hoặc đã duyệt, không thể chỉnh sửa.',
+    propertyRequiresKyc: 'Cần hoàn tất xác thực trước khi đăng/sửa phòng.',
   },
 
   // ─── Billing ───────────────────────────────────────────────────────────────
@@ -210,6 +244,13 @@ export const vi = {
     listSuccess: 'Lấy danh sách gói dịch vụ thành công',
     planNotFound: 'Gói không tồn tại hoặc đã ngừng cung cấp',
     roomCountExceedsPlan: 'Số phòng vượt quá giới hạn của gói',
+    adminListSuccess: 'Lấy danh sách gói (admin) thành công',
+    createSuccess: 'Tạo gói thành công',
+    updateSuccess: 'Cập nhật gói thành công',
+    deleteSuccess: 'Xoá gói thành công',
+    deactivateSuccess: 'Gói đã được vô hiệu hoá (vẫn còn subscription đang dùng nên không thể xoá cứng)',
+    idExists: 'Đã có gói với ID này',
+    idInvalid: 'ID gói chỉ được chứa chữ thường, số hoặc dấu gạch dưới (a-z, 0-9, _)',
   },
 
   // ─── Payment ───────────────────────────────────────────────────────────────
@@ -231,6 +272,22 @@ export const vi = {
     invalidWebhookSecret: 'Webhook secret không hợp lệ',
     invalidSignature: 'Chữ ký không hợp lệ',
     cannotMatchTransfer: 'Không xác định được phiên thanh toán từ nội dung chuyển khoản',
+    adminListSuccess: 'Lấy danh sách phiên thanh toán thành công',
+    adminMarkPaidSuccess: 'Đã xác nhận thanh toán cho phiên này',
+    cannotMarkRefunded: 'Không thể xác nhận thanh toán cho phiên đã hoàn tiền',
+    cancelSuccess: 'Đã hủy phiên thanh toán',
+    cannotCancel: 'Phiên không ở trạng thái chờ, không thể hủy',
+    activeSuccess: 'Lấy phiên thanh toán hiện tại thành công',
+    quoteSuccess: 'Tạo báo giá thanh toán thành công',
+    subscriptionFrozen: 'Gói đăng ký đang bị đóng băng. Vui lòng liên hệ hỗ trợ.',
+    downgradeScheduled: 'Đã đặt lịch hạ gói. Gói mới sẽ áp dụng từ kỳ tiếp theo.',
+    cannotDowngradeInTrial: 'Không thể hạ gói trong thời gian dùng thử',
+    planNotFound: 'Không tìm thấy gói dịch vụ',
+    samePlanNoChange: 'Bạn đang sử dụng gói này',
+    kycNotApproved:
+      'Cần hoàn tất xác minh KYC và được admin duyệt trước khi mua gói',
+    paymentPending:
+      'Bạn đang có phiên thanh toán chờ duyệt. Vui lòng hoàn tất hoặc hủy phiên hiện tại trước khi tạo mới.',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
@@ -244,8 +301,13 @@ export const vi = {
   // ─── Staff Invites ─────────────────────────────────────────────────────────
   staff: {
     ownerOnly: 'Chỉ chủ homestay (OWNER) được mời nhân viên',
+    ownerIdRequired: 'ADMIN phải truyền ownerId khi tạo invite thay mặt OWNER',
     kycRequired: 'Cần hoàn tất KYC trước khi mời nhân viên',
     subscriptionRequired: 'Cần subscription đang hoạt động để mời nhân viên',
+    staffNotAllowedOnPlan: (planName: string) =>
+      `Gói ${planName} không bao gồm quyền mời nhân viên. Nâng cấp lên Starter trở lên để có thể mời nhân viên.`,
+    staffSlotLimitReached: (planName: string, max: number) =>
+      `Gói ${planName} chỉ cho phép tối đa ${max} nhân viên (đã đạt giới hạn, tính cả lời mời chờ accept). Nâng cấp lên Pro trở lên để mời không giới hạn.`,
     emailInvalid: 'Email không hợp lệ',
     inviteSelf: 'Không thể tự mời chính mình',
     emailHasAccount: 'Email đã có tài khoản. Liên hệ chủ tài khoản đó.',
@@ -278,9 +340,175 @@ export const vi = {
   // ─── Admin KYC ─────────────────────────────────────────────────────────────
   adminKyc: {
     queueSuccess: 'Lấy danh sách chờ duyệt thành công',
+    countPendingSuccess: 'Đếm hồ sơ chờ duyệt thành công',
     approveSuccess: 'Duyệt hồ sơ xác minh thành công',
     rejectSuccess: 'Từ chối hồ sơ xác minh thành công',
     alreadyProcessed: 'Hồ sơ này đã được xử lý rồi',
     invalidStatus: 'Hồ sơ không ở trạng thái chờ duyệt',
+    invalidFilter: 'filter phải là 0 (tất cả), 1 (chờ duyệt), 2 (đã duyệt) hoặc 3 (đã từ chối)',
   },
+
+  // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────
+  adminSubscription: {
+    getSuccess: 'Lấy thông tin subscription thành công',
+    grantSuccess: 'Cấp trial thành công',
+    extendSuccess: 'Gia hạn trial thành công',
+    revokeSuccess: 'Thu hồi trial thành công',
+    onlyOwner: 'Chỉ có thể cấp trial cho tài khoản OWNER',
+    userInactive: 'Tài khoản đã bị vô hiệu hoá',
+    alreadyActive: 'User đang có subscription trả phí (active) — không thể cấp trial',
+    notInTrial: 'User hiện không trong trạng thái trial — không có gì để thu hồi',
+    planRequired: 'planId là bắt buộc khi user chưa từng có subscription',
+    planNotFound: 'Gói cước (planId) không tồn tại',
+    notifyGrantedTitle: 'Bạn được cấp dùng thử miễn phí',
+    notifyGrantedBody: (days: number, endsAt: Date) =>
+      `Tài khoản OWNER của bạn vừa được cấp ${days} ngày dùng thử miễn phí. Hạn dùng đến ${endsAt.toLocaleDateString('vi-VN')}.`,
+    notifyExtendedTitle: 'Trial được gia hạn',
+    notifyExtendedBody: (days: number, endsAt: Date) =>
+      `Trial của bạn vừa được cộng thêm ${days} ngày. Hạn mới đến ${endsAt.toLocaleDateString('vi-VN')}.`,
+    notifyRevokedTitle: 'Trial đã bị thu hồi',
+    notifyRevokedBody: 'Trial trên tài khoản của bạn đã bị thu hồi bởi quản trị viên.',
+    listSuccess: 'Lấy danh sách subscription thành công',
+    countSuccess: 'Đếm subscription thành công',
+    sumPaidSuccess: 'Tổng doanh thu thu được',
+    priceSetSuccess: 'Cập nhật giá tuỳ chỉnh thành công',
+    priceInvalid: 'Giá tuỳ chỉnh phải là số nguyên >= 0 hoặc null để bỏ override',
+    markPaidSuccess: 'Ghi nhận thanh toán thủ công thành công',
+    markPaidAmountRequired: 'Số tiền (amount) là bắt buộc khi mark-paid',
+    freezeSuccess: 'Đã đóng băng subscription',
+    unfreezeSuccess: 'Đã mở đóng băng subscription',
+    notFrozen: 'Subscription hiện không bị đóng băng',
+    alreadyFrozen: 'Subscription đã bị đóng băng từ trước',
+    cannotGrantTrialFrozen: 'Không thể cấp trial cho tài khoản đang bị đóng băng — vui lòng unfreeze trước',
+    markPaidDuplicate: 'Vừa có một thao tác mark-paid khác trong 10 giây qua — vui lòng đợi và thử lại',
+    freezeReasonRequired: 'Lý do đóng băng (reason) là bắt buộc',
+    selfSuccess: 'Lấy subscription của bạn thành công',
+    notifyPriceSetTitle: 'Giá gói được điều chỉnh',
+    notifyPriceSetBody: (price: number) =>
+      `Quản trị viên vừa điều chỉnh giá gói của bạn thành ${price.toLocaleString('vi-VN')} đ/kỳ.`,
+    notifyPriceClearedTitle: 'Giá gói trở về mặc định',
+    notifyPriceClearedBody: 'Giá tuỳ chỉnh trên tài khoản của bạn đã bị huỷ, gói sẽ dùng giá niêm yết.',
+    notifyMarkPaidTitle: 'Đã ghi nhận thanh toán',
+    notifyMarkPaidBody: (amount: number, endsAt: Date) =>
+      `Quản trị viên đã ghi nhận thanh toán ${amount.toLocaleString('vi-VN')} đ. Gói gia hạn đến ${endsAt.toLocaleDateString('vi-VN')}.`,
+    notifyFrozenTitle: 'Tài khoản bị tạm khoá gói',
+    notifyFrozenBody: (reason: string) => `Subscription của bạn đã bị tạm khoá. Lý do: ${reason}`,
+    notifyUnfrozenTitle: 'Gói đã được mở khoá',
+    notifyUnfrozenBody: 'Subscription của bạn đã được kích hoạt trở lại.',
+  },
+
+  // ─── Disputes ──────────────────────────────────────────────────────────────
+  disputes: {
+    openSuccess: 'Đã mở khiếu nại',
+    listSuccess: 'Lấy danh sách khiếu nại thành công',
+    getSuccess: 'Lấy chi tiết khiếu nại thành công',
+    countSuccess: 'Đếm khiếu nại đang xử lý thành công',
+    investigateSuccess: 'Đã chuyển sang trạng thái đang điều tra',
+    resolveSuccess: 'Đã giải quyết khiếu nại',
+    rejectSuccess: 'Đã bác khiếu nại',
+    notFound: 'Không tìm thấy khiếu nại',
+    onlyPendingCanInvestigate: 'Chỉ khiếu nại đang pending mới có thể chuyển sang investigating',
+    alreadyClosed: 'Khiếu nại đã đóng (resolved/rejected) — không thể thao tác tiếp',
+    forbiddenOpen: 'Bạn không có quyền mở khiếu nại cho booking này',
+  },
+
+  // ─── Audit Log ─────────────────────────────────────────────────────────────
+  auditLog: {
+    listSuccess: 'Lấy danh sách audit log thành công',
+  },
+
+  // ─── Leads ─────────────────────────────────────────────────────────────────
+  leads: {
+    createSuccess: 'Đã ghi nhận yêu cầu, chủ cơ sở sẽ liên hệ bạn sớm',
+    listSuccess: 'Lấy danh sách lead thành công',
+    getSuccess: 'Lấy chi tiết lead thành công',
+    updateSuccess: 'Cập nhật lead thành công',
+    notFound: 'Lead không tồn tại',
+    propertyNotFound: 'Cơ sở không tồn tại hoặc đã ngừng hoạt động',
+    invalidDates: 'Ngày check-out phải sau ngày check-in',
+    forbidden: 'Bạn không có quyền truy cập lead này',
+  },
+
+  // ─── Chat / Conversations ─────────────────────────────────────────────────
+  chat: {
+    conversationListSuccess: 'Lấy danh sách hội thoại thành công',
+    conversationGetSuccess: 'Lấy hội thoại thành công',
+    conversationCreateSuccess: 'Tạo hội thoại thành công',
+    conversationNotFound: 'Hội thoại không tồn tại',
+    notMember: 'Bạn không phải thành viên của hội thoại này',
+    messageListSuccess: 'Lấy tin nhắn thành công',
+    messageSendSuccess: 'Gửi tin nhắn thành công',
+    messageEmpty: 'Tin nhắn không được rỗng',
+    messageTooLong: (max: number) => `Tin nhắn tối đa ${max} ký tự`,
+    attachmentsTooMany: (max: number) => `Tối đa ${max} file đính kèm`,
+    bookingRequired: 'Hội thoại type=booking cần bookingId',
+    invalidCursor: 'Cursor không hợp lệ — sẽ đọc từ đầu',
+    invalidConversationId: 'conversationId không hợp lệ',
+    messageNotFound: 'Tin nhắn không tồn tại hoặc đã bị xoá',
+    cannotEditSystem: 'Không thể sửa/xoá tin nhắn hệ thống',
+    onlySenderCanEdit: 'Chỉ người gửi mới được sửa tin nhắn',
+    onlySenderCanDelete: 'Chỉ người gửi hoặc admin mới được xoá tin nhắn',
+    editWindowExpired: 'Đã quá 15 phút — không thể sửa tin nhắn',
+    editSuccess: 'Sửa tin nhắn thành công',
+    deleteSuccess: 'Xoá tin nhắn thành công',
+    readSuccess: 'Đã đánh dấu đã đọc',
+    unreadCountSuccess: 'Lấy số tin chưa đọc thành công',
+  },
+
+  // ─── Uploads (generic file upload) ─────────────────────────────────────────
+  uploads: {
+    fileRequired: 'Vui lòng chọn file để upload',
+    fileEmpty: 'File rỗng, không thể upload',
+    fileTooLarge: (maxMB: number) => `File quá lớn, tối đa ${maxMB}MB`,
+    unsupportedType:
+      'Loại file không được hỗ trợ. Chỉ chấp nhận: JPEG, PNG, WEBP, GIF, PDF',
+    uploadFailed: 'Upload thất bại, vui lòng thử lại',
+    uploadSuccess: 'Tải lên thành công',
+    deleteSuccess: 'Xoá file thành công',
+    notFound: 'File không tồn tại',
+    forbidden: 'Bạn không có quyền xoá file này',
+    alreadyAttached:
+      'File đã được gắn vào tin nhắn — không thể xoá trực tiếp, hãy xoá tin nhắn tương ứng',
+  },
+
+  // ─── Admin Emails ──────────────────────────────────────────────────────────
+  adminEmails: {
+    listSuccess: 'Lấy danh sách template email thành công',
+    testSentSuccess: 'Đã gửi email mẫu',
+    smtpDisabled: 'SMTP chưa được cấu hình — không gửi được email',
+  },
+
+  // ─── Support Tickets ───────────────────────────────────────────────────────
+  supportTickets: {
+    createSuccess: 'Tạo yêu cầu hỗ trợ thành công',
+    listSuccess: 'Lấy danh sách yêu cầu hỗ trợ thành công',
+    getSuccess: 'Lấy chi tiết yêu cầu hỗ trợ thành công',
+    replySuccess: 'Gửi phản hồi thành công',
+    notFound: 'Yêu cầu hỗ trợ không tồn tại',
+    forbidden: 'Bạn không có quyền truy cập yêu cầu này',
+  },
+
+  // ─── Feedback ──────────────────────────────────────────────────────────────
+  feedback: {
+    createSuccess: 'Cảm ơn — phản hồi của bạn đã được ghi nhận',
+  },
+
+  // ─── Data Exports (GDPR) ───────────────────────────────────────────────────
+  dataExports: {
+    createSuccess: 'Đã tạo yêu cầu xuất dữ liệu',
+    listSuccess: 'Lấy danh sách yêu cầu xuất dữ liệu thành công',
+  },
+
+  // ─── Consents ──────────────────────────────────────────────────────────────
+  consents: {
+    getSuccess: 'Lấy thông tin đồng ý thành công',
+    updateSuccess: 'Cập nhật thông tin đồng ý thành công',
+  },
+
+  // ─── Notification Preferences ──────────────────────────────────────────────
+  notificationPreferences: {
+    getSuccess: 'Lấy cài đặt thông báo thành công',
+    updateSuccess: 'Cập nhật cài đặt thông báo thành công',
+  },
+
 };

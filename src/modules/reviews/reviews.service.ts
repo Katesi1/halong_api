@@ -6,15 +6,16 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { Messages } from '../../i18n';
-import { BOOKING_STATUS, ROLE, getEffectiveOwnerId } from '../../common/constants';
+import { BOOKING_STATUS, ROLE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId } from '../../common/constants';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { ReplyReviewDto } from './dto/reply-review.dto';
 import { HideReviewDto } from './dto/hide-review.dto';
 
 @Injectable()
 export class ReviewsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private auditLog: AuditLogService) {}
 
   async createReview(
     propertyId: string,
@@ -293,5 +294,133 @@ export class ReviewsService {
     });
 
     return { message: msg.reviews.hideSuccess, data: null };
+  }
+
+  async hideReviewAsAdmin(
+    adminId: string,
+    reviewId: string,
+    dto: HideReviewDto,
+    msg: Messages,
+  ) {
+    const result = await this.hideReview(reviewId, dto, msg);
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.REVIEW_HIDE,
+      targetType: AUDIT_TARGET_TYPE.REVIEW,
+      targetId: reviewId,
+      metadata: { reason: dto.reason ?? null },
+    });
+    return result;
+  }
+
+  async restoreReviewAsAdmin(adminId: string, reviewId: string, msg: Messages) {
+    const result = await this.restoreReview(reviewId, msg);
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.REVIEW_RESTORE,
+      targetType: AUDIT_TARGET_TYPE.REVIEW,
+      targetId: reviewId,
+    });
+    return result;
+  }
+
+  async restoreReview(reviewId: string, msg: Messages) {
+    const review = await this.prisma.propertyReview.findUnique({
+      where: { id: reviewId },
+      select: { id: true, isHidden: true },
+    });
+    if (!review) throw new NotFoundException(msg.reviews.notFound);
+    if (!review.isHidden) {
+      throw new BadRequestException(msg.reviews.notHidden);
+    }
+
+    await this.prisma.propertyReview.update({
+      where: { id: reviewId },
+      data: { isHidden: false, hiddenReason: null },
+    });
+
+    return { message: msg.reviews.restoreSuccess, data: null };
+  }
+
+  async adminListReviews(
+    filters: {
+      status?: 'visible' | 'hidden' | 'all';
+      rating?: number;
+      search?: string;
+      page?: number;
+      pageSize?: number;
+    },
+    msg: Messages,
+  ) {
+    const page = Math.max(1, filters.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
+    const skip = (page - 1) * pageSize;
+
+    const where: any = {};
+    if (filters.status === 'visible') where.isHidden = false;
+    else if (filters.status === 'hidden') where.isHidden = true;
+    // 'all' (or undefined) → no filter
+    if (filters.rating) where.avgRating = { gte: filters.rating, lt: filters.rating + 1 };
+    if (filters.search) {
+      where.OR = [
+        { comment: { contains: filters.search, mode: 'insensitive' } },
+        { property: { name: { contains: filters.search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.propertyReview.count({ where }),
+      this.prisma.propertyReview.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          property: { select: { id: true, name: true, code: true } },
+          customer: { select: { id: true, name: true, email: true } },
+        },
+      }),
+    ]);
+
+    return {
+      message: msg.reviews.listSuccess,
+      data: {
+        items,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+      },
+    };
+  }
+
+  async adminGetReview(reviewId: string, msg: Messages) {
+    const review = await this.prisma.propertyReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        property: { select: { id: true, name: true, code: true, type: true, ownerId: true } },
+        customer: { select: { id: true, name: true, email: true, phone: true, avatar: true } },
+        booking: {
+          select: {
+            id: true,
+            checkinDate: true,
+            checkoutDate: true,
+            status: true,
+            totalAmount: true,
+            paidAmount: true,
+          },
+        },
+      },
+    });
+    if (!review) throw new NotFoundException(msg.reviews.notFound);
+    return { message: msg.reviews.getSuccess, data: review };
+  }
+
+  async countFlagged(msg: Messages) {
+    // "Flagged" = currently hidden (moderated). FE uses this for sidebar badge.
+    const count = await this.prisma.propertyReview.count({ where: { isHidden: true } });
+    return { message: msg.reviews.countFlaggedSuccess, data: { count } };
   }
 }
