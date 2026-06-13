@@ -81,14 +81,26 @@ export class AdminKycService {
     return { message: msg.adminKyc.countPendingSuccess, data: { count } };
   }
 
-  /** Admin KYC list — một endpoint, filter tab 0–3 */
+  /** Admin KYC list — một endpoint, filter tab 0–3, keyword search theo owner */
   async getQueue(
     page: number,
     pageSize: number,
     filter: number,
+    q: string | undefined,
     msg: Messages,
   ) {
-    const where = this.buildWhereFromFilter(filter);
+    const where: Record<string, unknown> = this.buildWhereFromFilter(filter);
+
+    const keyword = q?.trim();
+    if (keyword) {
+      where.user = {
+        OR: [
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { phone: { contains: keyword } },
+          { email: { contains: keyword, mode: 'insensitive' } },
+        ],
+      };
+    }
 
     const [items, total, pendingCount] = await Promise.all([
       this.prisma.kycSubmission.findMany({

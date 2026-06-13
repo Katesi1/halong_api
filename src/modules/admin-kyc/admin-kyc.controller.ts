@@ -65,6 +65,7 @@ export class AdminKycController {
       query.page ?? 1,
       query.pageSize ?? 20,
       filter,
+      query.q,
       msg,
     );
   }

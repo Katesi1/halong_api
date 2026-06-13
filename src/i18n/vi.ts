@@ -239,6 +239,11 @@ export const vi = {
     propertyRequiresKyc: 'Cần hoàn tất xác thực trước khi đăng/sửa phòng.',
   },
 
+  // ─── Subscription entitlement (gate cho OWNER/SALE) ────────────────────────
+  subscription: {
+    featureLocked: 'Tài khoản chưa có quyền dùng tính năng này.',
+  },
+
   // ─── Billing ───────────────────────────────────────────────────────────────
   billing: {
     listSuccess: 'Lấy danh sách gói dịch vụ thành công',
@@ -304,10 +309,10 @@ export const vi = {
     ownerIdRequired: 'ADMIN phải truyền ownerId khi tạo invite thay mặt OWNER',
     kycRequired: 'Cần hoàn tất KYC trước khi mời nhân viên',
     subscriptionRequired: 'Cần subscription đang hoạt động để mời nhân viên',
-    staffNotAllowedOnPlan: (planName: string) =>
-      `Gói ${planName} không bao gồm quyền mời nhân viên. Nâng cấp lên Starter trở lên để có thể mời nhân viên.`,
-    staffSlotLimitReached: (planName: string, max: number) =>
-      `Gói ${planName} chỉ cho phép tối đa ${max} nhân viên (đã đạt giới hạn, tính cả lời mời chờ accept). Nâng cấp lên Pro trở lên để mời không giới hạn.`,
+    staffNotAllowedOnPlan: (_planName: string) =>
+      `Tài khoản hiện chưa có quyền mời nhân viên.`,
+    staffSlotLimitReached: (_planName: string, max: number) =>
+      `Đã đạt giới hạn ${max} nhân viên (tính cả lời mời chờ accept).`,
     emailInvalid: 'Email không hợp lệ',
     inviteSelf: 'Không thể tự mời chính mình',
     emailHasAccount: 'Email đã có tài khoản. Liên hệ chủ tài khoản đó.',

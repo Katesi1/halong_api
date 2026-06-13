@@ -239,6 +239,11 @@ export const en = {
     kycRequired: 'You must complete KYC verification before managing properties',
   },
 
+  // ─── Subscription entitlement (gate for OWNER/SALE) ────────────────────────
+  subscription: {
+    featureLocked: 'Your account is not authorized to use this feature.',
+  },
+
   // ─── Billing ───────────────────────────────────────────────────────────────
   billing: {
     listSuccess: 'Billing plans retrieved successfully',
@@ -304,10 +309,10 @@ export const en = {
     ownerIdRequired: 'ADMIN must provide ownerId when creating an invite on behalf of an OWNER',
     kycRequired: 'Complete KYC before inviting staff',
     subscriptionRequired: 'An active subscription is required to invite staff',
-    staffNotAllowedOnPlan: (planName: string) =>
-      `The ${planName} plan does not include staff invites. Upgrade to Starter or higher to invite staff.`,
-    staffSlotLimitReached: (planName: string, max: number) =>
-      `The ${planName} plan allows up to ${max} staff members (limit reached, including pending invites). Upgrade to Pro or higher for unlimited staff.`,
+    staffNotAllowedOnPlan: (_planName: string) =>
+      `Your account is not authorized to invite staff.`,
+    staffSlotLimitReached: (_planName: string, max: number) =>
+      `Staff limit reached (${max}, including pending invites).`,
     emailInvalid: 'Invalid email',
     inviteSelf: 'Cannot invite yourself',
     emailHasAccount: 'Email already has an account. Contact that account owner.',

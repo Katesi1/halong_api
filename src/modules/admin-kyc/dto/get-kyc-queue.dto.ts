@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Max, Min } from 'class-validator';
 import { KYC_ADMIN_FILTER } from '../../../common/constants';
 
 export class GetKycQueueDto {
@@ -31,6 +31,16 @@ export class GetKycQueueDto {
   @Min(1)
   @Max(100)
   pageSize?: number;
+
+  @ApiPropertyOptional({
+    example: 'nguyen',
+    description:
+      'Keyword tìm theo tên / số điện thoại / email của owner (không phân biệt hoa thường).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 
   /** @deprecated Dùng `filter` (0–3). Giữ tạm cho client cũ. */
   @ApiPropertyOptional({ deprecated: true })

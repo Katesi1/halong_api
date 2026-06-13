@@ -147,6 +147,14 @@ export const SUBSCRIPTION_STATUS = {
   FROZEN: 'frozen',
 } as const;
 
+/**
+ * Trial mặc định cấp ngầm khi OWNER vừa đăng ký (Apple IAP compliance: app iOS
+ * không có UI thanh toán, nên OWNER được dùng thử thầm 60 ngày để KYC + thử
+ * tính năng. FE iOS KHÔNG hiển thị countdown trial — hết hạn chỉ trả lỗi
+ * entitlement chung "Tài khoản chưa có quyền dùng tính năng này".
+ */
+export const OWNER_SIGNUP_TRIAL_DAYS = 60;
+
 // ─── Disputes ────────────────────────────────────────────────────────────────
 
 export const DISPUTE_TYPE = {

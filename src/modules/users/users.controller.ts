@@ -32,16 +32,19 @@ export class UsersController {
   @ApiOperation({ summary: 'Danh sách user (Admin only)' })
   @ApiQuery({ name: 'role', required: false, description: '0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER' })
   @ApiQuery({ name: 'withStats', required: false, description: 'true → bundle `stats.{propertyCount,bookingCount}` cho mỗi user' })
+  @ApiQuery({ name: 'q', required: false, description: 'Keyword search theo name / phone / email (không phân biệt hoa thường, max 100 ký tự)' })
   @ApiResponse({ status: 200, type: UserListResponse })
   findAll(
     @Query('role') role: string,
     @Query('withStats') withStats: string,
+    @Query('q') q: string,
     @Lang() msg: Messages,
   ) {
     return this.usersService.findAll(
       msg,
       role !== undefined ? parseInt(role) : undefined,
       withStats === 'true',
+      q,
     );
   }
 

@@ -14,6 +14,7 @@ import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, AUDIT_ACTION, AUDI
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { kycRequired } from '../../common/errors/kyc.errors';
+import { assertOwnerEntitled } from '../../common/subscription';
 
 @Injectable()
 export class PropertiesService {
@@ -152,6 +153,8 @@ export class PropertiesService {
     if (user.role === ROLE.OWNER) {
       await this.checkKycApproved(user.id, msg);
     }
+    // Apple IAP compliance: chặn khi trial hết hạn / chưa active.
+    await assertOwnerEntitled(this.prisma, user, msg);
 
     const ownerId = user.role === ROLE.ADMIN && dto.ownerId
       ? dto.ownerId
@@ -203,6 +206,7 @@ export class PropertiesService {
     if (user.role === ROLE.OWNER) {
       await this.checkKycApproved(user.id, msg);
     }
+    await assertOwnerEntitled(this.prisma, user, msg);
 
     const property = await this.prisma.property.findUnique({ where: { id } });
     if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);

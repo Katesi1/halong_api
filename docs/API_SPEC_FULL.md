@@ -150,10 +150,10 @@ Retry request gốc
 
 | Method | Path | Auth | Body |
 |---|---|---|---|
-| `POST` | `/auth/register` | Public | `{ name, email, password, role: 1\|3, phone? }` |
+| `POST` | `/auth/register` | Public | `{ name, email, password, role: 1\|3, phone? }` — `role=1` (OWNER) được BE tự cấp **trial ngầm 60 ngày** (`subscriptionStatus="trial"`, `trialEndsAt = now + 60d`). FE iOS không hiển thị trial; xem §2A.5 “Subscription / entitlement required”. |
 | `POST` | `/auth/login` | Public | `{ identifier, password }` (`identifier` = email hoặc phone) |
-| `POST` | `/auth/google` | Public | `{ idToken, role? }` (`role` bắt buộc cho user mới) |
-| `POST` | `/auth/apple` | Public | `{ idToken, role?, email?, name?, identityToken? }` |
+| `POST` | `/auth/google` | Public | `{ idToken, role? }` (`role` bắt buộc cho user mới) — user mới với `role=1` cũng được cấp trial ngầm 60 ngày như `/auth/register`. |
+| `POST` | `/auth/apple` | Public | `{ idToken, role?, email?, name?, identityToken? }` — user mới với `role=1` được cấp trial ngầm 60 ngày. |
 | `POST` | `/auth/refresh` | Public | `{ refreshToken }` |
 | `POST` | `/auth/forgot-password` | Public | `{ identifier }` — `identifier` = email **hoặc** phone đã đăng ký. BE gửi link reset (hết hạn **10 phút**) qua email nếu user có email + SMTP đã cấu hình. Luôn trả `200 success` kể cả khi user không tồn tại (chống enumeration). SMS chưa hỗ trợ — user chỉ có phone phải dùng email khác để reset. |
 | `POST` | `/auth/reset-password` | Public | `{ token, newPassword }` — `token` là JWT (purpose='reset') lấy từ query `?token=...` trong link email. `newPassword` ≥ 6 ký tự. Sau khi reset BE clear `refreshToken` → mọi device bị logout. |
@@ -429,12 +429,12 @@ FE flow xử lý 403:
 
 | Endpoint | Mục đích |
 |---|---|
-| `GET /users (toàn hệ), POST /users` | Quản trị user |
+| `GET /users?role&withStats&q`, `POST /users` | Quản trị user — `q` search theo name/phone/email |
 | `POST /users/:id/ban, /unban, /revoke-sessions, /reset-password` | Moderation |
 | `PATCH /users/:id/role, /:id/kyc-bypass` | Đổi role, cấp bypass |
 | `DELETE /users/:id` | Xoá user |
 | `POST /properties/:id/approve, /reject, /suspend` | Moderation cơ sở |
-| `GET /admin/kyc/queue?filter=0\|1\|2\|3` | Danh sách KYC admin (một endpoint) |
+| `GET /admin/kyc/queue?filter=0\|1\|2\|3&q=keyword` | Danh sách KYC admin (một endpoint) — hỗ trợ search `q` theo tên/SĐT/email owner |
 | `GET /admin/kyc/count-pending` | Badge (deprecated — dùng `pendingCount` trong queue) |
 | `POST /admin/kyc/submissions/:id/approve, /reject` | Duyệt KYC |
 | `GET /admin/subscriptions, /count-overdue, /sum-paid` | Báo cáo subscription |
@@ -491,14 +491,39 @@ Ngoài 3 lớp guard, BE còn từ chối request trong service nếu:
 
 ADMIN có thể cấp `kycBypass=true` qua `PATCH /users/:id/kyc-bypass` để skip KYC.
 
-#### Subscription active required
+#### Subscription / entitlement required (Apple IAP compliance)
 
-| Điều kiện | Áp dụng cho |
+App iOS không có UI thanh toán (Apple Guideline 3.1.1 cấm chuyển khoản ngoài đối với app dạng quản lý). Web + Google Play vẫn giữ luồng thanh toán cũ.
+
+**Owner trial ngầm khi đăng ký:**
+
+- OWNER mới đăng ký qua bất kỳ kênh nào (`/auth/register`, `/auth/google`, `/auth/apple`) **đều** được BE set `subscriptionStatus="trial"` + `trialEndsAt = now + 60 ngày` ngay tại thời điểm tạo account.
+- FE iOS **KHÔNG** hiển thị countdown, KHÔNG để user nhìn thấy còn bao nhiêu ngày trial — coi như tài khoản đang dùng bình thường.
+- Trong 60 ngày này, OWNER **bắt buộc hoàn tất KYC** rồi mới dùng được tính năng quản lý (tạo property, mời 1 SALE). KYC vẫn hiển thị bình thường vì là requirement hợp pháp.
+
+**Gate entitlement (BE enforce ở service layer):**
+
+OWNER được phép dùng tính năng quản lý khi thoả MỘT trong:
+
+- `kycBypass = true` (ADMIN cấp tay), HOẶC
+- `subscriptionStatus = "active"` (đã được admin duyệt thanh toán), HOẶC
+- `subscriptionStatus = "trial"` **và** `trialEndsAt > now`.
+
+Hết trial mà chưa có thanh toán được duyệt → các endpoint sau **trả 403 với message generic `subscription.featureLocked`** ("Tài khoản chưa có quyền dùng tính năng này"):
+
+| Endpoint | Hành vi |
 |---|---|
-| `subscriptionStatus IN ('past_due', 'expired', 'frozen', 'cancelled')` | Mời SALE mới, tạo property mới (có thể vẫn xem/sửa cũ) |
-| `subscriptionStatus = 'frozen'` | Hầu hết thao tác business — admin can thiệp |
+| `POST /properties` | 403 `subscription.featureLocked` |
+| `PUT /properties/:id` | 403 `subscription.featureLocked` |
+| `POST /staff/invites` | 403 `subscription.featureLocked` (thay cho `staff.subscriptionRequired` cũ — không lộ trạng thái) |
 
-OWNER xem được subscription detail qua `GET /subscriptions/me` → FE hiển thị banner "Gia hạn ngay" để user mua lại.
+SALE inherit entitlement của OWNER được gán (`user.ownerId`). Nếu OWNER hết trial → SALE cũng bị 403 generic.
+
+**Unlock**: khi ADMIN duyệt thanh toán qua `POST /admin/users/:id/subscription/mark-paid` (luồng manual_bank/web/Google Play) → `subscriptionStatus` chuyển `active` → tất cả endpoint trên hoạt động trở lại ngay lập tức, không cần re-login.
+
+**Note**: Các status khác (`past_due`, `cancelled`, `frozen`) cũng làm `isOwnerEntitled` trả false → cùng message `featureLocked`. Riêng `frozen` vẫn giữ logic block ở payment endpoints (existing).
+
+OWNER xem được subscription detail qua `GET /subscriptions/me` (chỉ Web/Android dùng để hiển thị "Gia hạn ngay"; iOS ẩn).
 
 #### Account banned
 
@@ -1163,6 +1188,35 @@ Status string: `none | pending | approved | rejected`.
 
 Field `latestPayment` cho phép FE rehydrate paywall/modal QR mà không cần persist `sessionId` ở client. Nếu cần full bank info / qrCode → gọi tiếp `GET /payments/active`.
 
+**Response `GET /kyc/submissions/:id`** (v1.7.1 — admin/owner shared):
+
+```jsonc
+{
+  "id": "uuid",
+  "userId": "uuid",                        // (v1.7.1) tiện cho FE link sang user
+  "user": {                                // (v1.7.1) admin trang chi tiết cần header chủ nhà
+    "id": "uuid",
+    "name": "string | null",
+    "phone": "string | null",
+    "email": "string | null"
+  },
+  "status": "draft | awaitingApproval | approved | rejected | ...",
+  "rejectReason": "string | null",
+  "rejectedItems": ["cccdFront", "selfie"],
+  "approvedAt": "ISO | null",
+  "trialEndsAt": "ISO | null",
+  "chargeStartsAt": "ISO | null",
+  "expectedRooms": 5,
+  "uploads": {
+    "cccdFront": { "id", "imageUrl", "imageUrlThumb", "ocrResult", "confidence", "faceMatchScore", "uploadedAt" },
+    "cccdBack":  { ... },
+    "selfie":    { ... }
+  },
+  "payment": { "id", "planId", "cycle", "rooms", "totalAmount", "method", "status", "paidAt" } | null,
+  "createdAt": "ISO"
+}
+```
+
 ### 9.2 Admin KYC
 
 Base path: `/admin/kyc`. Role: ADMIN.
@@ -1186,7 +1240,7 @@ Query `status` string (vd. `awaiting_approval`) **deprecated** — map sang `fil
 
 | Method | Path | Body / Query |
 |---|---|---|
-| `GET` | `/admin/kyc/queue?page&pageSize&filter` | `filter`: 0–3 (xem bảng trên). Response kèm `pendingCount` (badge) — **không cần** gọi thêm API badge. |
+| `GET` | `/admin/kyc/queue?page&pageSize&filter&q` | `filter`: 0–3 (xem bảng trên). `q`: keyword search theo `user.name` / `user.phone` / `user.email` (không phân biệt hoa thường, max 100 ký tự). Response kèm `pendingCount` (badge) — **không cần** gọi thêm API badge. |
 | `GET` | `/admin/kyc/count-pending` | **Deprecated** — dùng `data.pendingCount` từ `GET /queue`. |
 | `GET` | `/kyc/submissions/:id` | Detail (admin gọi được) |
 | `POST` | `/admin/kyc/submissions/:id/approve` | `{ trialDays? }` (default 7) |
@@ -2132,6 +2186,35 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 
 ## 21. Changelog & Bug fixes
 
+### v1.12.1 — 2026-06-11 (Trial quota fix: 1 SALE slot + machine `code` cho 403)
+
+Hot-fix sau khi phát hiện OWNER vừa đăng ký không mời được nhân viên dù trial còn hạn.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| **Trial = 1 SALE slot** | Helper mới `getEffectiveMaxSaleStaff(planId, status)` ở `src/common/staff-entitlement.ts`. Khi `planId=null` + `subscriptionStatus="trial"` → 1 slot (constant `TRIAL_MAX_SALE_STAFF`). Các state khác giữ y nguyên `getMaxSaleStaff` (0 nếu chưa mua). Mirror cần thêm ở FE `staff_entitlement.dart`. |
+| **Machine code cho 403** | 3 endpoint gate (`POST/PUT /properties`, `POST /staff/invites`) giờ trả `code` ổn định trong body: `"KYC_REQUIRED"` (chưa KYC) hoặc `"FEATURE_LOCKED"` (hết entitlement). Helper mới `featureLocked()` ở `src/common/errors/subscription.errors.ts`. FE match theo `code`, không cần fallback theo message. |
+
+**Breaking?** Không (code mới thêm vào response, không xoá). FE nên migrate sang match theo `code`.
+
+### v1.12 — 2026-06-10 (Apple IAP compliance: silent 60-day OWNER trial + generic entitlement gate)
+
+App iOS đã gỡ UI thanh toán (Apple Guideline 3.1.1 không cho chuyển khoản ngoài với app dạng quản lý). Web + Google Play giữ nguyên flow.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| **Silent trial 60 ngày** | `/auth/register`, `/auth/google`, `/auth/apple` cho user mới `role=1` (OWNER) → BE tự set `subscriptionStatus="trial"` + `trialEndsAt = now + 60 ngày`. FE iOS **KHÔNG** hiển thị countdown. Constant: `OWNER_SIGNUP_TRIAL_DAYS` (`src/common/constants.ts`). |
+| **Entitlement gate generic** | Helper mới `assertOwnerEntitled` (`src/common/subscription.ts`) check (a) `kycBypass`, (b) `subscriptionStatus="active"`, (c) `trial` còn hiệu lực. Áp dụng cho `POST /properties`, `PUT /properties/:id`, `POST /staff/invites`. SALE inherit từ owner được gán. |
+| **i18n key mới** | `subscription.featureLocked` (vi/en) — "Tài khoản chưa có quyền dùng tính năng này." Dùng chung khi hết trial / `none` / `past_due` / `cancelled` / `frozen` — không lộ trạng thái subscription cụ thể. |
+| **Staff invite message đổi** | Khi subscription không entitled, throw `subscription.featureLocked` thay vì `staff.subscriptionRequired` cũ. (`staff.subscriptionRequired` còn trong i18n nhưng không dùng ở luồng invite — giữ để tránh breaking i18n consumers khác.) |
+| **Properties write paths** | `POST /properties`, `PUT /properties/:id` giờ cần entitlement (trước đây chỉ check KYC). Hết trial → 403 `subscription.featureLocked`. |
+| **Unlock** | Khi admin gọi `POST /admin/users/:id/subscription/mark-paid` (luồng web/Play Store) → `subscriptionStatus → active` → entitlement gate pass ngay, không cần re-login. |
+
+**Breaking?** Có 2 điểm FE cần handle:
+
+1. Owner đăng ký mới giờ có `trialEndsAt` ngay khi vừa tạo account — Web/Android có thể hiển thị banner trial; iOS phải ẩn.
+2. Hết trial → `POST /properties`, `PUT /properties/:id`, `POST /staff/invites` đều có thể trả **403 `subscription.featureLocked`** thay vì lỗi cũ. FE bắt error code này và hiển thị message generic + dẫn user về flow thanh toán (Web/Android) hoặc liên hệ hỗ trợ (iOS).
+
 ### v1.11 — 2026-06-07 (KYC Option A + admin queue filter enum)
 
 | Thay đổi | Chi tiết |
@@ -2447,6 +2530,8 @@ Response shape:
 
 `bookingCount` = `saleBookings` + `customerBookings` (tổng booking user là sale hoặc khách).
 `lastActiveAt` chưa có (chưa track session time). Có thể derive từ `updatedAt` tạm thời.
+
+**Search keyword (v1.7.1):** `GET /users?q=<keyword>` — tìm theo `name` / `phone` / `email` (case-insensitive, max 100 ký tự). Có thể kết hợp với `role` và `withStats`. Ví dụ: `GET /users?role=1&q=0912&withStats=true`.
 
 #### A3. Properties aggregation ✅ CONFIRMED
 

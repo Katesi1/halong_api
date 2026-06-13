@@ -362,6 +362,14 @@ export class KycService {
     const submission = await this.prisma.kycSubmission.findUnique({
       where: { id: submissionId },
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+          },
+        },
         uploads: {
           select: {
             id: true,
@@ -405,6 +413,8 @@ export class KycService {
       message: msg.kyc.getSuccess,
       data: {
         id: submission.id,
+        userId: submission.userId,
+        user: submission.user,
         status: KYC_STATUS_API_MAP[submission.status] || submission.status,
         rejectReason: submission.rejectReason,
         rejectedItems: submission.rejectedItems,

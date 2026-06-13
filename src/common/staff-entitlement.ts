@@ -3,6 +3,13 @@
 //
 // null = unlimited, 0 = không cho phép mời.
 
+/**
+ * OWNER trong silent trial 60d (chưa mua plan) được mời 1 SALE — đủ để KYC
+ * pass xong vẫn vận hành thử cơ sở. Hết trial hoặc admin mark-paid không có
+ * planId → rơi về 0 như cũ. Mirror constant ở FE staff_entitlement.dart.
+ */
+export const TRIAL_MAX_SALE_STAFF = 1;
+
 const STAFF_LIMIT_BY_PLAN: Record<string, number | null> = {
   rooms_1: 0,        // Mini
   rooms_5: 3,        // Starter
@@ -25,6 +32,19 @@ export function getMaxSaleStaff(planId: string | null | undefined): number | nul
   if (!planId) return 0; // chưa mua gói nào → coi như không có quyền mời
   if (!(planId in STAFF_LIMIT_BY_PLAN)) return 0; // plan lạ → safe default
   return STAFF_LIMIT_BY_PLAN[planId];
+}
+
+/**
+ * Effective slot SALE — có tính tới silent trial. OWNER mới đăng ký được
+ * cấp `subscriptionStatus="trial"` + `planId=null` → vẫn được 1 slot SALE.
+ * Các state khác (active/past_due/cancelled/none) đi qua `getMaxSaleStaff`.
+ */
+export function getEffectiveMaxSaleStaff(
+  planId: string | null | undefined,
+  subscriptionStatus: string,
+): number | null {
+  if (!planId && subscriptionStatus === 'trial') return TRIAL_MAX_SALE_STAFF;
+  return getMaxSaleStaff(planId);
 }
 
 export function getPlanDisplayName(planId: string | null | undefined): string {

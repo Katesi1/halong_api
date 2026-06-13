@@ -19,13 +19,15 @@ import { Messages } from '../../i18n';
 import {
   ROLE,
   KYC_STATUS,
-  SUBSCRIPTION_STATUS,
   NOTIFICATION_TYPE,
   PERMISSION_MODULE,
 } from '../../common/constants';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import { getMaxSaleStaff, getPlanDisplayName } from '../../common/staff-entitlement';
+import { getEffectiveMaxSaleStaff, getPlanDisplayName } from '../../common/staff-entitlement';
+import { isOwnerEntitled } from '../../common/subscription';
+import { kycRequired } from '../../common/errors/kyc.errors';
+import { featureLocked } from '../../common/errors/subscription.errors';
 
 const INVITE_TTL_DAYS = 7;
 const SHORT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // bỏ I,O,1,0 cho dễ đọc
@@ -57,6 +59,7 @@ export class StaffService {
         id: true, name: true, email: true, role: true,
         kycStatus: true, kycBypass: true,
         subscriptionStatus: true, subscriptionPlanId: true,
+        trialEndsAt: true,
       },
     });
     if (!owner || owner.role !== ROLE.OWNER) {
@@ -64,17 +67,20 @@ export class StaffService {
     }
     if (!isAdmin) {
       if (!owner.kycBypass && owner.kycStatus !== KYC_STATUS.APPROVED) {
-        throw new ForbiddenException(msg.staff.kycRequired);
+        throw kycRequired(msg.staff.kycRequired);
       }
-      const subOk = owner.subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL
-        || owner.subscriptionStatus === SUBSCRIPTION_STATUS.ACTIVE;
-      if (!subOk) {
-        throw new ForbiddenException(msg.staff.subscriptionRequired);
+      // Apple IAP compliance: hết trial / chưa active → khoá im lặng, dùng
+      // message entitlement chung (không lộ trạng thái subscription).
+      if (!isOwnerEntitled(owner)) {
+        throw featureLocked(msg.subscription.featureLocked);
       }
 
       // Plan entitlement: số slot SALE theo gói. Mirror FE StaffEntitlement.
       // ADMIN bypass để có thể seed/khắc phục thủ công.
-      const maxSlots = getMaxSaleStaff(owner.subscriptionPlanId);
+      const maxSlots = getEffectiveMaxSaleStaff(
+        owner.subscriptionPlanId,
+        owner.subscriptionStatus,
+      );
       const planName = getPlanDisplayName(owner.subscriptionPlanId);
       if (maxSlots === 0) {
         throw new ForbiddenException(msg.staff.staffNotAllowedOnPlan(planName));

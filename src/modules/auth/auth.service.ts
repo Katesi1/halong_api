@@ -18,7 +18,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Messages } from '../../i18n';
-import { ROLE } from '../../common/constants';
+import { ROLE, SUBSCRIPTION_STATUS, OWNER_SIGNUP_TRIAL_DAYS } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
 import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import * as appleSignin from 'apple-signin-auth';
@@ -26,6 +26,21 @@ import { AppleAuthDto } from './dto/apple-auth.dto';
 import { EmailService } from '../email/email.service';
 
 const RESET_TOKEN_TTL_MINUTES = 10;
+
+/**
+ * Apple IAP compliance: app iOS không có UI thanh toán → OWNER mới đăng ký
+ * được cấp trial ngầm N ngày (mặc định 60). Hết hạn → entitlement gate ở
+ * properties/staff sẽ tự khóa với message "Tài khoản chưa có quyền dùng
+ * tính năng này". CUSTOMER không bị ảnh hưởng.
+ */
+function buildOwnerSignupTrial(role: number) {
+  if (role !== ROLE.OWNER) return {};
+  const now = Date.now();
+  return {
+    subscriptionStatus: SUBSCRIPTION_STATUS.TRIAL,
+    trialEndsAt: new Date(now + OWNER_SIGNUP_TRIAL_DAYS * 24 * 60 * 60 * 1000),
+  };
+}
 
 @Injectable()
 export class AuthService {
@@ -66,6 +81,7 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
+    const trial = buildOwnerSignupTrial(dto.role);
     const user = await this.prisma.user.create({
       data: {
         name: dto.name,
@@ -75,6 +91,7 @@ export class AuthService {
         phone: dto.phone || null,
         registerDeviceId: meta.deviceId || null,
         registerIp: meta.ip || null,
+        ...trial,
       },
     });
 
@@ -205,6 +222,7 @@ export class AuthService {
 
       await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
 
+      const trial = buildOwnerSignupTrial(dto.role);
       user = await this.prisma.user.create({
         data: {
           name,
@@ -216,6 +234,7 @@ export class AuthService {
           avatar: picture,
           registerDeviceId: meta.deviceId || null,
           registerIp: meta.ip || null,
+          ...trial,
         },
       });
     }
@@ -310,6 +329,7 @@ export class AuthService {
 
       await this.assertRegisterAllowed(meta.deviceId ?? null, meta.ip ?? null, msg);
 
+      const trial = buildOwnerSignupTrial(dto.role);
       user = await this.prisma.user.create({
         data: {
           name,
@@ -320,6 +340,7 @@ export class AuthService {
           emailVerified: payload.email_verified === true,
           registerDeviceId: meta.deviceId || null,
           registerIp: meta.ip || null,
+          ...trial,
         },
       });
     }

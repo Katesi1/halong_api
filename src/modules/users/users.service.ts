@@ -23,7 +23,7 @@ export class UsersService {
 
   constructor(private prisma: PrismaService, private auditLog: AuditLogService) {}
 
-  async findAll(msg: Messages, role?: number, withStats?: boolean) {
+  async findAll(msg: Messages, role?: number, withStats?: boolean, q?: string) {
     const select: any = {
       id: true, name: true, phone: true, email: true, avatar: true,
       role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
@@ -44,8 +44,23 @@ export class UsersService {
       };
     }
 
+    const keyword = q?.trim().slice(0, 100);
+    const searchClause = keyword
+      ? {
+          OR: [
+            { name: { contains: keyword, mode: 'insensitive' as const } },
+            { phone: { contains: keyword } },
+            { email: { contains: keyword, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+
     const users = await this.prisma.user.findMany({
-      where: { deletedAt: null, ...(role !== undefined ? { role } : {}) },
+      where: {
+        deletedAt: null,
+        ...(role !== undefined ? { role } : {}),
+        ...searchClause,
+      },
       select,
       orderBy: { createdAt: 'desc' },
     });
