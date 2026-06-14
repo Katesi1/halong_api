@@ -17,6 +17,18 @@ export interface PasswordResetEmailData {
   expiresInMinutes: number;
 }
 
+export interface BookingCancelledEmailData {
+  to: string;
+  customerName: string;
+  propertyName: string;
+  propertyCode?: string | null;
+  checkinDate: Date;
+  checkoutDate: Date;
+  reason?: string | null;
+  ownerName?: string | null;
+  ownerPhone?: string | null;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -151,6 +163,169 @@ Nếu bạn không yêu cầu đặt lại mật khẩu, có thể bỏ qua emai
     } catch (err) {
       this.logger.error(`Failed to send password reset to ${data.to}: ${(err as Error).message}`);
       throw err;
+    }
+  }
+
+  async sendBookingCancelled(data: BookingCancelledEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping booking-cancelled email to ${data.to} — SMTP not configured`);
+      return;
+    }
+
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const fmt = (d: Date) =>
+      d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const checkin = fmt(data.checkinDate);
+    const checkout = fmt(data.checkoutDate);
+    const propLabel = data.propertyCode ? `${data.propertyName} (${data.propertyCode})` : data.propertyName;
+    const reasonLine = data.reason ? `\n\nLý do từ chủ nhà:\n  ${data.reason}` : '';
+    const contactLine = data.ownerName || data.ownerPhone
+      ? `\n\nNếu cần hỗ trợ, bạn có thể liên hệ ${data.ownerName ?? 'chủ nhà'}${data.ownerPhone ? ` — ${data.ownerPhone}` : ''}.`
+      : '';
+
+    const text = `Xin chào ${data.customerName},
+
+Rất tiếc, đặt phòng của bạn tại ${propLabel} (nhận ${checkin} → trả ${checkout}) đã bị huỷ.${reasonLine}${contactLine}
+
+Bạn có thể đặt lại phòng khác trên Halong24h bất cứ lúc nào.
+
+— Halong24h Team`;
+
+    const reasonHtml = data.reason
+      ? `<div style="background:#fff8e1;border-left:4px solid #f0ad4e;padding:12px 16px;margin:16px 0;border-radius:4px"><strong>Lý do từ chủ nhà:</strong><br>${this.escapeHtml(data.reason)}</div>`
+      : '';
+    const contactHtml = data.ownerName || data.ownerPhone
+      ? `<p style="color:#666;font-size:14px">Nếu cần hỗ trợ, bạn có thể liên hệ <strong>${this.escapeHtml(data.ownerName ?? 'chủ nhà')}</strong>${data.ownerPhone ? ` — <a href="tel:${data.ownerPhone}">${data.ownerPhone}</a>` : ''}.</p>`
+      : '';
+
+    const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Đặt phòng đã bị huỷ</h2>
+  <p>Xin chào <strong>${this.escapeHtml(data.customerName)}</strong>,</p>
+  <p>Rất tiếc, đặt phòng của bạn tại <strong>${this.escapeHtml(propLabel)}</strong> (nhận <strong>${checkin}</strong> → trả <strong>${checkout}</strong>) đã bị huỷ.</p>
+  ${reasonHtml}
+  ${contactHtml}
+  <p style="margin-top:24px">Bạn có thể đặt lại phòng khác trên Halong24h bất cứ lúc nào.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to: data.to,
+        subject: 'Đặt phòng đã bị huỷ — Halong24h',
+        text,
+        html,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send booking-cancelled to ${data.to}: ${(err as Error).message}`);
+      throw err;
+    }
+  }
+
+  private escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  async sendAccountDeletionScheduled(data: {
+    to: string;
+    name: string;
+    scheduledDeleteAt: Date;
+  }): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping deletion-scheduled email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const dateStr = data.scheduledDeleteAt.toLocaleDateString('vi-VN', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+    const safeName = this.escapeHtml(data.name || 'Bạn');
+
+    const text = `Xin chào ${data.name || 'bạn'},
+
+Chúng tôi đã ghi nhận yêu cầu xoá tài khoản Halong24h gắn với email này.
+
+Tài khoản sẽ bị xoá vĩnh viễn vào ngày ${dateStr} (sau 30 ngày grace theo Nghị định 13/2023/NĐ-CP). Toàn bộ KYC, lịch sử, ảnh và dữ liệu cá nhân sẽ bị xoá.
+
+Nếu bạn đổi ý, chỉ cần đăng nhập lại trước ngày ${dateStr} — tài khoản sẽ được khôi phục tự động và mọi dữ liệu được giữ nguyên.
+
+Nếu bạn không yêu cầu xoá tài khoản, hãy đăng nhập ngay để huỷ yêu cầu và đổi mật khẩu.
+
+— Halong24h Team`;
+
+    const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Yêu cầu xoá tài khoản — Halong24h</h2>
+  <p>Xin chào <strong>${safeName}</strong>,</p>
+  <p>Chúng tôi đã ghi nhận yêu cầu xoá tài khoản Halong24h gắn với email này.</p>
+  <p style="background:#fff7e6;border-left:4px solid #f59e0b;padding:12px 16px;margin:16px 0">
+    Tài khoản sẽ bị xoá vĩnh viễn vào ngày <strong>${dateStr}</strong> (sau 30 ngày grace theo Nghị định 13/2023/NĐ-CP).<br>
+    Toàn bộ KYC, lịch sử, ảnh và dữ liệu cá nhân sẽ bị xoá.
+  </p>
+  <p><strong>Đổi ý?</strong> Chỉ cần đăng nhập lại trước ngày ${dateStr} — tài khoản sẽ được khôi phục tự động và mọi dữ liệu được giữ nguyên.</p>
+  <p>Nếu bạn không yêu cầu xoá tài khoản, hãy đăng nhập ngay để huỷ yêu cầu và đổi mật khẩu.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to: data.to,
+        subject: `Yêu cầu xoá tài khoản — Halong24h (xoá vào ${dateStr})`,
+        text,
+        html,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send deletion-scheduled email to ${data.to}: ${(err as Error).message}`);
+    }
+  }
+
+  async sendAccountDeletionRestored(data: {
+    to: string;
+    name: string;
+  }): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping deletion-restored email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const safeName = this.escapeHtml(data.name || 'Bạn');
+
+    const text = `Xin chào ${data.name || 'bạn'},
+
+Tài khoản Halong24h của bạn đã được khôi phục. Yêu cầu xoá tài khoản trước đó đã được huỷ và mọi dữ liệu (KYC, booking, cơ sở…) được giữ nguyên.
+
+Nếu bạn không thực hiện thao tác này, hãy đổi mật khẩu ngay và liên hệ hỗ trợ.
+
+— Halong24h Team`;
+
+    const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Tài khoản đã được khôi phục — Halong24h</h2>
+  <p>Xin chào <strong>${safeName}</strong>,</p>
+  <p style="background:#ecfdf5;border-left:4px solid #10b981;padding:12px 16px;margin:16px 0">
+    Tài khoản Halong24h của bạn đã được khôi phục. Yêu cầu xoá tài khoản trước đó đã được huỷ và mọi dữ liệu được giữ nguyên.
+  </p>
+  <p>Nếu bạn không thực hiện thao tác này, hãy <strong>đổi mật khẩu ngay</strong> và liên hệ hỗ trợ.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+    try {
+      await this.transporter.sendMail({
+        from,
+        to: data.to,
+        subject: 'Tài khoản đã được khôi phục — Halong24h',
+        text,
+        html,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to send deletion-restored email to ${data.to}: ${(err as Error).message}`);
     }
   }
 

@@ -24,6 +24,7 @@ import { OAuth2Client, TokenPayload } from 'google-auth-library';
 import * as appleSignin from 'apple-signin-auth';
 import { AppleAuthDto } from './dto/apple-auth.dto';
 import { EmailService } from '../email/email.service';
+import { UsersService } from '../users/users.service';
 
 const RESET_TOKEN_TTL_MINUTES = 10;
 
@@ -52,6 +53,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    private usersService: UsersService,
   ) {}
 
   async register(
@@ -140,6 +142,7 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
+    await this.autoCancelPendingDeletion(user.id);
 
     return {
       message: msg.auth.loginSuccess,
@@ -148,6 +151,15 @@ export class AuthService {
         refreshToken: tokens.refreshToken,
       },
     };
+  }
+
+  /** NĐ 13: login lại trong grace 30d → tự huỷ pending deletion + thông báo khôi phục */
+  private async autoCancelPendingDeletion(userId: string): Promise<void> {
+    try {
+      await this.usersService.cancelDeletion(userId, 'user_login');
+    } catch (err) {
+      this.logger.warn(`autoCancelPendingDeletion failed for user=${userId}: ${(err as Error).message}`);
+    }
   }
 
   async googleAuth(
@@ -241,6 +253,7 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
+    await this.autoCancelPendingDeletion(user.id);
 
     return {
       message: msg.auth.loginSuccess,
@@ -347,6 +360,7 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
+    await this.autoCancelPendingDeletion(user.id);
 
     return {
       message: msg.auth.loginSuccess,
@@ -507,6 +521,7 @@ export class AuthService {
         trialEndsAt: true, nextChargeAt: true,
         currentPeriodStart: true, currentPeriodEnd: true,
         pendingPlanId: true, pendingCycle: true, pendingEffectiveAt: true,
+        deletionScheduledAt: true,
         permissions: {
           select: { module: true, canCreate: true, canRead: true, canUpdate: true, canDelete: true },
         },

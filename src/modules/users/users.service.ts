@@ -6,13 +6,18 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { EmailService } from '../email/email.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Messages } from '../../i18n';
 import { ROLE, AUDIT_ACTION, AUDIT_TARGET_TYPE } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
+
+const NOTIFICATION_TYPE_SYSTEM = 2;
 
 // Fields non-admin users can update on their own profile
 const SELF_EDITABLE_FIELDS = ['name', 'phone', 'email', 'gender', 'dateOfBirth'];
@@ -21,7 +26,12 @@ const SELF_EDITABLE_FIELDS = ['name', 'phone', 'email', 'gender', 'dateOfBirth']
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private prisma: PrismaService, private auditLog: AuditLogService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auditLog: AuditLogService,
+    private notifications: NotificationsService,
+    private email: EmailService,
+  ) {}
 
   async findAll(msg: Messages, role?: number, withStats?: boolean, q?: string) {
     const select: any = {
@@ -209,31 +219,242 @@ export class UsersService {
     const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
     if (!user) throw new NotFoundException(msg.users.notFound);
 
+    // NĐ 13: tạo deletion request grace 30 ngày, không xoá ngay
     const now = new Date();
-    const stamp = now.getTime();
+    const scheduledAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     await this.prisma.$transaction([
+      this.prisma.accountDeletionRequest.create({
+        data: {
+          userId,
+          status: 'pending',
+          reason: reason ?? null,
+          requestedAt: now,
+          scheduledDeleteAt: scheduledAt,
+        },
+      }),
       this.prisma.user.update({
         where: { id: userId },
         data: {
-          deletedAt: now,
-          isActive: false,
-          refreshToken: null,
-          // Free up unique fields cho re-register
-          email: `deleted-${stamp}-${user.email}`,
-          phone: user.phone ? `deleted-${stamp}-${user.phone}` : null,
-          googleSub: null,
-          appleSub: null,
+          deletionScheduledAt: scheduledAt,
+          refreshToken: null, // logout mọi device ngay
         },
       }),
       this.prisma.userDevice.deleteMany({ where: { userId } }),
     ]);
 
-    if (reason) {
-      this.logger.log(`Self-delete user ${userId} reason: ${reason.slice(0, 200)}`);
+    this.logger.log(`Self-delete request user=${userId} scheduledDeleteAt=${scheduledAt.toISOString()}${reason ? ` reason="${reason.slice(0, 200)}"` : ''}`);
+
+    // In-app notification + email (best-effort, không vỡ flow nếu fail)
+    const dateStr = scheduledAt.toLocaleDateString('vi-VN', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+    try {
+      await this.notifications.create({
+        userId,
+        title: msg.users.selfDeleteNotifTitle,
+        subtitle: msg.users.selfDeleteNotifSubtitle(dateStr),
+        type: NOTIFICATION_TYPE_SYSTEM,
+        targetType: 'account_deletion',
+      });
+    } catch (err) {
+      this.logger.warn(`selfDelete notification failed for user=${userId}: ${(err as Error).message}`);
+    }
+    if (user.email && !user.email.startsWith('deleted-')) {
+      this.email
+        .sendAccountDeletionScheduled({ to: user.email, name: user.name, scheduledDeleteAt: scheduledAt })
+        .catch((err) => this.logger.warn(`selfDelete email failed for user=${userId}: ${err.message}`));
     }
 
-    return { message: msg.users.selfDeleteSuccess, data: null };
+    return {
+      message: msg.users.selfDeleteSuccess,
+      data: {
+        scheduledDeleteAt: scheduledAt.toISOString(),
+        graceDays: 30,
+        canRestoreUntil: scheduledAt.toISOString(),
+      },
+    };
+  }
+
+  /**
+   * Trạng thái yêu cầu xoá tài khoản đang chờ — FE check để show banner khôi phục.
+   */
+  async getDeletionStatus(userId: string, msg: Messages) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { deletionScheduledAt: true },
+    });
+    if (!u?.deletionScheduledAt) {
+      return {
+        message: msg.users.deletionStatusSuccess,
+        data: { pending: false, scheduledDeleteAt: null, daysRemaining: 0 },
+      };
+    }
+    const msLeft = u.deletionScheduledAt.getTime() - Date.now();
+    const daysRemaining = Math.max(0, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
+    return {
+      message: msg.users.deletionStatusSuccess,
+      data: {
+        pending: true,
+        scheduledDeleteAt: u.deletionScheduledAt.toISOString(),
+        daysRemaining,
+      },
+    };
+  }
+
+  /**
+   * Huỷ yêu cầu xoá đang pending — gọi từ:
+   *  - AuthService sau khi login/google/apple/refresh thành công (reason='user_login')
+   *  - POST /users/me/restore (reason='user_cancel')
+   * Tạo in-app notification + email "đã khôi phục". Idempotent — không có pending request → no-op.
+   */
+  async cancelDeletion(
+    userId: string,
+    reason: 'user_login' | 'user_cancel' | 'admin_cancel',
+    msg?: Messages,
+  ): Promise<boolean> {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { deletionScheduledAt: true, email: true, name: true },
+    });
+    if (!u?.deletionScheduledAt) {
+      if (reason === 'user_cancel' && msg) {
+        throw new BadRequestException(msg.users.deletionNotPending);
+      }
+      return false;
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.accountDeletionRequest.updateMany({
+        where: { userId, status: 'pending' },
+        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: reason },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { deletionScheduledAt: null },
+      }),
+    ]);
+    this.logger.log(`Cancelled pending deletion for user=${userId} reason=${reason}`);
+
+    // Notification + email — fallback messages dùng VI khi gọi từ auto-login path (msg undefined)
+    const title = msg?.users.deletionRestoreNotifTitle ?? 'Tài khoản đã được khôi phục';
+    const subtitle = msg?.users.deletionRestoreNotifSubtitle ?? 'Bạn đã huỷ yêu cầu xoá tài khoản. Mọi dữ liệu được giữ lại.';
+    try {
+      await this.notifications.create({
+        userId,
+        title,
+        subtitle,
+        type: NOTIFICATION_TYPE_SYSTEM,
+        targetType: 'account_deletion_restored',
+      });
+    } catch (err) {
+      this.logger.warn(`cancelDeletion notification failed for user=${userId}: ${(err as Error).message}`);
+    }
+    if (u.email && !u.email.startsWith('deleted-')) {
+      this.email
+        .sendAccountDeletionRestored({ to: u.email, name: u.name })
+        .catch((err) => this.logger.warn(`cancelDeletion email failed for user=${userId}: ${err.message}`));
+    }
+
+    return true;
+  }
+
+  /**
+   * Cron: thực thi deletion sau grace 30 ngày.
+   * Soft-delete + rename unique fields + clear sessions (logic cũ).
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async executePendingDeletions(): Promise<number> {
+    const now = new Date();
+    const due = await this.prisma.accountDeletionRequest.findMany({
+      where: { status: 'pending', scheduledDeleteAt: { lte: now } },
+      take: 100,
+      include: { user: { select: { id: true, email: true, phone: true } } },
+    });
+
+    let count = 0;
+    for (const req of due) {
+      const u = req.user;
+      if (!u || !u.email) continue;
+      const stamp = now.getTime();
+      try {
+        await this.prisma.$transaction([
+          // 1) Detach financial records (PaymentSession.submissionId is FK Cascade →
+          //    null first so we don't delete payment history when KYC submissions go).
+          this.prisma.paymentSession.updateMany({
+            where: { userId: u.id, submissionId: { not: null } },
+            data: { submissionId: null },
+          }),
+
+          // 2) Hard-delete KYC data (uploads cascade with submission).
+          this.prisma.kycSubmission.deleteMany({ where: { userId: u.id } }),
+
+          // 3) Hard-delete personal/session data — re-register starts fresh.
+          this.prisma.userDevice.deleteMany({ where: { userId: u.id } }),
+          this.prisma.userConsent.deleteMany({ where: { userId: u.id } }),
+          this.prisma.notificationPreference.deleteMany({ where: { userId: u.id } }),
+          this.prisma.dataExportRequest.deleteMany({ where: { userId: u.id } }),
+          this.prisma.userPermission.deleteMany({ where: { userId: u.id } }),
+          this.prisma.supportTicket.deleteMany({ where: { userId: u.id } }),
+          // Feedback: relation is SetNull → keep aggregate signal but strip identity.
+          this.prisma.feedback.updateMany({
+            where: { userId: u.id },
+            data: { userId: null, contact: null },
+          }),
+
+          // 4) Anonymize User row — release unique fields, reset KYC + subscription
+          //    so a future re-register with same email/phone is a clean account.
+          this.prisma.user.update({
+            where: { id: u.id },
+            data: {
+              deletedAt: now,
+              isActive: false,
+              refreshToken: null,
+              deletionScheduledAt: null,
+              email: `deleted-${stamp}-${u.email}`,
+              phone: u.phone ? `deleted-${stamp}-${u.phone}` : null,
+              googleSub: null,
+              appleSub: null,
+              password: null,
+              name: 'Deleted User',
+              avatar: null,
+              gender: null,
+              dateOfBirth: null,
+              emailVerified: false,
+              registerDeviceId: null,
+              registerIp: null,
+              kycBypass: false,
+              kycStatus: 'none',
+              kycSubmissionId: null,
+              subscriptionStatus: 'none',
+              subscriptionPlanId: null,
+              subscriptionCycle: null,
+              subscriptionProvider: null,
+              subscriptionPriceOverride: null,
+              subscriptionFrozenAt: null,
+              subscriptionFrozenReason: null,
+              trialEndsAt: null,
+              nextChargeAt: null,
+              currentPeriodStart: null,
+              currentPeriodEnd: null,
+              pendingPlanId: null,
+              pendingCycle: null,
+              pendingEffectiveAt: null,
+            },
+          }),
+
+          this.prisma.accountDeletionRequest.update({
+            where: { id: req.id },
+            data: { status: 'completed', completedAt: now },
+          }),
+        ]);
+        count++;
+      } catch (err) {
+        this.logger.error(`Failed to execute deletion req=${req.id}: ${(err as Error).message}`);
+      }
+    }
+    if (count > 0) this.logger.log(`Executed ${count} pending account deletions`);
+    return count;
   }
 
   // ─── KYC Bypass (ADMIN only) ────────────────────────────────────────────────

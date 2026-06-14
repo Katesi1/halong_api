@@ -58,4 +58,15 @@ export class DashboardController {
       year: year ? parseInt(year) : undefined,
     });
   }
+
+  @Roles(ROLE.ADMIN)
+  @Get('admin/reports/risk-kpis')
+  @ApiOperation({
+    summary: 'Risk KPIs cho /admin/reports — 5 chi so co san + delta vs ky truoc + top host cancel',
+    description: 'range = week (7d) | month (30d, default) | quarter (90d) | year (365d). 3 chi so noShowRate / hostCancelRate / deletionRequests grace 30d bi block do thieu schema — xem note inline.',
+  })
+  @ApiQuery({ name: 'range', required: false, enum: ['week', 'month', 'quarter', 'year'] })
+  getAdminRiskKpis(@Query('range') range: string, @Lang() msg: Messages) {
+    return this.dashboardService.getAdminRiskKpis(range || undefined, msg);
+  }
 }

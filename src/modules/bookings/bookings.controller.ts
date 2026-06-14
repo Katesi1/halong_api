@@ -9,6 +9,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { MarkBookingPaidDto } from './dto/mark-paid.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -142,10 +143,15 @@ export class BookingsController {
   @Patch(':id/cancel')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.DELETE)
-  @ApiOperation({ summary: 'Hủy booking (Staff)' })
+  @ApiOperation({ summary: 'Hủy booking (Staff). Body { reason? } — gửi cho khách qua email, không lưu DB.' })
   @ApiResponse({ status: 200, type: MessageResponse })
-  cancelBooking(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
-    return this.bookingsService.cancelBooking(id, user, msg);
+  cancelBooking(
+    @Param('id') id: string,
+    @Body() dto: CancelBookingDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.bookingsService.cancelBooking(id, dto.reason, user, msg);
   }
 
   @Put(':id')

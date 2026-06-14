@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Messages } from '../../i18n';
-import { BOOKING_STATUS, getEffectiveOwnerId } from '../../common/constants';
+import { BOOKING_STATUS, SUBSCRIPTION_STATUS, ROLE, getEffectiveOwnerId } from '../../common/constants';
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
@@ -787,5 +787,245 @@ export class DashboardService {
     });
 
     return { values };
+  }
+
+  // ─── Admin Risk KPIs (§7 BUSINESS_RISKS) ──────────────────────────────────
+
+  async getAdminRiskKpis(range: string | undefined, msg: Messages) {
+    const days = this.rangeToDays(range);
+    const now = new Date();
+    const curStart = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const prevStart = new Date(curStart.getTime() - days * 24 * 60 * 60 * 1000);
+
+    const [
+      disputesCur, disputesPrev,
+      flaggedCur, flaggedPrev,
+      kycCur, kycPrev,
+      overdueCur,
+      revenueCurAgg, revenuePrevAgg,
+      deletionCur, deletionPrev,
+      cancelledTotalsCur, cancelledTotalsPrev,
+      topOwnersRaw,
+    ] = await this.prisma.$transaction([
+      this.prisma.dispute.count({ where: { status: { in: ['pending', 'investigating'] }, createdAt: { gte: curStart } } }),
+      this.prisma.dispute.count({ where: { status: { in: ['pending', 'investigating'] }, createdAt: { gte: prevStart, lt: curStart } } }),
+
+      this.prisma.propertyReview.count({ where: { isHidden: true, updatedAt: { gte: curStart } } }),
+      this.prisma.propertyReview.count({ where: { isHidden: true, updatedAt: { gte: prevStart, lt: curStart } } }),
+
+      this.prisma.kycSubmission.count({ where: { status: { in: ['kyc_submitted', 'payment_pending', 'awaiting_approval'] }, createdAt: { gte: curStart } } }),
+      this.prisma.kycSubmission.count({ where: { status: { in: ['kyc_submitted', 'payment_pending', 'awaiting_approval'] }, createdAt: { gte: prevStart, lt: curStart } } }),
+
+      this.prisma.user.count({ where: { role: ROLE.OWNER, deletedAt: null, subscriptionStatus: SUBSCRIPTION_STATUS.PAST_DUE } }),
+
+      this.prisma.subscription.aggregate({ _sum: { paidAmount: true }, where: { paidAmount: { gt: 0 }, updatedAt: { gte: curStart } } }),
+      this.prisma.subscription.aggregate({ _sum: { paidAmount: true }, where: { paidAmount: { gt: 0 }, updatedAt: { gte: prevStart, lt: curStart } } }),
+
+      this.prisma.user.count({ where: { deletedAt: { gte: curStart } } }),
+      this.prisma.user.count({ where: { deletedAt: { gte: prevStart, lt: curStart } } }),
+
+      this.prisma.booking.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: curStart } },
+        _count: { _all: true },
+        orderBy: { status: 'asc' },
+      }),
+      this.prisma.booking.groupBy({
+        by: ['status'],
+        where: { createdAt: { gte: prevStart, lt: curStart } },
+        _count: { _all: true },
+        orderBy: { status: 'asc' },
+      }),
+
+      this.prisma.booking.groupBy({
+        by: ['propertyId'],
+        where: {
+          status: BOOKING_STATUS.CANCELLED,
+          cancelledAt: { gte: curStart },
+          cancelledByRole: { in: [ROLE.OWNER, ROLE.SALE] },
+        },
+        _count: { _all: true },
+        orderBy: { _count: { propertyId: 'desc' } },
+        take: 20,
+      }),
+    ]);
+
+    // Tách host-cancel vs customer-cancel dựa trên cancelledByRole
+    const [hostCancelCur, hostCancelPrev, customerBookingsCur, customerBookingsPrev, customerNoShowCur, customerNoShowPrev] = await Promise.all([
+      this.prisma.booking.count({
+        where: {
+          status: BOOKING_STATUS.CANCELLED,
+          cancelledAt: { gte: curStart },
+          cancelledByRole: { in: [ROLE.OWNER, ROLE.SALE, ROLE.ADMIN] },
+        },
+      }),
+      this.prisma.booking.count({
+        where: {
+          status: BOOKING_STATUS.CANCELLED,
+          cancelledAt: { gte: prevStart, lt: curStart },
+          cancelledByRole: { in: [ROLE.OWNER, ROLE.SALE, ROLE.ADMIN] },
+        },
+      }),
+      // Mẫu số cho host-cancel-rate: booking đã đi qua CONFIRMED (cọc xong) trong kỳ
+      this.prisma.booking.count({
+        where: {
+          createdAt: { gte: curStart },
+          OR: [
+            { status: { in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] } },
+            { paidAt: { not: null } },
+            { status: BOOKING_STATUS.CANCELLED, paidAt: { not: null } },
+          ],
+        },
+      }),
+      this.prisma.booking.count({
+        where: {
+          createdAt: { gte: prevStart, lt: curStart },
+          OR: [
+            { status: { in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] } },
+            { paidAt: { not: null } },
+            { status: BOOKING_STATUS.CANCELLED, paidAt: { not: null } },
+          ],
+        },
+      }),
+      this.prisma.booking.count({
+        where: { status: 4, noShowMarkedAt: { gte: curStart } },
+      }),
+      this.prisma.booking.count({
+        where: { status: 4, noShowMarkedAt: { gte: prevStart, lt: curStart } },
+      }),
+    ]);
+
+    const cancelRate = this.toPct(this.countByStatus(cancelledTotalsCur, BOOKING_STATUS.CANCELLED), this.sumAll(cancelledTotalsCur));
+    const cancelRatePrev = this.toPct(this.countByStatus(cancelledTotalsPrev, BOOKING_STATUS.CANCELLED), this.sumAll(cancelledTotalsPrev));
+
+    const topHostCancel = await this.buildTopHostCancel(topOwnersRaw, curStart);
+
+    return {
+      message: msg.dashboard.reportsSuccess,
+      data: {
+        range: this.normalizeRange(range),
+        rangeDays: days,
+        disputesOpen:        { value: disputesCur, prev: disputesPrev },
+        flaggedReviews:      { value: flaggedCur, prev: flaggedPrev },
+        kycPending:          { value: kycCur, prev: kycPrev },
+        subscriptionOverdue: { value: overdueCur, prev: overdueCur }, // snapshot: prev=cur
+        revenuePaid:         { value: revenueCurAgg._sum.paidAmount ?? 0, prev: revenuePrevAgg._sum.paidAmount ?? 0 },
+        deletionRequests:    { value: deletionCur, prev: deletionPrev, note: 'Proxy: count User.deletedAt trong kỳ — chưa có bảng grace 30 ngày riêng cho NĐ 13. Cần BE quyết định trước khi làm bảng AccountDeletionRequest.' },
+        cancelRate:          { value: cancelRate, prev: cancelRatePrev, note: 'Aggregate: cancelled / total bookings trong kỳ' },
+        hostCancelRate:      {
+          value: this.toPct(hostCancelCur, customerBookingsCur),
+          prev: this.toPct(hostCancelPrev, customerBookingsPrev),
+          note: 'Host/Admin/Sale cancel trong kỳ / booking đã cọc (CONFIRMED/COMPLETED/paidAt) trong kỳ',
+        },
+        noShowRate:          {
+          value: this.toPct(customerNoShowCur, customerBookingsCur),
+          prev: this.toPct(customerNoShowPrev, customerBookingsPrev),
+          note: 'Booking đã cọc nhưng cron đánh NO_SHOW sau checkout 24h',
+        },
+        topHostCancel,
+      },
+    };
+  }
+
+  private rangeToDays(range: string | undefined): number {
+    switch (range) {
+      case 'week': return 7;
+      case 'quarter': return 90;
+      case 'year': return 365;
+      case 'month':
+      default: return 30;
+    }
+  }
+
+  private normalizeRange(range: string | undefined): string {
+    return ['week', 'month', 'quarter', 'year'].includes(range ?? '') ? (range as string) : 'month';
+  }
+
+  private sumAll(groups: Array<any>): number {
+    return groups.reduce((acc, g) => acc + (g._count?._all ?? 0), 0);
+  }
+
+  private countByStatus(groups: Array<any>, status: number): number {
+    return groups.find((g) => g.status === status)?._count?._all ?? 0;
+  }
+
+  private toPct(num: number, den: number): number {
+    if (den === 0) return 0;
+    return Math.round((num / den) * 1000) / 10; // 1 decimal
+  }
+
+  private async buildTopHostCancel(
+    propertyGroups: Array<any>,
+    since: Date,
+  ): Promise<Array<{ ownerId: string; name: string | null; propertyCount: number; bookingCount: number; cancelCount: number; cancelRate: number }>> {
+    if (propertyGroups.length === 0) return [];
+
+    const propertyIds = propertyGroups.map((p) => p.propertyId);
+    const properties = await this.prisma.property.findMany({
+      where: { id: { in: propertyIds } },
+      select: { id: true, ownerId: true },
+    });
+    const ownerByProperty = new Map(properties.map((p) => [p.id, p.ownerId]));
+
+    // Aggregate cancellations by ownerId
+    const cancelByOwner = new Map<string, number>();
+    for (const grp of propertyGroups) {
+      const ownerId = ownerByProperty.get(grp.propertyId);
+      if (!ownerId) continue;
+      cancelByOwner.set(ownerId, (cancelByOwner.get(ownerId) ?? 0) + (grp._count?._all ?? 0));
+    }
+
+    const ownerIds = Array.from(cancelByOwner.keys());
+    if (ownerIds.length === 0) return [];
+
+    const [owners, totals, propertyCounts] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: { id: true, name: true },
+      }),
+      this.prisma.booking.groupBy({
+        by: ['propertyId'],
+        where: { createdAt: { gte: since }, property: { ownerId: { in: ownerIds } } },
+        _count: { _all: true },
+      }),
+      this.prisma.property.groupBy({
+        by: ['ownerId'],
+        where: { ownerId: { in: ownerIds }, deletedAt: null },
+        _count: { _all: true },
+      }),
+    ]);
+
+    // Build owner-level totals via re-join property → owner
+    const propertyOwnerMap = new Map<string, string>();
+    const ownerProperties = await this.prisma.property.findMany({
+      where: { ownerId: { in: ownerIds } },
+      select: { id: true, ownerId: true },
+    });
+    for (const p of ownerProperties) propertyOwnerMap.set(p.id, p.ownerId);
+
+    const totalByOwner = new Map<string, number>();
+    for (const t of totals) {
+      const ownerId = propertyOwnerMap.get(t.propertyId);
+      if (!ownerId) continue;
+      totalByOwner.set(ownerId, (totalByOwner.get(ownerId) ?? 0) + ((t as any)._count?._all ?? 0));
+    }
+    const propCountByOwner = new Map(propertyCounts.map((p) => [p.ownerId, (p as any)._count?._all ?? 0]));
+    const nameById = new Map(owners.map((o) => [o.id, o.name]));
+
+    return ownerIds
+      .map((ownerId) => {
+        const cancelCount = cancelByOwner.get(ownerId) ?? 0;
+        const bookingCount = totalByOwner.get(ownerId) ?? cancelCount;
+        return {
+          ownerId,
+          name: nameById.get(ownerId) ?? null,
+          propertyCount: propCountByOwner.get(ownerId) ?? 0,
+          bookingCount,
+          cancelCount,
+          cancelRate: this.toPct(cancelCount, bookingCount),
+        };
+      })
+      .sort((a, b) => b.cancelCount - a.cancelCount || b.cancelRate - a.cancelRate)
+      .slice(0, 5);
   }
 }

@@ -171,14 +171,14 @@ export class PropertiesService {
     if (existing) throw new ConflictException(msg.properties.codeDuplicate);
 
     const { ownerId: _, ...createData } = dto;
-    // OWNER-created properties go through moderation. ADMIN/SALE bypass.
-    const moderationStatus = user.role === ROLE.OWNER ? 'pending' : 'approved';
+    // OWNER đã KYC + subscription (đã assert ở trên) → approved + active ngay.
+    // ADMIN/SALE tạo thay mặt owner cũng approved. Owner tự bật/tắt isActive sau đó.
     const property = await this.prisma.property.create({
       data: {
         ...createData,
         ownerId,
-        moderationStatus,
-        isActive: moderationStatus === 'approved',
+        moderationStatus: 'approved',
+        isActive: true,
       },
       include: {
         owner: { select: { id: true, name: true, phone: true } },
@@ -186,8 +186,8 @@ export class PropertiesService {
     });
 
     await this.notifications.notifyAdmins(
-      'Phòng mới được tạo',
-      `${property.name} (${property.code}) được tạo bởi ${property.owner.name}`,
+      'Phòng mới được đăng',
+      `${property.name} (${property.code}) vừa được tạo bởi ${property.owner.name}`,
       NOTIFICATION_TYPE.SYSTEM,
       property.id,
       'property',
@@ -217,14 +217,18 @@ export class PropertiesService {
       if (existing) throw new ConflictException(msg.properties.codeDuplicate);
     }
 
-    // Auto-resubmit: nếu OWNER đang sở hữu property bị reject/suspended và edit lại
-    // → chuyển moderationStatus về pending để admin duyệt lại.
-    const data: any = { ...dto };
     if (
       user.role === ROLE.OWNER &&
-      (property.moderationStatus === 'rejected' || property.moderationStatus === 'suspended')
+      dto.isActive === true &&
+      property.moderationStatus === 'suspended'
     ) {
-      data.moderationStatus = 'pending';
+      throw new ForbiddenException(msg.properties.cannotReactivateSuspended);
+    }
+
+    const data: any = { ...dto };
+    // Property bị admin reject → OWNER sửa lại được auto-approved; tự bật isActive nếu muốn public.
+    if (user.role === ROLE.OWNER && property.moderationStatus === 'rejected') {
+      data.moderationStatus = 'approved';
       data.moderationRejectedReason = null;
       data.moderationReviewedAt = null;
       data.moderationReviewedBy = null;
@@ -239,18 +243,6 @@ export class PropertiesService {
         _count: { select: { bookings: true } },
       },
     });
-
-    // Nếu chuyển sang pending → notify admin có property cần duyệt lại
-    if (data.moderationStatus === 'pending') {
-      await this.notifications.notifyAdmins(
-        'Cơ sở cần duyệt lại',
-        `${updated.name} đã được chủ cập nhật và gửi lại để duyệt`,
-        NOTIFICATION_TYPE.SYSTEM,
-        id,
-        'property',
-        { pushType: 'property_resubmitted', deepLink: `/admin/properties/${id}` },
-      );
-    }
 
     await this.notifications.notifyPropertyOwner(
       id,

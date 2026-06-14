@@ -166,7 +166,7 @@ describe('BookingsService', () => {
       (prisma.booking.findUnique as jest.Mock).mockResolvedValue({ ...mockBooking, status: BOOKING_STATUS.CANCELLED });
 
       await expect(
-        service.cancelBooking('booking-1', { id: 'admin-1', role: ROLE.ADMIN }, msg),
+        service.cancelBooking('booking-1', undefined, { id: 'admin-1', role: ROLE.ADMIN }, msg),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -177,7 +177,7 @@ describe('BookingsService', () => {
       });
 
       await expect(
-        service.cancelBooking('booking-1', { id: 'staff-1', role: ROLE.SALE, ownerId: 'owner-1' }, msg),
+        service.cancelBooking('booking-1', undefined, { id: 'staff-1', role: ROLE.SALE, ownerId: 'owner-1' }, msg),
       ).rejects.toThrow(ForbiddenException);
     });
   });

@@ -52,7 +52,14 @@ export const vi = {
     phoneDuplicate: 'Số điện thoại đã được sử dụng',
     emailDuplicate: 'Email đã được sử dụng',
     cannotDeleteSelf: 'Không thể xoá tài khoản của chính mình',
-    selfDeleteSuccess: 'Tài khoản đã được xoá thành công',
+    selfDeleteSuccess: 'Yêu cầu xoá tài khoản đã được ghi nhận. Tài khoản sẽ bị xoá sau 30 ngày. Đăng nhập lại trước hạn để khôi phục.',
+    selfDeleteNotifTitle: 'Yêu cầu xoá tài khoản',
+    selfDeleteNotifSubtitle: (date: string) => `Tài khoản sẽ bị xoá vĩnh viễn vào ${date}. Đăng nhập lại trước hạn để khôi phục.`,
+    deletionRestoreSuccess: 'Tài khoản đã được khôi phục',
+    deletionRestoreNotifTitle: 'Tài khoản đã được khôi phục',
+    deletionRestoreNotifSubtitle: 'Bạn đã huỷ yêu cầu xoá tài khoản. Mọi dữ liệu được giữ lại.',
+    deletionStatusSuccess: 'Lấy trạng thái yêu cầu xoá thành công',
+    deletionNotPending: 'Tài khoản không có yêu cầu xoá đang chờ',
     adminNotFound: 'Không tìm thấy admin',
     listSuccess: 'Lấy danh sách người dùng thành công',
     getSuccess: 'Lấy thông tin người dùng thành công',
@@ -108,6 +115,7 @@ export const vi = {
     rejectSuccess: 'Từ chối cơ sở thành công',
     suspendSuccess: 'Tạm ngưng cơ sở thành công',
     rejectReasonRequired: 'Lý do từ chối phải tối thiểu 5 ký tự',
+    cannotReactivateSuspended: 'Cơ sở đang bị admin tạm ngưng, không thể tự bật lại. Liên hệ admin để được gỡ tạm ngưng.',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────

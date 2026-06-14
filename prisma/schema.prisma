@@ -77,8 +77,34 @@ model User {
   dataExportRequests     DataExportRequest[]
   consent                UserConsent?
   notificationPreference NotificationPreference?
+  deletionRequests       AccountDeletionRequest[]
+
+  // Account deletion grace (NĐ 13)
+  deletionScheduledAt DateTime? // != null → user đang trong grace 30 ngày, login → auto-cancel
 
   @@map("users")
+}
+
+/// NĐ 13 — user self-delete có grace 30 ngày
+/// User gọi DELETE /users/me → tạo row pending + set User.deletionScheduledAt
+/// Cron mỗi giờ: pending + scheduledAt <= now → thực thi soft-delete + rename + clear sessions
+/// User login lại trong grace → status=cancelled, clear deletionScheduledAt
+model AccountDeletionRequest {
+  id                String    @id @default(uuid())
+  userId            String
+  status            String    @default("pending") // pending | completed | cancelled
+  reason            String?
+  requestedAt       DateTime  @default(now())
+  scheduledDeleteAt DateTime  // requestedAt + 30 ngày
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?   // "user_login" | "user_cancel" | "admin_cancel"
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status, scheduledDeleteAt])
+  @@map("account_deletion_requests")
 }
 
 model UserDevice {
@@ -217,8 +243,13 @@ model Booking {
   customerPhone String?
   checkinDate   DateTime
   checkoutDate  DateTime
-  status        Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED
+  status        Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW
   holdExpireAt  DateTime?
+  cancelledAt        DateTime?
+  cancelledByUserId  String?
+  cancelledByRole    Int?     // ROLE enum; null = system/cron
+  cancelledReason    String?  // optional, pass-through cho email; không enforce
+  noShowMarkedAt     DateTime?
   depositAmount Int? // VND — luôn dùng Int, tránh sai số float64
   totalAmount   Int? // VND — tổng giá trị booking (lưu lại khi tạo để tránh re-compute)
   paidAmount    Int? // VND — số tiền thực thu (cập nhật qua mark-paid)

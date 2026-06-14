@@ -15,6 +15,7 @@ import { Messages } from '../../i18n';
 import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { EmailService } from '../email/email.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
@@ -28,6 +29,7 @@ export class BookingsService {
     private redis: RedisService,
     private notifications: NotificationsService,
     private auditLog: AuditLogService,
+    private email: EmailService,
   ) {}
 
   // ─── Staff/Admin Methods ──────────────────────────────────────────────────
@@ -199,7 +201,13 @@ export class BookingsService {
       if (overlappingHolds.length > 0) {
         await tx.booking.updateMany({
           where: { id: { in: overlappingHolds.map((h) => h.id) } },
-          data: { status: BOOKING_STATUS.CANCELLED },
+          data: {
+            status: BOOKING_STATUS.CANCELLED,
+            cancelledAt: new Date(),
+            cancelledByUserId: user.id,
+            cancelledByRole: user.role,
+            cancelledReason: 'Auto-cancel: new staff hold overrides previous hold',
+          },
         });
       }
 
@@ -365,10 +373,25 @@ export class BookingsService {
     return { message: msg.bookings.markPaidSuccess, data: updated };
   }
 
-  async cancelBooking(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+  async cancelBooking(
+    id: string,
+    reason: string | undefined,
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+  ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { property: { select: { ownerId: true } } },
+      include: {
+        property: {
+          select: {
+            ownerId: true,
+            name: true,
+            code: true,
+            owner: { select: { name: true, phone: true } },
+          },
+        },
+        customer: { select: { email: true, name: true } },
+      },
     });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
@@ -378,34 +401,62 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.alreadyCancelled);
     }
 
-    const cancelled = await this.prisma.booking.update({
+    await this.prisma.booking.update({
       where: { id },
-      data: { status: BOOKING_STATUS.CANCELLED },
-      include: { property: { select: { name: true, code: true } } },
+      data: {
+        status: BOOKING_STATUS.CANCELLED,
+        cancelledAt: new Date(),
+        cancelledByUserId: user.id,
+        cancelledByRole: user.role,
+        cancelledReason: reason ?? null,
+      },
     });
 
     await this.redis.delHold(id);
+
+    const propLabel = `${booking.property.name} (${booking.property.code})`;
 
     // Notify owner + customer (if any)
     void this.notifications.notifyPropertyOwner(
       booking.propertyId,
       'Booking đã bị hủy',
-      `${cancelled.property.name} (${cancelled.property.code}) — booking đã hủy`,
+      `${propLabel} — booking đã hủy`,
       NOTIFICATION_TYPE.BOOKING,
       id,
       'booking',
       { pushType: 'booking_cancelled', deepLink: `/bookings/${id}` },
     ).catch(() => undefined);
     if (booking.customerId) {
+      const subtitle = reason
+        ? `${booking.property.name} đã được huỷ — ${reason}`
+        : `${booking.property.name} đã được huỷ`;
       void this.notifications.notifyUser(
         booking.customerId,
         'Đặt phòng đã huỷ',
-        `${cancelled.property.name} đã được huỷ`,
+        subtitle,
         NOTIFICATION_TYPE.BOOKING,
         id,
         'booking',
         { pushType: 'booking_cancelled', deepLink: '/my-bookings' },
       ).catch(() => undefined);
+    }
+
+    // Email customer (if we have one)
+    const customerEmail = booking.customer?.email;
+    if (customerEmail) {
+      void this.email
+        .sendBookingCancelled({
+          to: customerEmail,
+          customerName: booking.customer?.name ?? booking.customerName ?? 'Quý khách',
+          propertyName: booking.property.name,
+          propertyCode: booking.property.code,
+          checkinDate: booking.checkinDate,
+          checkoutDate: booking.checkoutDate,
+          reason: reason ?? null,
+          ownerName: booking.property.owner?.name ?? null,
+          ownerPhone: booking.property.owner?.phone ?? null,
+        })
+        .catch(() => undefined);
     }
 
     return { message: msg.bookings.cancelSuccess, data: null };
@@ -576,7 +627,12 @@ export class BookingsService {
 
     const cancelled = await this.prisma.booking.update({
       where: { id },
-      data: { status: BOOKING_STATUS.CANCELLED },
+      data: {
+        status: BOOKING_STATUS.CANCELLED,
+        cancelledAt: new Date(),
+        cancelledByUserId: user.id,
+        cancelledByRole: user.role,
+      },
       include: { property: { select: { name: true, code: true } } },
     });
 
@@ -700,11 +756,39 @@ export class BookingsService {
         status: BOOKING_STATUS.HOLD,
         holdExpireAt: { lte: now },
       },
-      data: { status: BOOKING_STATUS.CANCELLED },
+      data: {
+        status: BOOKING_STATUS.CANCELLED,
+        cancelledAt: now,
+        cancelledReason: 'Auto-cancel: hold expired',
+        // cancelledByUserId/Role intentionally null = system/cron
+      },
     });
 
     await Promise.all(expired.map((b) => this.redis.delHold(b.id).catch(() => undefined)));
 
+    return result.count;
+  }
+
+  /**
+   * Mark NO_SHOW: booking CONFIRMED đã qua checkoutDate > 24h mà không có paidAt
+   * (proxy cho "khách không đến + không hoàn tất thanh toán tại chỗ").
+   * Chạy mỗi ngày 03:30 (giờ server, sau khi đêm trước đã đóng sổ).
+   */
+  @Cron('30 3 * * *')
+  async markNoShowBookings() {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const result = await this.prisma.booking.updateMany({
+      where: {
+        status: BOOKING_STATUS.CONFIRMED,
+        checkoutDate: { lt: cutoff },
+        paidAt: null,
+      },
+      data: {
+        status: BOOKING_STATUS.NO_SHOW,
+        noShowMarkedAt: now,
+      },
+    });
     return result.count;
   }
 

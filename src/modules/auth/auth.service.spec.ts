@@ -4,6 +4,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
+import { UsersService } from '../users/users.service';
 import { en } from '../../i18n';
 import * as bcrypt from 'bcryptjs';
 
@@ -54,6 +56,22 @@ describe('AuthService', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn().mockReturnValue('test-secret'),
+          },
+        },
+        {
+          provide: EmailService,
+          useValue: {
+            sendStaffInvite: jest.fn(),
+            sendPasswordReset: jest.fn(),
+            sendBookingCancelled: jest.fn(),
+            sendAccountDeletionScheduled: jest.fn(),
+            sendAccountDeletionRestored: jest.fn(),
+          },
+        },
+        {
+          provide: UsersService,
+          useValue: {
+            cancelDeletion: jest.fn().mockResolvedValue(false),
           },
         },
       ],

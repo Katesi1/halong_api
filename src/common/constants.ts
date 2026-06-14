@@ -38,6 +38,7 @@ export const BOOKING_STATUS = {
   CONFIRMED: 1,
   CANCELLED: 2,
   COMPLETED: 3,
+  NO_SHOW: 4,
 } as const;
 
 export const PROPERTY_TYPE = {

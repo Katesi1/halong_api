@@ -66,8 +66,8 @@ export class UsersController {
 
   @Delete('me')
   @ApiOperation({
-    summary: 'Self-delete tài khoản (compliance Apple/Google/GDPR)',
-    description: 'User xoá account của chính mình. Soft-delete + giải phóng email/phone unique. User có thể re-register ngay với email cũ.',
+    summary: 'Self-delete tài khoản (compliance Apple/Google/GDPR + NĐ 13)',
+    description: 'User xoá account của chính mình. Tạo deletion request grace 30 ngày. Gửi notification + email cảnh báo có link khôi phục. Đăng nhập lại HOẶC gọi POST /users/me/restore trong grace → tự huỷ.',
   })
   @ApiResponse({ status: 200, type: MessageResponse })
   selfDelete(
@@ -76,6 +76,33 @@ export class UsersController {
     @Lang() msg: Messages,
   ) {
     return this.usersService.selfDelete(userId, dto.reason, msg);
+  }
+
+  @Get('me/deletion-status')
+  @ApiOperation({
+    summary: 'Trạng thái yêu cầu xoá tài khoản hiện tại',
+    description: 'Trả về `{ pending, scheduledDeleteAt, daysRemaining }`. FE dùng để show banner khôi phục trong grace 30 ngày.',
+  })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  getDeletionStatus(
+    @CurrentUser('id') userId: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.usersService.getDeletionStatus(userId, msg);
+  }
+
+  @Post('me/restore')
+  @ApiOperation({
+    summary: 'Khôi phục tài khoản — huỷ yêu cầu xoá đang pending',
+    description: 'User chủ động huỷ yêu cầu xoá tài khoản trong grace 30 ngày. Tạo notification + email xác nhận khôi phục. Trả 400 nếu không có pending request.',
+  })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  async restoreAccount(
+    @CurrentUser('id') userId: string,
+    @Lang() msg: Messages,
+  ) {
+    await this.usersService.cancelDeletion(userId, 'user_cancel', msg);
+    return { message: msg.users.deletionRestoreSuccess, data: null };
   }
 
   @Get(':id')

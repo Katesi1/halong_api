@@ -18,6 +18,7 @@ import {
   AUDIT_TARGET_TYPE,
 } from '../../common/constants';
 import type { Messages } from '../../i18n';
+import { computeFullCycleTotal, Cycle } from '../payment/helpers/billing.helper';
 
 @Injectable()
 export class AdminSubscriptionService {
@@ -138,10 +139,64 @@ export class AdminSubscriptionService {
       }),
     ]);
 
+    // Enrich items with rooms (from latest subscription) + amount (computed)
+    // FE no longer needs to derive these client-side.
+    const userIds = users.map((u) => u.id);
+    const planIds = Array.from(
+      new Set(users.map((u) => u.subscriptionPlanId).filter((p): p is string => !!p)),
+    );
+
+    const [latestSubs, plans] = await Promise.all([
+      userIds.length
+        ? this.prisma.subscription.findMany({
+            where: { userId: { in: userIds } },
+            orderBy: { createdAt: 'desc' },
+            select: { userId: true, rooms: true, planId: true, cycle: true },
+          })
+        : Promise.resolve([] as Array<{ userId: string; rooms: number; planId: string; cycle: string }>),
+      planIds.length
+        ? this.prisma.billingPlan.findMany({
+            where: { id: { in: planIds } },
+            select: {
+              id: true,
+              pricePerRoom: true,
+              minCharge: true,
+              yearlyDiscountPct: true,
+              vatPct: true,
+              maxRooms: true,
+            },
+          })
+        : Promise.resolve([] as Array<{ id: string; pricePerRoom: number; minCharge: number; yearlyDiscountPct: number; vatPct: number; maxRooms: number | null }>),
+    ]);
+
+    const roomsByUser = new Map<string, number>();
+    for (const s of latestSubs) {
+      if (!roomsByUser.has(s.userId)) roomsByUser.set(s.userId, s.rooms);
+    }
+    const planById = new Map(plans.map((p) => [p.id, p]));
+
+    const enriched = users.map((u) => {
+      const plan = u.subscriptionPlanId ? planById.get(u.subscriptionPlanId) : undefined;
+      const rooms = roomsByUser.get(u.id) ?? plan?.maxRooms ?? 1;
+      const cycle = (u.subscriptionCycle ?? 'monthly') as Cycle;
+      let amount: number | null = null;
+      if (plan) {
+        amount = computeFullCycleTotal(
+          plan,
+          cycle,
+          rooms,
+          u.subscriptionPriceOverride,
+        ).total;
+      } else if (u.subscriptionPriceOverride !== null && u.subscriptionPriceOverride !== undefined) {
+        amount = u.subscriptionPriceOverride;
+      }
+      return { ...u, rooms, amount };
+    });
+
     return {
       message: msg.adminSubscription.listSuccess,
       data: {
-        items: users,
+        items: enriched,
         total,
         page,
         limit,

@@ -52,7 +52,14 @@ export const en = {
     phoneDuplicate: 'Phone number is already in use',
     emailDuplicate: 'Email is already in use',
     cannotDeleteSelf: 'Cannot delete your own account',
-    selfDeleteSuccess: 'Account deleted successfully',
+    selfDeleteSuccess: 'Account deletion request received. Your account will be deleted in 30 days. Log in again before then to restore it.',
+    selfDeleteNotifTitle: 'Account deletion requested',
+    selfDeleteNotifSubtitle: (date: string) => `Your account will be permanently deleted on ${date}. Log in again before then to restore it.`,
+    deletionRestoreSuccess: 'Account restored',
+    deletionRestoreNotifTitle: 'Account restored',
+    deletionRestoreNotifSubtitle: 'You have cancelled the deletion request. All your data is kept.',
+    deletionStatusSuccess: 'Deletion status retrieved successfully',
+    deletionNotPending: 'No pending deletion request for this account',
     adminNotFound: 'Admin not found',
     listSuccess: 'User list retrieved successfully',
     getSuccess: 'User retrieved successfully',
@@ -108,6 +115,7 @@ export const en = {
     rejectSuccess: 'Property rejected',
     suspendSuccess: 'Property suspended',
     rejectReasonRequired: 'Rejection reason must be at least 5 characters',
+    cannotReactivateSuspended: 'This property is suspended by admin and cannot be reactivated. Contact admin to lift the suspension.',
   },
 
   // ─── Bookings ────────────────────────────────────────────────────────────────
