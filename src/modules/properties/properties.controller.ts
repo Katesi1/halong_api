@@ -11,7 +11,9 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { UpdatePricesDto } from './dto/update-prices.dto';
 import { RejectPropertyDto, SuspendPropertyDto } from './dto/moderation.dto';
+import { SearchPropertiesDto } from './dto/search-properties.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -20,7 +22,13 @@ import { Lang } from '../../common/decorators/lang.decorator';
 import { ROLE, PERMISSION_MODULE, PERMISSION_ACTION } from '../../common/constants';
 import { Permission } from '../../common/decorators/permission.decorator';
 import type { Messages } from '../../i18n';
-import { PropertyListResponse, PropertyResponse, MessageResponse } from '../../common/dto/api-response.dto';
+import {
+  PropertyListResponse,
+  PropertyResponse,
+  MessageResponse,
+  PropertyCardListResponse,
+  PropertySearchResponse,
+} from '../../common/dto/api-response.dto';
 
 @ApiTags('Properties')
 @ApiBearerAuth('access-token')
@@ -31,16 +39,21 @@ export class PropertiesController {
   constructor(private propertiesService: PropertiesService) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get('public')
-  @ApiOperation({ summary: 'Danh sách property công khai', description: 'Property active, có thể lọc theo ngày/khách/giá/type' })
+  @ApiOperation({
+    summary: 'Danh sách property công khai (array phẳng — mobile legacy)',
+    description:
+      'Property active, có thể lọc theo ngày/khách/giá/type/view. Trả về PropertyCardDto[] (slug, rating, reviewCount, minPrice, isGuestFavorite, coverImageUrl, isFavorited). Web khách hàng nên dùng GET /properties/search (paginated + filter đầy đủ). Gửi kèm Authorization header → isFavorited được populate; anonymous → luôn false.',
+  })
   @ApiQuery({ name: 'checkinDate', required: false, description: 'YYYY-MM-DD' })
   @ApiQuery({ name: 'checkoutDate', required: false, description: 'YYYY-MM-DD' })
   @ApiQuery({ name: 'guests', required: false, type: Number })
   @ApiQuery({ name: 'minPrice', required: false, type: Number })
   @ApiQuery({ name: 'maxPrice', required: false, type: Number })
   @ApiQuery({ name: 'type', required: false, type: Number, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
-  @ApiQuery({ name: 'view', required: false, description: '"sea" hoặc "city"' })
-  @ApiResponse({ status: 200, type: PropertyListResponse })
+  @ApiQuery({ name: 'view', required: false, description: 'sea | city | mountain | garden | pool' })
+  @ApiResponse({ status: 200, type: PropertyCardListResponse })
   findPublic(
     @Query('checkinDate') checkinDate: string,
     @Query('checkoutDate') checkoutDate: string,
@@ -49,6 +62,7 @@ export class PropertiesController {
     @Query('maxPrice') maxPrice: string,
     @Query('type') type: string,
     @Query('view') view: string,
+    @CurrentUser() user: { id: string } | null,
     @Lang() msg: Messages,
   ) {
     return this.propertiesService.findPublic(
@@ -58,9 +72,27 @@ export class PropertiesController {
       guests ? parseInt(guests) : undefined,
       minPrice ? parseFloat(minPrice) : undefined,
       maxPrice ? parseFloat(maxPrice) : undefined,
-      type !== undefined ? parseInt(type) : undefined,
+      type !== undefined && type !== '' ? parseInt(type) : undefined,
       view || undefined,
+      user?.id ?? null,
     );
+  }
+
+  @Public()
+  @UseGuards(OptionalJwtAuthGuard)
+  @Get('search')
+  @ApiOperation({
+    summary: 'Search property công khai (paginated, dùng cho customer web)',
+    description:
+      'Full filter (amenities, bedrooms, minRating, view, type, price, q), sort (price_asc | price_desc | rating | newest | featured), pagination. Trả { items, total, page, limit, totalPages }. Optional Authorization header: nếu có → populate isFavorited cho từng item; ngoài ra hỗ trợ ?favorited=true để lọc chỉ những property user đã save (yêu cầu auth, anonymous → 403).',
+  })
+  @ApiResponse({ status: 200, type: PropertySearchResponse })
+  findSearch(
+    @Query() dto: SearchPropertiesDto,
+    @CurrentUser() user: { id: string } | null,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.findSearch(dto, user?.id ?? null, msg);
   }
 
   @Public()

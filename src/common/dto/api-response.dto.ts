@@ -362,6 +362,116 @@ export class PropertyResponse extends BaseResponseDto {
   data: PropertyDto;
 }
 
+// ─── Public Property Card (customer web list) ───────────────────────────────
+
+export class PropertyCardDto {
+  @ApiProperty({ example: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'villa-vinh-xanh-vl001' })
+  slug: string;
+
+  @ApiProperty({ example: 'Villa Vịnh Xanh' })
+  name: string;
+
+  @ApiProperty({ example: 'VL001' })
+  code: string;
+
+  @ApiProperty({ example: 0, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
+  type: number;
+
+  @ApiPropertyOptional({ example: 'sea', description: 'sea | city | mountain | garden | pool' })
+  view: string | null;
+
+  @ApiPropertyOptional({ example: 'Bãi Cháy, Quảng Ninh' })
+  address: string | null;
+
+  @ApiPropertyOptional({ example: 20.95 })
+  latitude: number | null;
+
+  @ApiPropertyOptional({ example: 107.05 })
+  longitude: number | null;
+
+  @ApiProperty({ example: 2 })
+  bedrooms: number;
+
+  @ApiProperty({ example: 1 })
+  bathrooms: number;
+
+  @ApiProperty({ example: 2 })
+  standardGuests: number;
+
+  @ApiProperty({ example: 4 })
+  maxGuests: number;
+
+  @ApiPropertyOptional({ example: 45, description: 'm² — null nếu owner chưa điền' })
+  floorArea: number | null;
+
+  @ApiProperty({ example: ['wifi', 'pool', 'bbq'] })
+  amenities: string[];
+
+  @ApiPropertyOptional({ example: 1500000 })
+  weekdayPrice: number | null;
+
+  @ApiPropertyOptional({ example: 2000000 })
+  weekendPrice: number | null;
+
+  @ApiPropertyOptional({ example: 2500000 })
+  holidayPrice: number | null;
+
+  @ApiPropertyOptional({ example: 1500000, description: 'Giá thấp nhất per đêm — đã tính từ weekday/weekend/holiday' })
+  minPrice: number | null;
+
+  @ApiProperty({ example: 4.92, description: 'Trung bình ratingAvg đã denormalized' })
+  rating: number;
+
+  @ApiProperty({ example: 37 })
+  reviewCount: number;
+
+  @ApiProperty({ example: true, description: 'rating >= 4.8 && reviewCount >= 5' })
+  isGuestFavorite: boolean;
+
+  @ApiProperty({
+    example: false,
+    description:
+      'True nếu user hiện tại (từ JWT) đã save. Anonymous request → false.',
+  })
+  isFavorited: boolean;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...' })
+  coverImageUrl: string | null;
+
+  @ApiProperty({ type: [PropertyImageDto] })
+  images: PropertyImageDto[];
+}
+
+export class PropertySearchDataDto {
+  @ApiProperty({ type: [PropertyCardDto] })
+  items: PropertyCardDto[];
+
+  @ApiProperty({ example: 124 })
+  total: number;
+
+  @ApiProperty({ example: 1 })
+  page: number;
+
+  @ApiProperty({ example: 20 })
+  limit: number;
+
+  @ApiProperty({ example: 7 })
+  totalPages: number;
+}
+
+export class PropertySearchResponse extends BaseResponseDto {
+  @ApiProperty({ type: PropertySearchDataDto })
+  data: PropertySearchDataDto;
+}
+
+export class PropertyCardListResponse extends BaseResponseDto {
+  @ApiProperty({ type: [PropertyCardDto] })
+  data: PropertyCardDto[];
+}
+
 export class BookingListResponse extends BaseResponseDto {
   @ApiProperty({ type: [BookingDto] })
   data: BookingDto[];

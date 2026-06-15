@@ -118,6 +118,13 @@ export const vi = {
     cannotReactivateSuspended: 'Cơ sở đang bị admin tạm ngưng, không thể tự bật lại. Liên hệ admin để được gỡ tạm ngưng.',
   },
 
+  // ─── Favorites (per-user wishlist) ───────────────────────────────────────────
+  favorites: {
+    addSuccess: 'Đã thêm vào danh sách yêu thích',
+    removeSuccess: 'Đã xoá khỏi danh sách yêu thích',
+    listSuccess: 'Lấy danh sách yêu thích thành công',
+  },
+
   // ─── Bookings ────────────────────────────────────────────────────────────────
   bookings: {
     notFound: 'Booking không tồn tại',

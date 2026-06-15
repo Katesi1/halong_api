@@ -122,6 +122,11 @@ Vượt → `429 Too Many Requests`.
 
 ### 1.7 Token refresh flow
 
+| Token | TTL |
+|---|---|
+| `accessToken` | **15 phút** |
+| `refreshToken` | **14 ngày** |
+
 ```
 Request gốc → 401
   ↓ (Authenticator lock mutex)
@@ -132,6 +137,8 @@ Lưu access + refresh mới (httpOnly cookie / EncryptedSharedPreferences)
 Retry request gốc
   ↓ Nếu refresh fail (401) → logout về /login
 ```
+
+> Refresh token rotate mỗi lần gọi `/auth/refresh` (token cũ bị invalidate qua bcrypt-compare với hash trong DB). Hết 14 ngày không hoạt động → user phải login lại.
 
 ---
 
@@ -667,7 +674,8 @@ Base path: `/properties`.
 
 | Method | Path | Query |
 |---|---|---|
-| `GET` | `/properties/public` | `checkinDate?, checkoutDate?, guests?, minPrice?, maxPrice?, type?, view?` |
+| `GET` | `/properties/public` | `checkinDate?, checkoutDate?, guests?, minPrice?, maxPrice?, type?, view?` — **array phẳng PropertyCardDto[]** (legacy, dùng cho mobile) |
+| `GET` | `/properties/search` | Full filter + pagination + sort — **dùng cho customer web** (xem §4.6) |
 | `GET` | `/properties/share/:id` | — (trả PropertyDto không kèm giá) |
 
 ### 4.2 Authenticated CRUD
@@ -707,17 +715,19 @@ Base path: `/properties`.
 - `suspended` — admin tạm ngưng property đang hoạt động → `isActive = false`; OWNER **không** tự bật lại (`PATCH isActive=true` → 403); cần admin `POST /properties/:id/approve`
 - `pending` — legacy (dữ liệu cũ trước v1.9); property mới không còn vào trạng thái này
 
-### 4.5 PropertyDto
+### 4.5 PropertyDto (admin/owner — full)
 
 ```json
 {
   "id": "uuid",
   "ownerId": "uuid",
   "name": "Villa Hạ Long View",
+  "slug": "villa-ha-long-view-vl001",
   "type": 0,
   "code": "VL001",
   "view": "sea",
-  "address": "Bãi Cháy",
+  "address": "Bãi Cháy, Hạ Long",
+  "latitude": 20.95, "longitude": 107.05,
   "mapLink": "https://maps.google.com/...",
   "isActive": true,
   "moderationStatus": "approved",
@@ -726,15 +736,123 @@ Base path: `/properties`.
   "moderationReviewedBy": null,
   "bedrooms": 3, "bathrooms": 2,
   "standardGuests": 6, "maxGuests": 8,
+  "floorArea": 120,
   "weekdayPrice": 2000000, "weekendPrice": 3000000, "holidayPrice": 4500000,
   "adultSurcharge": 200000, "childSurcharge": 100000,
   "amenities": ["wifi", "pool"],
   "cancellationPolicy": 1,
   "rules": "...", "services": ["..."], "description": "...",
   "checkInTime": "14:00", "checkOutTime": "12:00",
-  "images": [{ "id": "uuid", "url": "https://...", "isCover": true }]
+  "ratingAvg": 4.92, "reviewCount": 37,
+  "images": [{ "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }]
 }
 ```
+
+### 4.6 PropertyCardDto (public list — `/properties/public`, `/properties/search`)
+
+Shape rút gọn cho card khách hàng. Tính sẵn `minPrice`, `rating`, `reviewCount`, `isGuestFavorite`, `coverImageUrl` để FE không phải post-process.
+
+```json
+{
+  "id": "uuid",
+  "slug": "villa-ha-long-view-vl001",
+  "name": "Villa Hạ Long View",
+  "code": "VL001",
+  "type": 0,
+  "view": "sea",
+  "address": "Bãi Cháy, Hạ Long",
+  "latitude": 20.95, "longitude": 107.05,
+  "bedrooms": 3, "bathrooms": 2,
+  "standardGuests": 6, "maxGuests": 8,
+  "floorArea": 120,
+  "amenities": ["wifi", "pool", "seaview"],
+  "weekdayPrice": 2000000, "weekendPrice": 3000000, "holidayPrice": 4500000,
+  "minPrice": 2000000,
+  "rating": 4.92,
+  "reviewCount": 37,
+  "isGuestFavorite": true,
+  "isFavorited": false,
+  "coverImageUrl": "https://res.cloudinary.com/.../cover.jpg",
+  "images": [{ "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }]
+}
+```
+
+- `slug` — duy nhất toàn hệ thống; auto-gen từ name + code khi tạo property (Vietnamese-aware). FE dùng cho URL `/property/{slug}`.
+- `minPrice` — `min(weekdayPrice, weekendPrice, holidayPrice)` bỏ qua giá null/0.
+- `rating` / `reviewCount` — đã denormalized vào `properties` (cập nhật mỗi khi review create/hide/restore).
+- `isGuestFavorite` — derived **global**: `rating >= 4.8 && reviewCount >= 5` (badge "được khách yêu thích" hiển thị giống nhau cho mọi user).
+- `isFavorited` — **per-user**: true nếu user hiện tại (JWT) đã save property này. Anonymous → luôn false. Toggle bằng `POST/DELETE /properties/:id/favorite` (xem §4.9).
+- `coverImageUrl` — ảnh có `isCover = true`; fallback ảnh đầu danh sách.
+
+### 4.7 `GET /properties/search` (customer web)
+
+Paginated + filter + sort, **toàn bộ ở server-side**. Lý do: FE chỉ thấy 1 trang nên lọc/sort client sẽ sai. Không hỗ trợ FE filter sau khi nhận data.
+
+**Query params** (tất cả optional):
+
+| Param | Kiểu | Ghi chú |
+|---|---|---|
+| `checkinDate`, `checkoutDate` | `YYYY-MM-DD` | Loại property bị HOLD/CONFIRMED đè ngày trùng |
+| `guests` | int ≥1 | `maxGuests >= guests` |
+| `bedrooms` | int ≥0 | `bedrooms >= bedrooms` (min) |
+| `minPrice`, `maxPrice` | float | So với `weekdayPrice` |
+| `type` | 0\|1\|2 | VILLA/HOMESTAY/HOTEL |
+| `view` | enum | `sea \| city \| mountain \| garden \| pool` |
+| `amenities` | CSV / array | **AND-match** các amenity (xem enum §4.8) |
+| `minRating` | float 0–5 | `ratingAvg >= minRating` |
+| `q` | string | Contains trong `name`, `code`, `address` |
+| `sort` | enum | `price_asc \| price_desc \| rating \| newest \| featured` (default `featured`) |
+| `page` | int ≥1 | Default `1` |
+| `limit` | int 1–50 | Default `20` |
+| `favorited` | bool | `true` → chỉ trả property user hiện tại đã save. **Yêu cầu Authorization header** — anonymous → 403. |
+
+> **Auth tuỳ chọn**: endpoint `@Public()` nhưng nếu FE gửi kèm Authorization header, BE sẽ populate `isFavorited` cho từng item dựa trên danh sách favorite của user. Không gửi token → `isFavorited` luôn `false`.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "message": "...",
+  "data": {
+    "items": [PropertyCardDto, ...],
+    "total": 124,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 7
+  }
+}
+```
+
+Sort `featured` = ratingAvg desc → reviewCount desc → createdAt desc.
+
+### 4.8 Vocabulary
+
+- **`view` enum** (cột riêng trên Property): `sea | city | mountain | garden | pool | null`.
+- **`amenities` keys** (kebab-case, string khớp tuyệt đối). Validate trong DTO. Mở rộng tại `src/modules/properties/property-enums.ts`:
+
+  `wifi`, `pool`, `bbq`, `kitchen`, `parking`, `ac`, `gym`, `breakfast`, `spa`, `restaurant`, `jacuzzi`, `bar`, `seaview`, `bayview`, `cityview`, `gardenview`, `mountainview`.
+
+  FE có thể gửi `?amenities=wifi,pool,bbq` (CSV) hoặc `?amenities[]=wifi&amenities[]=pool` (array). Sai key → 400.
+
+### 4.9 Favorites (per-user wishlist)
+
+Per-user. Chỉ **CUSTOMER** dùng được — Owner/Sale/Admin gọi → 403.
+
+| Method | Path | Body | Mô tả |
+|---|---|---|---|
+| `POST` | `/properties/:id/favorite` | — | Lưu vào wishlist. Idempotent (gọi 2 lần không lỗi). Property inactive/đã xoá → 404. |
+| `DELETE` | `/properties/:id/favorite` | — | Bỏ. Idempotent (xoá row không tồn tại không lỗi). |
+| `GET` | `/users/me/favorites?page&limit` | — | List `PropertyCardDto[]` user đã save, mới nhất trước. Mỗi item `isFavorited = true`. |
+
+**Response add/remove**:
+```json
+{ "success": true, "message": "...", "data": { "propertyId": "uuid", "isFavorited": true } }
+```
+
+**Hiển thị heart icon trên list/search**: BE đã populate `isFavorited` per item nếu FE gửi kèm token → không cần FE call thêm endpoint nào.
+
+**Lọc chỉ wishlist**: `GET /properties/search?favorited=true` (kèm token). Tận dụng được pagination + filter + sort hiện có.
 
 ---
 

@@ -275,6 +275,7 @@ async function main() {
     data: {
       ownerId: reviewOwner.id,
       name: 'Villa Hạ Long View Biển',
+      slug: 'villa-ha-long-view-bien-villa-halong-001',
       code: 'VILLA-HALONG-001',
       type: PROPERTY_TYPE.VILLA,
       view: 'sea',
@@ -303,6 +304,7 @@ async function main() {
     data: {
       ownerId: reviewOwner.id,
       name: 'Homestay Bãi Cháy Cozy',
+      slug: 'homestay-bai-chay-cozy-homestay-baichay-001',
       code: 'HOMESTAY-BAICHAY-001',
       type: PROPERTY_TYPE.HOMESTAY,
       view: 'city',
@@ -329,6 +331,7 @@ async function main() {
     data: {
       ownerId: reviewOwner.id,
       name: 'Hạ Long Bay Hotel - Studio',
+      slug: 'ha-long-bay-hotel-studio-hotel-halong-001',
       code: 'HOTEL-HALONG-001',
       type: PROPERTY_TYPE.HOTEL,
       view: 'sea',

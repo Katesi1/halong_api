@@ -118,6 +118,13 @@ export const en = {
     cannotReactivateSuspended: 'This property is suspended by admin and cannot be reactivated. Contact admin to lift the suspension.',
   },
 
+  // ─── Favorites (per-user wishlist) ───────────────────────────────────────────
+  favorites: {
+    addSuccess: 'Property added to favorites',
+    removeSuccess: 'Property removed from favorites',
+    listSuccess: 'Favorite properties retrieved successfully',
+  },
+
   // ─── Bookings ────────────────────────────────────────────────────────────────
   bookings: {
     notFound: 'Booking not found',

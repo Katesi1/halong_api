@@ -78,6 +78,7 @@ model User {
   consent                UserConsent?
   notificationPreference NotificationPreference?
   deletionRequests       AccountDeletionRequest[]
+  favoriteProperties     UserFavoriteProperty[]
 
   // Account deletion grace (NĐ 13)
   deletionScheduledAt DateTime? // != null → user đang trong grace 30 ngày, login → auto-cancel
@@ -166,6 +167,7 @@ model Property {
   id                       String    @id @default(uuid())
   ownerId                  String
   name                     String
+  slug                     String    @unique
   type                     Int       @default(1) // 0=VILLA, 1=HOMESTAY, 2=HOTEL
   code                     String    @unique
   isActive                 Boolean   @default(true)
@@ -175,7 +177,7 @@ model Property {
   moderationReviewedBy     String?
 
   // View
-  view String? // "sea", "city", null
+  view String? // "sea", "city", "mountain", "garden", "pool", null
 
   // Location
   address   String?
@@ -184,10 +186,15 @@ model Property {
   mapLink   String?
 
   // Specs
-  bedrooms       Int @default(1)
-  bathrooms      Int @default(1)
-  standardGuests Int @default(2)
-  maxGuests      Int @default(2)
+  bedrooms       Int  @default(1)
+  bathrooms      Int  @default(1)
+  standardGuests Int  @default(2)
+  maxGuests      Int  @default(2)
+  floorArea      Int? // m² — optional, FE hiển thị null nếu owner chưa điền
+
+  // Aggregated review stats (denormalized — updated by reviews.service)
+  ratingAvg   Float @default(0)
+  reviewCount Int   @default(0)
 
   // Pricing
   weekdayPrice   Float?
@@ -216,8 +223,27 @@ model Property {
   bookings      Booking[]
   calendarLocks CalendarLock[]
   reviews       PropertyReview[]
+  favoritedBy   UserFavoriteProperty[]
 
+  @@index([isActive, deletedAt])
+  @@index([type])
   @@map("properties")
+}
+
+// Per-user favorites (wishlist / heart icon trên FE web khách hàng).
+// Composite PK [userId, propertyId] → idempotent: POST 2 lần không tạo row trùng.
+model UserFavoriteProperty {
+  userId     String
+  propertyId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@id([userId, propertyId])
+  @@index([userId, createdAt])
+  @@index([propertyId])
+  @@map("user_favorite_properties")
 }
 
 model PropertyImage {

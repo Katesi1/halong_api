@@ -80,7 +80,27 @@ export class ReviewsService {
       },
     });
 
+    await this.recomputePropertyRating(propertyId);
+
     return { message: msg.reviews.createSuccess, data: review };
+  }
+
+  // Recompute property.ratingAvg + reviewCount from visible reviews.
+  // Called on every review state change (create / hide / restore).
+  private async recomputePropertyRating(propertyId: string): Promise<void> {
+    const agg = await this.prisma.propertyReview.aggregate({
+      where: { propertyId, isHidden: false },
+      _avg: { avgRating: true },
+      _count: { _all: true },
+    });
+    const avg = agg._avg.avgRating ?? 0;
+    await this.prisma.property.update({
+      where: { id: propertyId },
+      data: {
+        ratingAvg: Math.round(avg * 100) / 100,
+        reviewCount: agg._count._all,
+      },
+    });
   }
 
   async listReviews(
@@ -281,7 +301,7 @@ export class ReviewsService {
   ) {
     const review = await this.prisma.propertyReview.findUnique({
       where: { id: reviewId },
-      select: { id: true },
+      select: { id: true, propertyId: true },
     });
     if (!review) throw new NotFoundException(msg.reviews.notFound);
 
@@ -292,6 +312,8 @@ export class ReviewsService {
         hiddenReason: dto.reason || null,
       },
     });
+
+    await this.recomputePropertyRating(review.propertyId);
 
     return { message: msg.reviews.hideSuccess, data: null };
   }
@@ -329,7 +351,7 @@ export class ReviewsService {
   async restoreReview(reviewId: string, msg: Messages) {
     const review = await this.prisma.propertyReview.findUnique({
       where: { id: reviewId },
-      select: { id: true, isHidden: true },
+      select: { id: true, isHidden: true, propertyId: true },
     });
     if (!review) throw new NotFoundException(msg.reviews.notFound);
     if (!review.isHidden) {
@@ -340,6 +362,8 @@ export class ReviewsService {
       where: { id: reviewId },
       data: { isHidden: false, hiddenReason: null },
     });
+
+    await this.recomputePropertyRating(review.propertyId);
 
     return { message: msg.reviews.restoreSuccess, data: null };
   }

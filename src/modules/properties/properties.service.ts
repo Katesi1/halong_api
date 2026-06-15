@@ -15,6 +15,11 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { kycRequired } from '../../common/errors/kyc.errors';
 import { assertOwnerEntitled } from '../../common/subscription';
+import { buildPropertySlug, ensureUniqueSlug } from '../../common/slug';
+import { PROPERTY_CARD_SELECT, toPropertyCard } from './property-card';
+import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { FavoritesService } from './favorites.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class PropertiesService {
@@ -23,6 +28,7 @@ export class PropertiesService {
     private cloudinary: CloudinaryService,
     private notifications: NotificationsService,
     private auditLog: AuditLogService,
+    private favorites: FavoritesService,
   ) {}
 
   async findAll(
@@ -69,56 +75,174 @@ export class PropertiesService {
     maxPrice?: number,
     type?: number,
     view?: string,
+    userId?: string | null,
   ) {
-    const where: any = { isActive: true, deletedAt: null };
+    const where: Prisma.PropertyWhereInput = { isActive: true, deletedAt: null };
 
-    if (type !== undefined) {
-      where.type = type;
+    if (type !== undefined) where.type = type;
+    if (view) where.view = view;
+    if (guests) where.maxGuests = { gte: guests };
+
+    if (minPrice !== undefined || maxPrice !== undefined) {
+      where.weekdayPrice = {};
+      if (minPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).gte = minPrice;
+      if (maxPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).lte = maxPrice;
     }
 
-    if (view) {
-      where.view = view;
-    }
-
-    if (guests) {
-      where.maxGuests = { gte: guests };
-    }
-
-    if (minPrice) {
-      where.weekdayPrice = { ...where.weekdayPrice, gte: minPrice };
-    }
-    if (maxPrice) {
-      where.weekdayPrice = { ...where.weekdayPrice, lte: maxPrice };
-    }
-
-    let properties = await this.prisma.property.findMany({
+    let rows = await this.prisma.property.findMany({
       where,
-      include: {
-        images: { orderBy: { order: 'asc' } },
-        owner: { select: { id: true, name: true, phone: true } },
-      },
+      select: PROPERTY_CARD_SELECT,
       orderBy: { createdAt: 'desc' },
     });
 
-    // Filter by date availability
     if (checkinDate && checkoutDate) {
-      const checkin = new Date(checkinDate.split('T')[0] + 'T00:00:00.000Z');
-      const checkout = new Date(checkoutDate.split('T')[0] + 'T00:00:00.000Z');
-
-      const conflictingBookings = await this.prisma.booking.findMany({
-        where: {
-          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
-          checkinDate: { lt: checkout },
-          checkoutDate: { gt: checkin },
-        },
-        select: { propertyId: true },
-      });
-
-      const bookedPropertyIds = new Set(conflictingBookings.map(b => b.propertyId));
-      properties = properties.filter(p => !bookedPropertyIds.has(p.id));
+      const blocked = await this.bookedPropertyIds(checkinDate, checkoutDate);
+      rows = rows.filter((p) => !blocked.has(p.id));
     }
 
-    return { message: msg.properties.publicListSuccess, data: properties };
+    const favoriteIds = userId
+      ? await this.favorites.favoriteIdsAmong(userId, rows.map((r) => r.id))
+      : undefined;
+
+    return {
+      message: msg.properties.publicListSuccess,
+      data: rows.map((r) => toPropertyCard(r, favoriteIds)),
+    };
+  }
+
+  async findSearch(
+    dto: SearchPropertiesDto,
+    userId: string | null,
+    msg: Messages,
+  ) {
+    const page = dto.page ?? 1;
+    const limit = dto.limit ?? 20;
+
+    // ?favorited=true bắt buộc auth — anonymous request → 403.
+    if (dto.favorited && !userId) {
+      throw new ForbiddenException(msg.common.forbidden);
+    }
+
+    const where: Prisma.PropertyWhereInput = { isActive: true, deletedAt: null };
+
+    if (dto.type !== undefined) where.type = dto.type;
+    if (dto.view) where.view = dto.view;
+    if (dto.guests) where.maxGuests = { gte: dto.guests };
+    if (dto.bedrooms !== undefined) where.bedrooms = { gte: dto.bedrooms };
+    if (dto.minRating !== undefined) where.ratingAvg = { gte: dto.minRating };
+    if (dto.amenities && dto.amenities.length > 0) where.amenities = { hasEvery: dto.amenities };
+
+    if (dto.minPrice !== undefined || dto.maxPrice !== undefined) {
+      where.weekdayPrice = {};
+      if (dto.minPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).gte = dto.minPrice;
+      if (dto.maxPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).lte = dto.maxPrice;
+    }
+
+    if (dto.q) {
+      where.OR = [
+        { name: { contains: dto.q, mode: 'insensitive' } },
+        { code: { contains: dto.q, mode: 'insensitive' } },
+        { address: { contains: dto.q, mode: 'insensitive' } },
+      ];
+    }
+
+    // Filter ?favorited=true → giao với danh sách property user đã save.
+    const favoritedIdList = dto.favorited && userId
+      ? await this.favorites.allFavoriteIds(userId)
+      : null;
+    if (favoritedIdList) {
+      if (favoritedIdList.length === 0) {
+        // Không có favorite nào → trả page rỗng luôn, khỏi query property.
+        return {
+          message: msg.properties.publicListSuccess,
+          data: { items: [], total: 0, page, limit, totalPages: 1 },
+        };
+      }
+      where.id = { in: favoritedIdList };
+    }
+
+    let blocked: Set<string> | null = null;
+    if (dto.checkinDate && dto.checkoutDate) {
+      blocked = await this.bookedPropertyIds(dto.checkinDate, dto.checkoutDate);
+      if (blocked.size > 0) {
+        // Nếu đã có id.in (từ favorited), phải kết hợp khéo: kết quả = favoritedSet \ blocked.
+        if (favoritedIdList) {
+          const filtered = favoritedIdList.filter((id) => !blocked!.has(id));
+          where.id = filtered.length > 0 ? { in: filtered } : { in: ['__none__'] };
+        } else {
+          where.id = { notIn: Array.from(blocked) };
+        }
+      }
+    }
+
+    const orderBy = this.searchOrderBy(dto.sort);
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.property.count({ where }),
+      this.prisma.property.findMany({
+        where,
+        select: PROPERTY_CARD_SELECT,
+        orderBy,
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]);
+
+    const favoriteIds = userId
+      ? await this.favorites.favoriteIdsAmong(userId, rows.map((r) => r.id))
+      : undefined;
+
+    return {
+      message: msg.properties.publicListSuccess,
+      data: {
+        items: rows.map((r) => toPropertyCard(r, favoriteIds)),
+        total,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    };
+  }
+
+  private searchOrderBy(
+    sort: SearchPropertiesDto['sort'],
+  ): Prisma.PropertyOrderByWithRelationInput | Prisma.PropertyOrderByWithRelationInput[] {
+    switch (sort) {
+      case 'price_asc':
+        return [{ weekdayPrice: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }];
+      case 'price_desc':
+        return [{ weekdayPrice: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }];
+      case 'rating':
+        return [{ ratingAvg: 'desc' }, { reviewCount: 'desc' }, { createdAt: 'desc' }];
+      case 'newest':
+        return { createdAt: 'desc' };
+      case 'featured':
+      default:
+        return [
+          { ratingAvg: 'desc' },
+          { reviewCount: 'desc' },
+          { createdAt: 'desc' },
+        ];
+    }
+  }
+
+  private async bookedPropertyIds(
+    checkinDate: string,
+    checkoutDate: string,
+  ): Promise<Set<string>> {
+    const checkin = new Date(checkinDate.split('T')[0] + 'T00:00:00.000Z');
+    const checkout = new Date(checkoutDate.split('T')[0] + 'T00:00:00.000Z');
+
+    const conflicting = await this.prisma.booking.findMany({
+      where: {
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+        checkinDate: { lt: checkout },
+        checkoutDate: { gt: checkin },
+      },
+      select: { propertyId: true },
+    });
+
+    return new Set(conflicting.map((b) => b.propertyId));
   }
 
   async findOne(id: string, msg: Messages) {
@@ -171,11 +295,17 @@ export class PropertiesService {
     if (existing) throw new ConflictException(msg.properties.codeDuplicate);
 
     const { ownerId: _, ...createData } = dto;
+    const slug = await ensureUniqueSlug(
+      buildPropertySlug(dto.name, dto.code),
+      async (candidate) =>
+        !!(await this.prisma.property.findUnique({ where: { slug: candidate }, select: { id: true } })),
+    );
     // OWNER đã KYC + subscription (đã assert ở trên) → approved + active ngay.
     // ADMIN/SALE tạo thay mặt owner cũng approved. Owner tự bật/tắt isActive sau đó.
     const property = await this.prisma.property.create({
       data: {
         ...createData,
+        slug,
         ownerId,
         moderationStatus: 'approved',
         isActive: true,

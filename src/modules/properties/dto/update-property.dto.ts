@@ -4,6 +4,7 @@ import {
   IsArray, IsIn, Min, Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { PROPERTY_VIEWS } from '../property-enums';
 
 export class UpdatePropertyDto {
   @ApiPropertyOptional()
@@ -24,9 +25,13 @@ export class UpdatePropertyDto {
   @IsString()
   code?: string;
 
-  @ApiPropertyOptional({ example: 'sea', description: '"sea" (view biển), "city" (view thành phố), null' })
+  @ApiPropertyOptional({
+    example: 'sea',
+    description: 'View loại: sea | city | mountain | garden | pool',
+    enum: PROPERTY_VIEWS,
+  })
   @IsOptional()
-  @IsIn(['sea', 'city'])
+  @IsIn(PROPERTY_VIEWS as unknown as string[])
   view?: string;
 
   @ApiPropertyOptional()
@@ -45,6 +50,13 @@ export class UpdatePropertyDto {
   @IsOptional()
   @IsString()
   address?: string;
+
+  @ApiPropertyOptional({ example: 45, description: 'Diện tích sàn (m²) — optional' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  floorArea?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
