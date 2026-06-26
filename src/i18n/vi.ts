@@ -116,6 +116,9 @@ export const vi = {
     suspendSuccess: 'Tạm ngưng cơ sở thành công',
     rejectReasonRequired: 'Lý do từ chối phải tối thiểu 5 ký tự',
     cannotReactivateSuspended: 'Cơ sở đang bị admin tạm ngưng, không thể tự bật lại. Liên hệ admin để được gỡ tạm ngưng.',
+    setHotOnSuccess: 'Đã đặt cơ sở thành Hot',
+    setHotOffSuccess: 'Đã bỏ Hot khỏi cơ sở',
+    publicDetailSuccess: 'Lấy chi tiết cơ sở thành công',
   },
 
   // ─── Favorites (per-user wishlist) ───────────────────────────────────────────
@@ -366,6 +369,7 @@ export const vi = {
     alreadyProcessed: 'Hồ sơ này đã được xử lý rồi',
     invalidStatus: 'Hồ sơ không ở trạng thái chờ duyệt',
     invalidFilter: 'filter phải là 0 (tất cả), 1 (chờ duyệt), 2 (đã duyệt) hoặc 3 (đã từ chối)',
+    detailSuccess: 'Lấy chi tiết hồ sơ KYC thành công',
   },
 
   // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────
@@ -415,6 +419,16 @@ export const vi = {
     notifyFrozenBody: (reason: string) => `Subscription của bạn đã bị tạm khoá. Lý do: ${reason}`,
     notifyUnfrozenTitle: 'Gói đã được mở khoá',
     notifyUnfrozenBody: 'Subscription của bạn đã được kích hoạt trở lại.',
+    invoicesSuccess: 'Lấy lịch sử hoá đơn thành công',
+    callLogCreated: 'Đã lưu ghi chú cuộc gọi',
+    callLogListSuccess: 'Lấy danh sách ghi chú cuộc gọi thành công',
+  },
+
+  // ─── Guests ────────────────────────────────────────────────────────────────
+  guests: {
+    listSuccess: 'Lấy danh sách khách thành công',
+    getSuccess: 'Lấy chi tiết khách thành công',
+    notFound: 'Không tìm thấy khách',
   },
 
   // ─── Disputes ──────────────────────────────────────────────────────────────

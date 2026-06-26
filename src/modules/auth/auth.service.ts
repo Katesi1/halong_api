@@ -508,6 +508,40 @@ export class AuthService {
     return { message: msg.auth.logoutSuccess, data: null };
   }
 
+  /**
+   * Update user's own profile. Whitelist: fullName (→ name), email, phone.
+   * Phone uniqueness checked; email duplicate caught via Prisma unique constraint below.
+   */
+  async updateProfile(
+    userId: string,
+    dto: { fullName?: string; email?: string; phone?: string },
+    msg: Messages,
+  ) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!user) throw new UnauthorizedException(msg.auth.accountDisabled);
+
+    if (dto.phone && dto.phone !== user.phone) {
+      const existing = await this.prisma.user.findUnique({ where: { phone: dto.phone } });
+      if (existing && existing.id !== userId) {
+        throw new ConflictException(msg.users.phoneDuplicate);
+      }
+    }
+    if (dto.email && dto.email !== user.email) {
+      const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+      if (existing && existing.id !== userId) {
+        throw new ConflictException(msg.auth.emailDuplicate);
+      }
+    }
+
+    const data: { name?: string; email?: string; phone?: string } = {};
+    if (dto.fullName !== undefined) data.name = dto.fullName;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.phone !== undefined) data.phone = dto.phone;
+
+    await this.prisma.user.update({ where: { id: userId }, data });
+    return this.getProfile(userId, msg);
+  }
+
   async getProfile(userId: string, msg: Messages) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -527,7 +561,11 @@ export class AuthService {
         },
       },
     });
-    return { message: msg.auth.profileSuccess, data: user };
+    const isKycVerified = !!user && (user.kycBypass === true || user.kycStatus === 'approved');
+    return {
+      message: msg.auth.profileSuccess,
+      data: user ? { ...user, isKycVerified } : user,
+    };
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto, msg: Messages) {

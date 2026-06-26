@@ -22,6 +22,7 @@ import { SetPriceDto } from './dto/set-price.dto';
 import { MarkPaidDto } from './dto/mark-paid.dto';
 import { FreezeDto } from './dto/freeze.dto';
 import { ListSubscriptionsDto } from './dto/list-subscriptions.dto';
+import { CreateCallLogDto } from './dto/call-log.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -178,5 +179,45 @@ export class AdminSubscriptionController {
     }
     const targetId = user.ownerId ?? user.id;
     return this.adminSubService.getMine(targetId, msg);
+  }
+
+  @Get('subscriptions/me/invoices')
+  @Roles(ROLE.OWNER, ROLE.SALE)
+  @ApiOperation({
+    summary: 'Owner/Sale list their own subscription invoices',
+    description: 'Lịch sử thanh toán/hóa đơn gói cước. Source: PaymentSession (kind in subscription | renew | upgrade | refund). Newest first.',
+  })
+  getMyInvoices(
+    @CurrentUser() user: { id: string; role: number; ownerId?: string | null },
+    @Lang() msg: Messages,
+  ) {
+    if (isSaleUnassigned(user)) {
+      throw new BadRequestException(msg.users.saleNotAssigned);
+    }
+    const targetId = user.ownerId ?? user.id;
+    return this.adminSubService.getMyInvoices(targetId, msg);
+  }
+
+  // ─── Admin call logs (chase overdue payments) ───────────────────────────
+  @Post('admin/subscriptions/:id/call-log')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({
+    summary: 'Record a "called user" note for chasing payment',
+    description: 'Param :id là userId của OWNER bị quá hạn. Body { note } ≥ 3 ký tự.',
+  })
+  createCallLog(
+    @CurrentUser() admin: { id: string },
+    @Param('id') userId: string,
+    @Body() dto: CreateCallLogDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.adminSubService.createCallLog(admin.id, userId, dto.note, msg);
+  }
+
+  @Get('admin/subscriptions/:id/call-log')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({ summary: 'List call notes for a user (newest first)' })
+  listCallLogs(@Param('id') userId: string, @Lang() msg: Messages) {
+    return this.adminSubService.listCallLogs(userId, msg);
   }
 }

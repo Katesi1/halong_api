@@ -38,6 +38,16 @@ export class CreatePropertyDto {
   @IsString()
   address?: string;
 
+  @ApiPropertyOptional({ example: 'Hạ Long', description: 'Thành phố — display only, không dùng để filter' })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({ example: 'Bãi Cháy', description: 'Quận/Phường — display only' })
+  @IsOptional()
+  @IsString()
+  district?: string;
+
   @ApiPropertyOptional({ example: 45, description: 'Diện tích sàn (m²) — optional, để trống thì card hiển thị null' })
   @IsOptional()
   @IsInt()

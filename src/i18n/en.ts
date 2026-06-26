@@ -116,6 +116,9 @@ export const en = {
     suspendSuccess: 'Property suspended',
     rejectReasonRequired: 'Rejection reason must be at least 5 characters',
     cannotReactivateSuspended: 'This property is suspended by admin and cannot be reactivated. Contact admin to lift the suspension.',
+    setHotOnSuccess: 'Property marked as Hot',
+    setHotOffSuccess: 'Property unmarked as Hot',
+    publicDetailSuccess: 'Property detail retrieved successfully',
   },
 
   // ─── Favorites (per-user wishlist) ───────────────────────────────────────────
@@ -366,6 +369,7 @@ export const en = {
     alreadyProcessed: 'This submission has already been processed',
     invalidStatus: 'Submission is not in awaiting_approval status',
     invalidFilter: 'filter must be 0 (all), 1 (pending), 2 (approved), or 3 (rejected)',
+    detailSuccess: 'KYC submission detail retrieved',
   },
 
   // ─── Admin Subscription (Trial Grant) ──────────────────────────────────────
@@ -415,6 +419,16 @@ export const en = {
     notifyFrozenBody: (reason: string) => `Your subscription was frozen. Reason: ${reason}`,
     notifyUnfrozenTitle: 'Subscription reactivated',
     notifyUnfrozenBody: 'Your subscription is active again.',
+    invoicesSuccess: 'Invoices retrieved successfully',
+    callLogCreated: 'Call note saved',
+    callLogListSuccess: 'Call notes retrieved successfully',
+  },
+
+  // ─── Guests ────────────────────────────────────────────────────────────────
+  guests: {
+    listSuccess: 'Guests retrieved successfully',
+    getSuccess: 'Guest detail retrieved',
+    notFound: 'Guest not found',
   },
 
   // ─── Disputes ──────────────────────────────────────────────────────────────

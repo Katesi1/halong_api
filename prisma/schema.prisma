@@ -181,6 +181,8 @@ model Property {
 
   // Location
   address   String?
+  city      String? // Display-only (vd "Hạ Long"). Không dùng để filter list public.
+  district  String? // Display-only (vd "Bãi Cháy").
   latitude  Float?
   longitude Float?
   mapLink   String?
@@ -195,6 +197,9 @@ model Property {
   // Aggregated review stats (denormalized — updated by reviews.service)
   ratingAvg   Float @default(0)
   reviewCount Int   @default(0)
+
+  // Admin curated "hot" badge — bật bằng PATCH /properties/:id/hot (ADMIN only).
+  isHot Boolean @default(false)
 
   // Pricing
   weekdayPrice   Float?
@@ -227,6 +232,7 @@ model Property {
 
   @@index([isActive, deletedAt])
   @@index([type])
+  @@index([isHot])
   @@map("properties")
 }
 
@@ -582,6 +588,7 @@ model Dispute {
   resolvedAt   DateTime?
 
   attachments Json? // ["url1", "url2"]
+  penalty     String? // none | warning | refund | ban_temp | ban_perm — set when resolved
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -590,6 +597,19 @@ model Dispute {
   @@index([customerId])
   @@index([bookingId])
   @@map("disputes")
+}
+
+/// Admin call notes for chasing overdue subscription payments.
+/// Created via POST /admin/subscriptions/:userId/call-log; listed in admin subscription detail.
+model SubscriptionCallLog {
+  id        String   @id @default(uuid())
+  userId    String // OWNER user being chased
+  adminId   String // admin who recorded the call
+  note      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("subscription_call_logs")
 }
 
 // ─── Chat / Messaging ─────────────────────────────────────────────────────────

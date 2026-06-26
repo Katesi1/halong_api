@@ -131,6 +131,7 @@ export class PropertiesService {
     if (dto.bedrooms !== undefined) where.bedrooms = { gte: dto.bedrooms };
     if (dto.minRating !== undefined) where.ratingAvg = { gte: dto.minRating };
     if (dto.amenities && dto.amenities.length > 0) where.amenities = { hasEvery: dto.amenities };
+    if (dto.hot) where.isHot = true;
 
     if (dto.minPrice !== undefined || dto.maxPrice !== undefined) {
       where.weekdayPrice = {};
@@ -218,7 +219,9 @@ export class PropertiesService {
         return { createdAt: 'desc' };
       case 'featured':
       default:
+        // Hot property pop lên đầu, sau đó rating/reviewCount/recency.
         return [
+          { isHot: 'desc' },
           { ratingAvg: 'desc' },
           { reviewCount: 'desc' },
           { createdAt: 'desc' },
@@ -561,6 +564,144 @@ export class PropertiesService {
     return { message: msg.properties.setCoverSuccess, data: image };
   }
 
+  // ─── Public Detail (no auth, có giá, kèm host sanitized) ───────────────────
+
+  // Endpoint cho trang chi tiết FE web khách hàng. Tra theo slug, trả full data
+  // gồm giá (weekday/weekend/holiday), description/rules/services, ảnh,
+  // rating breakdown, host KYC + memberSince. KHÔNG trả phone/email chủ nhà.
+  async findPublicDetail(slug: string, msg: Messages) {
+    const property = await this.prisma.property.findFirst({
+      where: { slug, isActive: true, deletedAt: null },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        code: true,
+        type: true,
+        view: true,
+        address: true,
+        city: true,
+        district: true,
+        latitude: true,
+        longitude: true,
+        mapLink: true,
+        description: true,
+        amenities: true,
+        rules: true,
+        services: true,
+        bedrooms: true,
+        bathrooms: true,
+        standardGuests: true,
+        maxGuests: true,
+        floorArea: true,
+        weekdayPrice: true,
+        weekendPrice: true,
+        holidayPrice: true,
+        cancellationPolicy: true,
+        checkInTime: true,
+        checkOutTime: true,
+        ratingAvg: true,
+        reviewCount: true,
+        isHot: true,
+        images: {
+          select: { id: true, imageUrl: true, isCover: true, order: true },
+          orderBy: { order: 'asc' },
+        },
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            kycStatus: true,
+            kycBypass: true,
+            createdAt: true,
+            _count: { select: { properties: { where: { isActive: true, deletedAt: null } } } },
+          },
+        },
+      },
+    });
+
+    if (!property) throw new NotFoundException(msg.properties.notFound);
+
+    // Rating breakdown — query 1 lần, không N+1.
+    const reviews = await this.prisma.propertyReview.findMany({
+      where: { propertyId: property.id, isHidden: false },
+      select: {
+        cleanliness: true,
+        location: true,
+        amenities: true,
+        service: true,
+        value: true,
+        accuracy: true,
+        avgRating: true,
+      },
+    });
+
+    const totalReviews = reviews.length;
+    const ratingBreakdown =
+      totalReviews === 0
+        ? {
+            overall: 0,
+            cleanliness: 0,
+            location: 0,
+            amenities: 0,
+            service: 0,
+            value: 0,
+            accuracy: 0,
+            count: 0,
+          }
+        : (() => {
+            let sum = 0, c = 0, l = 0, a = 0, s = 0, v = 0, ac = 0;
+            for (const r of reviews) {
+              sum += r.avgRating;
+              c += r.cleanliness;
+              l += r.location;
+              a += r.amenities;
+              s += r.service;
+              v += r.value;
+              ac += r.accuracy;
+            }
+            const round = (n: number) => Math.round((n / totalReviews) * 100) / 100;
+            return {
+              overall: round(sum),
+              cleanliness: round(c),
+              location: round(l),
+              amenities: round(a),
+              service: round(s),
+              value: round(v),
+              accuracy: round(ac),
+              count: totalReviews,
+            };
+          })();
+
+    const memberSince = property.owner.createdAt
+      ? `${property.owner.createdAt.getUTCFullYear()}-${String(
+          property.owner.createdAt.getUTCMonth() + 1,
+        ).padStart(2, '0')}`
+      : null;
+
+    // Build payload (omit owner internal fields).
+    const { owner, ...propertyFields } = property;
+
+    return {
+      message: msg.properties.publicDetailSuccess,
+      data: {
+        ...propertyFields,
+        rating: property.ratingAvg,
+        reviewCount: property.reviewCount,
+        ratingBreakdown,
+        host: {
+          name: owner.name,
+          avatarUrl: owner.avatar,
+          isKycVerified: owner.kycBypass || owner.kycStatus === 'approved',
+          memberSince,
+          totalProperties: owner._count.properties,
+          responseRate: null,
+        },
+      },
+    };
+  }
+
   // ─── Public Share (no auth, no prices) ──────────────────────────────────────
 
   async findShareDetail(id: string, msg: Messages) {
@@ -725,6 +866,40 @@ export class PropertiesService {
     });
 
     return { message: msg.properties.rejectSuccess, data: updated };
+  }
+
+  async setHot(
+    adminId: string,
+    propertyId: string,
+    isHot: boolean,
+    msg: Messages,
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { id: true, name: true, code: true, deletedAt: true },
+    });
+    if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
+
+    const updated = await this.prisma.property.update({
+      where: { id: propertyId },
+      data: { isHot },
+      select: { id: true, name: true, code: true, isHot: true },
+    });
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.PROPERTY_SET_HOT,
+      targetType: AUDIT_TARGET_TYPE.PROPERTY,
+      targetId: propertyId,
+      targetLabel: property.name,
+      metadata: { isHot },
+    });
+
+    return {
+      message: isHot ? msg.properties.setHotOnSuccess : msg.properties.setHotOffSuccess,
+      data: updated,
+    };
   }
 
   async suspendProperty(

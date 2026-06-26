@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Ip, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Patch, Post, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { LoginResponse, MessageResponse, ProfileResponse } from '../../common/dto/api-response.dto';
@@ -11,6 +11,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
@@ -123,6 +124,22 @@ export class AuthController {
   @ApiResponse({ status: 200, type: ProfileResponse })
   getProfile(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
     return this.authService.getProfile(userId, msg);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Cập nhật hồ sơ cá nhân',
+    description: 'User tự sửa fullName / email / phone. Không cho đổi role hoặc password qua endpoint này.',
+  })
+  @ApiResponse({ status: 200, type: ProfileResponse })
+  updateProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateProfileDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.updateProfile(userId, dto, msg);
   }
 
   @UseGuards(JwtAuthGuard)

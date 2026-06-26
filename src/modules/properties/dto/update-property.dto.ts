@@ -51,6 +51,16 @@ export class UpdatePropertyDto {
   @IsString()
   address?: string;
 
+  @ApiPropertyOptional({ example: 'Hạ Long' })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({ example: 'Bãi Cháy' })
+  @IsOptional()
+  @IsString()
+  district?: string;
+
   @ApiPropertyOptional({ example: 45, description: 'Diện tích sàn (m²) — optional' })
   @IsOptional()
   @IsInt()

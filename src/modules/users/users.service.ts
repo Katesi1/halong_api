@@ -75,14 +75,54 @@ export class UsersService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Map _count thành field phẳng cho FE
+    // Map _count thành field phẳng cho FE + bổ sung disputeCount + lastActiveAt
+    let disputeCountMap = new Map<string, number>();
+    let lastActiveMap = new Map<string, Date>();
+    if (withStats && users.length) {
+      const userIds = users.map((u: any) => u.id);
+      const [disputeAgg, deviceAgg] = await Promise.all([
+        this.prisma.dispute.groupBy({
+          by: ['ownerId'],
+          where: { ownerId: { in: userIds } },
+          _count: { _all: true },
+        }),
+        // lastActiveAt = max(UserDevice.lastActiveAt) — phản ánh activity gần nhất qua mobile/FCM.
+        this.prisma.userDevice.groupBy({
+          by: ['userId'],
+          where: { userId: { in: userIds } },
+          _max: { lastActiveAt: true },
+        }),
+      ]);
+      // Cộng thêm disputes mà user là customer.
+      const customerDisputeAgg = await this.prisma.dispute.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: userIds } },
+        _count: { _all: true },
+      });
+      for (const row of disputeAgg) {
+        disputeCountMap.set(row.ownerId, row._count._all);
+      }
+      for (const row of customerDisputeAgg) {
+        if (!row.customerId) continue;
+        disputeCountMap.set(
+          row.customerId,
+          (disputeCountMap.get(row.customerId) ?? 0) + row._count._all,
+        );
+      }
+      for (const row of deviceAgg) {
+        if (row._max.lastActiveAt) lastActiveMap.set(row.userId, row._max.lastActiveAt);
+      }
+    }
+
     const data = withStats
       ? users.map((u: any) => ({
           ...u,
           stats: {
             propertyCount: u._count?.properties ?? 0,
             bookingCount: (u._count?.saleBookings ?? 0) + (u._count?.customerBookings ?? 0),
+            disputeCount: disputeCountMap.get(u.id) ?? 0,
           },
+          lastActiveAt: lastActiveMap.get(u.id) ?? null,
           _count: undefined,
         }))
       : users;

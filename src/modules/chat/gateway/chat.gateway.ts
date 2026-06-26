@@ -26,6 +26,7 @@ interface AuthedSocket extends Socket {
     ownerId?: string | null;
     locale: 'vi' | 'en';
     msg: Messages;
+    tokenExpiryTimer?: NodeJS.Timeout;
   };
 }
 
@@ -94,7 +95,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       const secret = this.configService.get<string>('JWT_SECRET');
-      const payload = this.jwtService.verify<{ sub: string }>(token, { secret });
+      const payload = this.jwtService.verify<{ sub: string; exp?: number }>(token, { secret });
 
       const user = await this.prisma.user.findUnique({
         where: { id: payload.sub },
@@ -134,6 +135,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         await this.broadcastPresence(user.id, true);
       }
 
+      // Auto-disconnect khi access token expire — buộc FE refresh + reconnect.
+      // Nếu payload không có exp (defensive), bỏ qua timer.
+      if (typeof payload.exp === 'number') {
+        const msUntilExpiry = payload.exp * 1000 - Date.now();
+        if (msUntilExpiry <= 0) {
+          client.emit('error', { code: 'tokenExpired', message: 'Token expired' });
+          client.disconnect(true);
+          return;
+        }
+        (client as AuthedSocket).data.tokenExpiryTimer = setTimeout(() => {
+          client.emit('error', { code: 'tokenExpired', message: 'Token expired' });
+          client.disconnect(true);
+        }, msUntilExpiry);
+      }
+
       this.logger.log(`socket connected: user=${user.id} sid=${client.id}`);
     } catch (err) {
       this.logger.warn(`socket auth failed: ${(err as Error).message}`);
@@ -145,6 +161,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(client: Socket) {
     const data = (client as AuthedSocket).data;
     if (!data?.userId) return;
+    if (data.tokenExpiryTimer) {
+      clearTimeout(data.tokenExpiryTimer);
+      data.tokenExpiryTimer = undefined;
+    }
     const stillOnline = this.markOffline(data.userId, client.id);
     if (!stillOnline) {
       await this.broadcastPresence(data.userId, false);

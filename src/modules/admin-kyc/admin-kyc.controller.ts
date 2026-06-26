@@ -80,6 +80,16 @@ export class AdminKycController {
     return this.adminKycService.countPending(msg);
   }
 
+  @Get(':id')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({
+    summary: 'Chi tiết hồ sơ KYC kèm 7 mục xác minh',
+    description: 'Trả full submission + uploads + verificationFields (7 boolean checklist).',
+  })
+  getDetail(@Param('id') id: string, @Lang() msg: Messages) {
+    return this.adminKycService.getDetail(id, msg);
+  }
+
   @Post('submissions/:id/approve')
   @Roles(ROLE.ADMIN)
   @ApiOperation({ summary: 'Approve KYC submission' })

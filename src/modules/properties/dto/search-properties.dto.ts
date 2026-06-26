@@ -141,4 +141,13 @@ export class SearchPropertiesDto {
   @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
   favorited?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Khi true: chỉ trả property admin đã set isHot.',
+    example: true,
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  hot?: boolean;
 }

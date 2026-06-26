@@ -12,6 +12,7 @@ import { UpdatePropertyDto } from './dto/update-property.dto';
 import { UpdatePricesDto } from './dto/update-prices.dto';
 import { RejectPropertyDto, SuspendPropertyDto } from './dto/moderation.dto';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { SetHotDto } from './dto/set-hot.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -28,6 +29,7 @@ import {
   MessageResponse,
   PropertyCardListResponse,
   PropertySearchResponse,
+  PublicPropertyDetailResponse,
 } from '../../common/dto/api-response.dto';
 
 @ApiTags('Properties')
@@ -93,6 +95,19 @@ export class PropertiesController {
     @Lang() msg: Messages,
   ) {
     return this.propertiesService.findSearch(dto, user?.id ?? null, msg);
+  }
+
+  @Public()
+  @Get('public/:slug')
+  @ApiOperation({
+    summary: 'Chi tiết property công khai theo slug (customer web)',
+    description:
+      'Tra theo slug (vd /properties/public/b1503-03). Trả full data: giá (weekday/weekend/holiday), description/rules/services/amenities, ảnh, rating breakdown, host info (KHÔNG kèm phone/email). Chỉ trả property active. Slug không tồn tại / inactive → 404.',
+  })
+  @ApiResponse({ status: 200, type: PublicPropertyDetailResponse })
+  @ApiResponse({ status: 404, description: 'Slug not found / property inactive' })
+  findPublicDetail(@Param('slug') slug: string, @Lang() msg: Messages) {
+    return this.propertiesService.findPublicDetail(slug, msg);
   }
 
   @Public()
@@ -267,5 +282,22 @@ export class PropertiesController {
     @Lang() msg: Messages,
   ) {
     return this.propertiesService.suspendProperty(user.id, id, dto.reason, msg);
+  }
+
+  @Patch(':id/hot')
+  @Roles(ROLE.ADMIN)
+  @ApiOperation({
+    summary: 'ADMIN bật/tắt badge "Hot" cho property',
+    description:
+      'Hot property nổi lên đầu khi sort=featured và filter ?hot=true. Body { isHot: true|false }.',
+  })
+  @ApiResponse({ status: 200, type: PropertyResponse })
+  setHot(
+    @Param('id') id: string,
+    @Body() dto: SetHotDto,
+    @CurrentUser() user: { id: string },
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.setHot(user.id, id, dto.isHot, msg);
   }
 }

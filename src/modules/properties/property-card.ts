@@ -21,6 +21,8 @@ type PropertyRow = {
   type: number;
   view: string | null;
   address: string | null;
+  city: string | null;
+  district: string | null;
   latitude: number | null;
   longitude: number | null;
   bedrooms: number;
@@ -34,6 +36,7 @@ type PropertyRow = {
   holidayPrice: number | null;
   ratingAvg: number;
   reviewCount: number;
+  isHot: boolean;
   images: ImageRow[];
 };
 
@@ -45,6 +48,8 @@ export interface PropertyCardDto {
   type: number;
   view: string | null;
   address: string | null;
+  city: string | null;
+  district: string | null;
   latitude: number | null;
   longitude: number | null;
   bedrooms: number;
@@ -60,6 +65,8 @@ export interface PropertyCardDto {
   rating: number;
   reviewCount: number;
   isGuestFavorite: boolean;
+  // Admin curated badge — bật/tắt qua PATCH /properties/:id/hot (ADMIN only).
+  isHot: boolean;
   // True nếu user hiện tại (từ JWT) đã save property này.
   // Anonymous request luôn false. Cập nhật bằng POST/DELETE /properties/:id/favorite.
   isFavorited: boolean;
@@ -91,6 +98,8 @@ export function toPropertyCard(
     type: row.type,
     view: row.view,
     address: row.address,
+    city: row.city,
+    district: row.district,
     latitude: row.latitude,
     longitude: row.longitude,
     bedrooms: row.bedrooms,
@@ -108,6 +117,7 @@ export function toPropertyCard(
     isGuestFavorite:
       (row.ratingAvg ?? 0) >= GUEST_FAVORITE_MIN_RATING &&
       (row.reviewCount ?? 0) >= GUEST_FAVORITE_MIN_REVIEWS,
+    isHot: row.isHot,
     isFavorited: favoriteIds ? favoriteIds.has(row.id) : false,
     coverImageUrl: pickCoverUrl(row.images),
     images: row.images,
@@ -122,6 +132,8 @@ export const PROPERTY_CARD_SELECT = {
   type: true,
   view: true,
   address: true,
+  city: true,
+  district: true,
   latitude: true,
   longitude: true,
   bedrooms: true,
@@ -135,6 +147,7 @@ export const PROPERTY_CARD_SELECT = {
   holidayPrice: true,
   ratingAvg: true,
   reviewCount: true,
+  isHot: true,
   images: {
     select: { id: true, imageUrl: true, isCover: true, order: true },
     orderBy: { order: 'asc' as const },

@@ -675,8 +675,9 @@ Base path: `/properties`.
 | Method | Path | Query |
 |---|---|---|
 | `GET` | `/properties/public` | `checkinDate?, checkoutDate?, guests?, minPrice?, maxPrice?, type?, view?` — **array phẳng PropertyCardDto[]** (legacy, dùng cho mobile) |
-| `GET` | `/properties/search` | Full filter + pagination + sort — **dùng cho customer web** (xem §4.6) |
-| `GET` | `/properties/share/:id` | — (trả PropertyDto không kèm giá) |
+| `GET` | `/properties/search` | Full filter + pagination + sort — **dùng cho customer web list/search** (xem §4.7) |
+| `GET` | `/properties/public/:slug` | **Chi tiết phòng cho customer web** (kèm giá + host) — xem §4.11 |
+| `GET` | `/properties/share/:id` | — (trả PropertyDto không kèm giá, theo `id`, dùng cho share link nội bộ) |
 
 ### 4.2 Authenticated CRUD
 
@@ -704,6 +705,7 @@ Base path: `/properties`.
 | `POST` | `/properties/:id/approve` | — |
 | `POST` | `/properties/:id/reject` | `{ reason }` (≥5 chars) |
 | `POST` | `/properties/:id/suspend` | `{ reason? }` |
+| `PATCH` | `/properties/:id/hot` | `{ isHot: true \| false }` — bật/tắt badge Hot (xem §4.10) |
 
 > **Business rule (v1.9+)**: OWNER đã KYC + subscription active/trial → `POST /properties` tạo ngay `moderationStatus = "approved"`, `isActive = true` (public mặc định). OWNER tự bật/tắt `isActive` qua `PATCH /properties/:id`. ADMIN/SALE tạo thay mặt owner cũng `approved` + `isActive = true`.
 > **Điều kiện tạo phòng**: KYC approved (hoặc `kycBypass`) + subscription entitled — hai cổng độc lập, không còn hàng chờ duyệt admin khi tạo mới.
@@ -771,6 +773,7 @@ Shape rút gọn cho card khách hàng. Tính sẵn `minPrice`, `rating`, `revie
   "rating": 4.92,
   "reviewCount": 37,
   "isGuestFavorite": true,
+  "isHot": false,
   "isFavorited": false,
   "coverImageUrl": "https://res.cloudinary.com/.../cover.jpg",
   "images": [{ "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }]
@@ -780,7 +783,8 @@ Shape rút gọn cho card khách hàng. Tính sẵn `minPrice`, `rating`, `revie
 - `slug` — duy nhất toàn hệ thống; auto-gen từ name + code khi tạo property (Vietnamese-aware). FE dùng cho URL `/property/{slug}`.
 - `minPrice` — `min(weekdayPrice, weekendPrice, holidayPrice)` bỏ qua giá null/0.
 - `rating` / `reviewCount` — đã denormalized vào `properties` (cập nhật mỗi khi review create/hide/restore).
-- `isGuestFavorite` — derived **global**: `rating >= 4.8 && reviewCount >= 5` (badge "được khách yêu thích" hiển thị giống nhau cho mọi user).
+- `isGuestFavorite` — derived **global**: `rating >= 4.8 && reviewCount >= 5` (badge "được khách yêu thích").
+- `isHot` — **admin curated global**: bật/tắt bằng `PATCH /properties/:id/hot` (ADMIN only). Hot property tự pop lên đầu khi `sort=featured` và có thể lọc bằng `?hot=true` (xem §4.10).
 - `isFavorited` — **per-user**: true nếu user hiện tại (JWT) đã save property này. Anonymous → luôn false. Toggle bằng `POST/DELETE /properties/:id/favorite` (xem §4.9).
 - `coverImageUrl` — ảnh có `isCover = true`; fallback ảnh đầu danh sách.
 
@@ -805,6 +809,7 @@ Paginated + filter + sort, **toàn bộ ở server-side**. Lý do: FE chỉ th�
 | `page` | int ≥1 | Default `1` |
 | `limit` | int 1–50 | Default `20` |
 | `favorited` | bool | `true` → chỉ trả property user hiện tại đã save. **Yêu cầu Authorization header** — anonymous → 403. |
+| `hot` | bool | `true` → chỉ trả property admin đã đánh dấu Hot. Public, không cần auth. |
 
 > **Auth tuỳ chọn**: endpoint `@Public()` nhưng nếu FE gửi kèm Authorization header, BE sẽ populate `isFavorited` cho từng item dựa trên danh sách favorite của user. Không gửi token → `isFavorited` luôn `false`.
 
@@ -824,14 +829,19 @@ Paginated + filter + sort, **toàn bộ ở server-side**. Lý do: FE chỉ th�
 }
 ```
 
-Sort `featured` = ratingAvg desc → reviewCount desc → createdAt desc.
+Sort `featured` = **isHot desc** → ratingAvg desc → reviewCount desc → createdAt desc. Hot property luôn nổi lên đầu.
 
 ### 4.8 Vocabulary
 
 - **`view` enum** (cột riêng trên Property): `sea | city | mountain | garden | pool | null`.
-- **`amenities` keys** (kebab-case, string khớp tuyệt đối). Validate trong DTO. Mở rộng tại `src/modules/properties/property-enums.ts`:
+- **`amenities` keys** (kebab-case, string khớp tuyệt đối). Validate trong DTO. Mở rộng tại `src/modules/properties/property-enums.ts`. Tổng cộng **46 key**, chia 6 nhóm:
 
-  `wifi`, `pool`, `bbq`, `kitchen`, `parking`, `ac`, `gym`, `breakfast`, `spa`, `restaurant`, `jacuzzi`, `bar`, `seaview`, `bayview`, `cityview`, `gardenview`, `mountainview`.
+  - **Core / filterable (12)**: `wifi`, `pool`, `bbq`, `kitchen`, `parking`, `ac`, `gym`, `breakfast`, `spa`, `restaurant`, `jacuzzi`, `bar`.
+  - **Views (5)**: `seaview`, `bayview`, `cityview`, `gardenview`, `mountainview`.
+  - **Bếp & đồ ăn (5)**: `fridge`, `microwave`, `induction-cooker`, `dishware`, `free-water`.
+  - **Phòng tắm & phòng ngủ (9)**: `bathtub`, `shower`, `hot-water`, `hair-dryer`, `towels`, `toiletries`, `washing-machine`, `wardrobe`, `iron`.
+  - **Tiện ích chung & giải trí (11)**: `tv`, `elevator`, `kids-area`, `heater`, `karaoke`, `safe-box`, `speaker`, `balcony`, `rooftop`, `garden`, `minibar`.
+  - **An toàn & chính sách (4)**: `pet-friendly`, `security-camera`, `smoke-detector`, `first-aid-kit`.
 
   FE có thể gửi `?amenities=wifi,pool,bbq` (CSV) hoặc `?amenities[]=wifi&amenities[]=pool` (array). Sai key → 400.
 
@@ -853,6 +863,110 @@ Per-user. Chỉ **CUSTOMER** dùng được — Owner/Sale/Admin gọi → 403.
 **Hiển thị heart icon trên list/search**: BE đã populate `isFavorited` per item nếu FE gửi kèm token → không cần FE call thêm endpoint nào.
 
 **Lọc chỉ wishlist**: `GET /properties/search?favorited=true` (kèm token). Tận dụng được pagination + filter + sort hiện có.
+
+### 4.10 Hot badge (admin curated)
+
+Admin tự chọn property nổi bật để lên top + hiển thị badge "Hot" trên web khách hàng.
+
+| Method | Path | Role | Body |
+|---|---|---|---|
+| `PATCH` | `/properties/:id/hot` | ADMIN | `{ isHot: true \| false }` |
+
+Response:
+```json
+{ "success": true, "message": "...", "data": { "id": "uuid", "name": "...", "code": "...", "isHot": true } }
+```
+
+**Cách FE web khách hàng dùng:**
+- `PropertyCardDto.isHot` đã có sẵn → hiển thị badge "Hot" trên card.
+- Section "Hot/Trending" → gọi `GET /properties/search?hot=true&sort=newest&limit=N`.
+- Default list (`sort=featured`) tự đẩy hot property lên đầu, không cần tách section riêng nếu không muốn.
+
+**Cách web admin dùng:**
+- Trang quản lý property có toggle "Đánh dấu Hot" gọi `PATCH /properties/:id/hot` với `{ isHot }` tương ứng.
+- Audit log: action `property.set_hot`, metadata `{ isHot }`.
+
+### 4.11 Public detail by slug — `GET /properties/public/:slug`
+
+Endpoint **chi tiết phòng cho FE web khách hàng** (`webhalong24h.com/property/{slug}`). Không cần auth.
+
+- Tra theo `slug` (vd `b1503-03`). Slug ổn định, unique, không đổi khi rename — FE bookmark/cache 60s an toàn.
+- Chỉ trả property `isActive=true, deletedAt=null`. Slug không tồn tại / inactive → **404**.
+- Kèm **đầy đủ giá** (`weekdayPrice`, `weekendPrice`, `holidayPrice`) — khác với `/share/:id` (không có giá).
+- **Không** trả `phone`/`email` chủ nhà (chat-mediated). Host info chỉ gồm name + avatar + KYC badge + memberSince + totalProperties.
+
+**Response shape:**
+
+```json
+{
+  "success": true,
+  "message": "...",
+  "data": {
+    "id": "uuid",
+    "slug": "b1503-03",
+    "name": "B1503",
+    "code": "03",
+    "type": 1,
+    "view": "sea",
+    "address": "Toà Alacarte",
+    "city": "Hạ Long",
+    "district": "Bãi Cháy",
+    "latitude": null,
+    "longitude": null,
+    "mapLink": null,
+    "description": "Alacarte căn góc",
+    "amenities": ["ac", "wifi", "tv"],
+    "rules": "Check-in sau 14:00...",
+    "services": [],
+    "bedrooms": 0,
+    "bathrooms": 1,
+    "standardGuests": 2,
+    "maxGuests": 2,
+    "floorArea": null,
+    "weekdayPrice": 1100000,
+    "weekendPrice": 1600000,
+    "holidayPrice": 1800000,
+    "cancellationPolicy": 1,
+    "checkInTime": "14:00",
+    "checkOutTime": "12:00",
+    "rating": 4.92,
+    "reviewCount": 37,
+    "isHot": false,
+    "images": [
+      { "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }
+    ],
+    "ratingBreakdown": {
+      "overall": 4.92,
+      "cleanliness": 4.9,
+      "location": 4.95,
+      "amenities": 4.8,
+      "service": 4.9,
+      "value": 4.85,
+      "accuracy": 4.95,
+      "count": 37
+    },
+    "host": {
+      "name": "Nguyễn Văn A",
+      "avatarUrl": "https://res.cloudinary.com/.../avatar.jpg",
+      "isKycVerified": true,
+      "memberSince": "2024-01",
+      "totalProperties": 5,
+      "responseRate": null
+    }
+  }
+}
+```
+
+Ghi chú field:
+- `city`, `district` — owner điền tay trong form admin/owner, **null** nếu chưa điền. FE tự ẩn dòng location nếu cả 2 null.
+- `rating`, `reviewCount` — denormalized từ `Property.ratingAvg/reviewCount`, đồng bộ với card list.
+- `ratingBreakdown.count` = số review visible. Nếu chưa có review → tất cả score = 0, FE tự ẩn section breakdown khi `count === 0`.
+- `host.isKycVerified` = `kycBypass === true || kycStatus === 'approved'`.
+- `host.memberSince` định dạng `YYYY-MM` (UTC) — FE format hiển thị theo locale.
+- `host.responseRate` — luôn `null` ở v1, sẽ tính sau khi có data response time từ chat module.
+- `isHot` — admin curated badge (xem §4.10).
+
+**FE migration**: bỏ workaround scan `/properties/search` → map slug → id → `/share/:id`. Gọi thẳng `/properties/public/:slug`.
 
 ---
 
@@ -2188,10 +2302,11 @@ socket.on('error', (e) => console.error(e.message));
 | `read:update` | `{ conversationId, userId, lastReadAt }` | Member khác đã đọc |
 | `typing` | `{ conversationId, userId, typing: boolean }` | Member khác đang gõ |
 | `presence` | `{ userId, online: boolean }` | Member có conversation chung lên/xuống mạng |
-| `error` | `{ message }` | Lỗi (token sai, không phải member, ...) |
+| `error` | `{ code?, message }` | Lỗi. `code: 'tokenExpired'` kèm `disconnect(true)` khi access token (15') hết hạn giữa socket session — FE refresh token rồi reconnect |
 
 ### 17.5 Behavior tự động
 
+- **Token expiry mid-session**: BE set timer theo `payload.exp` ở handshake. Khi access token hết hạn → server emit `error: { code: 'tokenExpired', message: 'Token expired' }` rồi `disconnect(true)`. FE refresh token qua `/auth/refresh` và reconnect lại WS với token mới.
 - **Offline → FCM**: nếu recipient không có socket nào active, BE tự gửi FCM push với `pushType: "chat_message"` và `deepLink: "/conversations/:id"`.
 - **Multi-device**: tất cả socket của 1 user đều nhận → đồng bộ web + mobile.
 - **Retention 180 ngày**: cron 3AM xoá messages cũ. Conversation có `hasDispute=true` được giữ.
@@ -3223,3 +3338,283 @@ Body:
 }
 ```
 Bulk upsert. Mỗi field CRUD optional (giữ giá trị cũ nếu không gửi). Response trả `{ userId, permissions: [...] }`.
+
+---
+
+## 25. FE Web Admin v2 — Bổ sung 2026-06-23
+
+> Phản hồi cho danh sách 9 yêu cầu FE Web. Các endpoint đã live trên prod sau khi PR merge.
+
+### 25.1 Bảng tóm tắt
+
+| # | Endpoint | Status | Path thật | Ghi chú cho FE |
+|---|---|---|---|---|
+| 1 | `PATCH /auth/profile` | **NEW** | `PATCH /auth/profile` | Body whitelist 3 field |
+| 2 | `PATCH /admin/users/:id/role` | EXISTS | `PATCH /users/:id/role` | KHÔNG có prefix `/admin` — đổi URL |
+| 3 | `GET /guests` | **NEW** | `GET /guests`, `GET /guests/:id` | Derive từ User role=CUSTOMER |
+| 4 | `GET /subscriptions/me/invoices` | **NEW** | `GET /subscriptions/me/invoices` | Source: PaymentSession |
+| 5 | `POST /admin/subscriptions/:id/call-log` | **NEW** | `POST + GET /admin/subscriptions/:id/call-log` | `:id` là userId của OWNER |
+| 6 | `POST /calendar/bulk-lock` | EXISTS | `POST /calendar/bulk` | Body khác: `{ mode, items: [{propertyId, date}] }` |
+| 7 | `GET /users?withStats=true` | EXPANDED | `GET /users?withStats=true` | Đã thêm `stats.disputeCount` + `lastActiveAt` |
+| 8 | `GET /admin/disputes/:id` | EXPANDED | `GET /admin/disputes/:id` | Đã thêm `evidence`, `verdict`, `chatExcerpts`, `penalty` |
+| 9 | `GET /admin/kyc/:id` | **NEW** | `GET /admin/kyc/:id` | Trả `verificationFields` (7 mục) |
+
+### 25.2 #1 — `PATCH /auth/profile`
+
+User tự sửa hồ sơ cá nhân. Whitelist 3 field. Không cho đổi role/password.
+
+**Auth**: Bearer.
+
+**Body** (tất cả optional, ít nhất 1 field):
+```json
+{ "fullName": "Nguyễn Văn A", "email": "new@example.com", "phone": "0901234567" }
+```
+
+Validate:
+- `fullName`: string ≥ 1 ký tự (BE map sang `User.name`)
+- `email`: định dạng email
+- `phone`: 10 số bắt đầu `0`
+
+**Response 200**: shape giống `GET /auth/profile` (full ProfileDto).
+
+**Errors**:
+- `409 users.phoneDuplicate` — phone đã được user khác dùng
+- `409 auth.emailDuplicate` — email đã được user khác dùng
+
+### 25.3 #3 — `GET /guests`, `GET /guests/:id`
+
+Danh sách khách (User role=CUSTOMER) kèm aggregate booking + label.
+
+**Auth**: Bearer. Roles: ADMIN, OWNER, SALE.
+
+#### `GET /guests`
+
+Query:
+| Param | Mô tả |
+|---|---|
+| `q` | Search theo name / phone / email (max 100 ký tự) |
+| `label` | `vip` \| `regular` \| `new` \| `restricted` |
+| `page`, `limit` | Pagination Shape A. Default 1 / 20 |
+
+**Label heuristic** (BE compute):
+- `vip` — ≥ 5 booking COMPLETED
+- `regular` — ≥ 2 booking COMPLETED
+- `new` — < 2 booking COMPLETED, không bị ban
+- `restricted` — `User.bannedAt != null`
+
+> Khi filter `label=vip|regular|new` → BE post-filter sau khi count. Field `total` trong response sẽ là số kết quả thực tế sau filter (không phải tổng customer).
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "items": [{
+      "id": "uuid", "name": "...", "email": "...", "phone": "...", "avatar": null,
+      "gender": null, "dateOfBirth": null,
+      "bannedAt": null, "bannedReason": null,
+      "createdAt": "...", "updatedAt": "...",
+      "stats": { "totalBookings": 12, "completedBookings": 7, "cancelledBookings": 1 },
+      "lastBookingAt": "2026-06-10T...",
+      "label": "vip"
+    }],
+    "total": 124, "page": 1, "limit": 20, "totalPages": 7
+  }
+}
+```
+
+#### `GET /guests/:id`
+
+Detail + 50 booking gần nhất. Thêm `recentBookings: [{ id, propertyId, checkinDate, checkoutDate, status, totalAmount, paidAmount, createdAt, property: { id, name, code } }]`.
+
+**404** nếu user không tồn tại / không phải CUSTOMER.
+
+### 25.4 #4 — `GET /subscriptions/me/invoices`
+
+Lịch sử hoá đơn gói cước của user hiện tại.
+
+**Auth**: Bearer. Roles: OWNER, SALE (SALE tự resolve theo `ownerId`).
+
+**Source**: `PaymentSession` filter `kind ∈ {subscription, renew, upgrade, refund}`, newest first, không phân trang (volume nhỏ).
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "items": [{
+      "id": "uuid",
+      "invoiceNumber": "INV-2026-0042",
+      "kind": "renew",
+      "planId": "rooms_5",
+      "planLabel": "Starter · Tháng",
+      "cycle": "monthly",
+      "rooms": 5,
+      "period": "2026-06",           // YYYY-MM của paidAt (hoặc createdAt nếu chưa paid)
+      "amount": 658900,
+      "method": "bank_transfer",
+      "status": "paid",
+      "provider": "manual_bank",
+      "referenceCode": "FT26060512345678",
+      "paidAt": "2026-06-05T03:14:00.000Z",
+      "refundedAt": null,
+      "refundedAmount": null,
+      "expiresAt": "2026-06-06T03:14:00.000Z",
+      "createdAt": "2026-06-05T03:00:00.000Z"
+    }],
+    "total": 8
+  }
+}
+```
+
+`400 users.saleNotAssigned` nếu SALE chưa được gán OWNER.
+
+### 25.5 #5 — `POST/GET /admin/subscriptions/:id/call-log`
+
+Admin ghi chú "đã gọi nhắc đóng tiền". `:id` là **userId của OWNER**.
+
+**Auth**: Bearer. Roles: ADMIN.
+
+#### `POST /admin/subscriptions/:id/call-log`
+
+Body:
+```json
+{ "note": "Gọi 14:30, khách hứa CK chiều nay" }
+```
+
+`note`: 3–2000 ký tự.
+
+Response: `{ id, userId, adminId, note, createdAt }`. Tự ghi audit log `subscription.call_log`.
+
+#### `GET /admin/subscriptions/:id/call-log`
+
+Newest first. Mỗi item kèm `admin: { id, name, email }` hydrated.
+
+### 25.6 #6 — `POST /calendar/bulk` (path đổi)
+
+Đã có sẵn. **FE đề xuất `POST /calendar/bulk-lock` không tồn tại** — dùng path `POST /calendar/bulk` với body BE đang nhận:
+
+```json
+{ "mode": "lock" | "unlock", "items": [{ "propertyId": "uuid", "date": "2026-06-15" }] }
+```
+
+Map từ shape FE đề xuất `{ propertyId, dates[], mode }`:
+```ts
+const body = { mode, items: dates.map(d => ({ propertyId, date: d })) };
+```
+
+Giới hạn 100 items/request.
+
+### 25.7 #7 — `GET /users?withStats=true` (mở rộng)
+
+Thêm 2 trường vào item khi có `withStats=true`:
+
+```json
+{
+  "id": "...", "name": "...", "...": "...",
+  "stats": {
+    "propertyCount": 3,
+    "bookingCount": 25,
+    "disputeCount": 2     // ← mới: tổng dispute user là owner + customer
+  },
+  "lastActiveAt": "2026-06-22T08:14:00.000Z"   // ← mới: max(UserDevice.lastActiveAt), null nếu chưa từng login mobile
+}
+```
+
+`lastActiveAt` tính từ `UserDevice.lastActiveAt` (FCM token register/refresh). User chỉ dùng web → `null` — sẽ bổ sung "last web login" sau khi có session tracking.
+
+### 25.8 #8 — `GET /admin/disputes/:id` (mở rộng)
+
+Thêm 4 trường:
+
+```json
+{
+  "id": "uuid", "...": "...",
+  "attachments": ["https://..."],
+  "evidence": ["https://..."],          // alias của attachments
+  "resolution": "Hoàn 50% deposit",
+  "verdict": "Hoàn 50% deposit",        // alias của resolution
+  "penalty": "refund",                   // null | warning | refund | ban_temp | ban_perm
+  "chatExcerpts": [                      // 20 message gần nhất từ conversation booking-type, oldest first
+    { "id": "uuid", "senderId": "uuid", "content": "...", "createdAt": "...", "isSystem": false }
+  ],
+  "property": { "id", "name", "code" },
+  "booking": { ... },
+  "owner": { ... },
+  "customer": { ... }
+}
+```
+
+#### `POST /admin/disputes/:id/resolve` — thêm field `penalty`
+
+Body:
+```json
+{
+  "resolution": "Hoàn 50% deposit",
+  "refundAmount": 250000,
+  "penalty": "refund"                    // ← mới, optional, enum
+}
+```
+
+Penalty enum: `none | warning | refund | ban_temp | ban_perm`. Lưu vào `Dispute.penalty`. Không tự động ban user — admin gọi `POST /users/:id/ban` riêng nếu chọn `ban_*`.
+
+### 25.9 #9 — `GET /admin/kyc/:id`
+
+Endpoint **mới**. Trả full submission + 7 mục xác minh boolean.
+
+**Auth**: Bearer. Roles: ADMIN.
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "userId": "uuid",
+    "user": { "id", "name", "email", "phone", "avatar", "role", "kycBypass", "kycStatus", "createdAt" },
+    "status": "awaiting_approval",
+    "statusLabel": "awaitingApproval",
+    "rejectReason": null,
+    "rejectedItems": [],
+    "approvedAt": null,
+    "approvedById": null,
+    "trialEndsAt": null,
+    "chargeStartsAt": null,
+    "expectedRooms": 5,
+    "uploads": {
+      "cccdFront": { "id", "imageUrl", "imageUrlThumb", "ocrResult", "ocrConfidence", "faceMatchScore", "livenessScore", "provider", "uploadedAt" } | null,
+      "cccdBack":  { ... } | null,
+      "selfie":    { ... } | null
+    },
+    "payments": [{ "id", "planId", "cycle", "rooms", "totalAmount", "method", "status", "paidAt" }],
+    "verificationFields": [
+      { "key": "cccdFrontUploaded",       "label": "Đã tải ảnh CCCD mặt trước",          "passed": true },
+      { "key": "cccdBackUploaded",        "label": "Đã tải ảnh CCCD mặt sau",            "passed": true },
+      { "key": "selfieUploaded",          "label": "Đã tải ảnh selfie",                  "passed": true },
+      { "key": "ocrConfidenceOk",         "label": "OCR đạt ngưỡng 0.8",                 "passed": true,  "source": "front=0.91, back=0.88" },
+      { "key": "faceMatchOk",             "label": "Selfie khớp ảnh CCCD ≥ 0.7",          "passed": true,  "source": "score=0.82" },
+      { "key": "livenessOk",              "label": "Liveness selfie ≥ 0.7",              "passed": false, "source": "score=null" },
+      { "key": "documentMetadataPresent", "label": "OCR đọc được ngày hết hạn + địa chỉ", "passed": true,  "source": "expire=true, address=true" }
+    ],
+    "verificationPassedCount": 6,
+    "verificationTotalCount": 7,
+    "createdAt": "...",
+    "updatedAt": "..."
+  }
+}
+```
+
+**7 mục** đều derive từ data có sẵn (`KycUpload.ocrResult/ocrConfidence/faceMatchScore/livenessScore`). Threshold hard-coded:
+- OCR ≥ 0.8 (front & back đều phải đạt)
+- Face match ≥ 0.7
+- Liveness ≥ 0.7
+
+FE hiển thị checklist 7 mục + badge `passedCount/totalCount`.
+
+### 25.10 Schema migration
+
+Migration `20260623091337_dispute_penalty_call_log` đã apply lên prod DB:
+- Thêm column `disputes.penalty TEXT NULL`
+- Thêm table `subscription_call_logs (id, userId, adminId, note TEXT, createdAt)` + index `(userId, createdAt DESC)`
+
+Không touch booking/payment/user table (rủi ro thấp).

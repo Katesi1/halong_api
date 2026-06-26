@@ -52,6 +52,11 @@ export const PROPERTY_AMENITIES = [
   'rooftop',
   'garden',
   'minibar',
+  // Safety / policy
+  'pet-friendly',
+  'security-camera',
+  'smoke-detector',
+  'first-aid-kit',
 ] as const;
 export type PropertyAmenity = typeof PROPERTY_AMENITIES[number];
 

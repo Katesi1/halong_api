@@ -236,6 +236,7 @@ export const AUDIT_ACTION = {
   PROPERTY_APPROVE: 'property.approve',
   PROPERTY_REJECT: 'property.reject',
   PROPERTY_SUSPEND: 'property.suspend',
+  PROPERTY_SET_HOT: 'property.set_hot',
   // subscription
   SUBSCRIPTION_TRIAL_GRANT: 'subscription.trial_grant',
   SUBSCRIPTION_TRIAL_REVOKE: 'subscription.trial_revoke',

@@ -386,6 +386,12 @@ export class PropertyCardDto {
   @ApiPropertyOptional({ example: 'Bãi Cháy, Quảng Ninh' })
   address: string | null;
 
+  @ApiPropertyOptional({ example: 'Hạ Long' })
+  city: string | null;
+
+  @ApiPropertyOptional({ example: 'Bãi Cháy' })
+  district: string | null;
+
   @ApiPropertyOptional({ example: 20.95 })
   latitude: number | null;
 
@@ -433,6 +439,12 @@ export class PropertyCardDto {
 
   @ApiProperty({
     example: false,
+    description: 'Admin curated — bật/tắt qua PATCH /properties/:id/hot (ADMIN).',
+  })
+  isHot: boolean;
+
+  @ApiProperty({
+    example: false,
     description:
       'True nếu user hiện tại (từ JWT) đã save. Anonymous request → false.',
   })
@@ -470,6 +482,95 @@ export class PropertySearchResponse extends BaseResponseDto {
 export class PropertyCardListResponse extends BaseResponseDto {
   @ApiProperty({ type: [PropertyCardDto] })
   data: PropertyCardDto[];
+}
+
+// ─── Public Property Detail (customer web /property/{slug}) ─────────────────
+
+export class PropertyHostDto {
+  @ApiProperty({ example: 'Nguyễn Văn A' })
+  name: string;
+
+  @ApiPropertyOptional({ example: 'https://res.cloudinary.com/.../avatar.jpg' })
+  avatarUrl: string | null;
+
+  @ApiProperty({ example: true })
+  isKycVerified: boolean;
+
+  @ApiPropertyOptional({ example: '2024-01', description: 'YYYY-MM owner đăng ký' })
+  memberSince: string | null;
+
+  @ApiPropertyOptional({ example: 5 })
+  totalProperties: number | null;
+
+  @ApiPropertyOptional({ example: null, description: 'Chưa hỗ trợ ở v1 — luôn null' })
+  responseRate: number | null;
+}
+
+export class RatingBreakdownDto {
+  @ApiProperty({ example: 4.92 })
+  overall: number;
+
+  @ApiProperty({ example: 4.9 })
+  cleanliness: number;
+
+  @ApiProperty({ example: 4.95 })
+  location: number;
+
+  @ApiProperty({ example: 4.8 })
+  amenities: number;
+
+  @ApiProperty({ example: 4.9 })
+  service: number;
+
+  @ApiProperty({ example: 4.85 })
+  value: number;
+
+  @ApiProperty({ example: 4.95 })
+  accuracy: number;
+
+  @ApiProperty({ example: 37 })
+  count: number;
+}
+
+export class PublicPropertyDetailDto {
+  @ApiProperty() id: string;
+  @ApiProperty() slug: string;
+  @ApiProperty() name: string;
+  @ApiProperty() code: string;
+  @ApiProperty({ description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' }) type: number;
+  @ApiPropertyOptional() view: string | null;
+  @ApiPropertyOptional() address: string | null;
+  @ApiPropertyOptional() city: string | null;
+  @ApiPropertyOptional() district: string | null;
+  @ApiPropertyOptional() latitude: number | null;
+  @ApiPropertyOptional() longitude: number | null;
+  @ApiPropertyOptional() mapLink: string | null;
+  @ApiPropertyOptional() description: string | null;
+  @ApiProperty({ type: [String] }) amenities: string[];
+  @ApiPropertyOptional() rules: string | null;
+  @ApiProperty({ type: [String] }) services: string[];
+  @ApiProperty() bedrooms: number;
+  @ApiProperty() bathrooms: number;
+  @ApiProperty() standardGuests: number;
+  @ApiProperty() maxGuests: number;
+  @ApiPropertyOptional({ description: 'm²' }) floorArea: number | null;
+  @ApiPropertyOptional() weekdayPrice: number | null;
+  @ApiPropertyOptional() weekendPrice: number | null;
+  @ApiPropertyOptional() holidayPrice: number | null;
+  @ApiProperty({ description: '0=FLEXIBLE, 1=MODERATE, 2=STRICT' }) cancellationPolicy: number;
+  @ApiPropertyOptional() checkInTime: string | null;
+  @ApiPropertyOptional() checkOutTime: string | null;
+  @ApiProperty() rating: number;
+  @ApiProperty() reviewCount: number;
+  @ApiProperty() isHot: boolean;
+  @ApiProperty({ type: [PropertyImageDto] }) images: PropertyImageDto[];
+  @ApiProperty({ type: RatingBreakdownDto }) ratingBreakdown: RatingBreakdownDto;
+  @ApiProperty({ type: PropertyHostDto }) host: PropertyHostDto;
+}
+
+export class PublicPropertyDetailResponse extends BaseResponseDto {
+  @ApiProperty({ type: PublicPropertyDetailDto })
+  data: PublicPropertyDetailDto;
 }
 
 export class BookingListResponse extends BaseResponseDto {

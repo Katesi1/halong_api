@@ -650,6 +650,130 @@ export class AdminSubscriptionService {
   }
 
   /**
+   * Owner-facing list of own subscription invoices. Sourced from PaymentSession
+   * filtered to user-relevant kinds (subscription, renew, upgrade, refund) with
+   * a UI-friendly flat shape. Returns newest-first, no pagination (subscription
+   * payment volume per user is small).
+   */
+  async getMyInvoices(userId: string, msg: Messages) {
+    const sessions = await this.prisma.paymentSession.findMany({
+      where: {
+        userId,
+        kind: { in: ['subscription', 'renew', 'upgrade', 'refund'] },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        kind: true,
+        planId: true,
+        planLabel: true,
+        cycle: true,
+        rooms: true,
+        totalAmount: true,
+        method: true,
+        status: true,
+        provider: true,
+        referenceCode: true,
+        paidAt: true,
+        refundedAt: true,
+        refundedAmount: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+
+    const items = sessions.map((s) => {
+      const start = s.paidAt ?? s.createdAt;
+      return {
+        id: s.id,
+        invoiceNumber: s.invoiceNumber,
+        kind: s.kind,
+        planId: s.planId,
+        planLabel: s.planLabel,
+        cycle: s.cycle,
+        rooms: s.rooms,
+        // FE-friendly period label: month/year of paidAt (or createdAt for pending).
+        period: start.toISOString().slice(0, 7), // YYYY-MM
+        amount: s.totalAmount,
+        method: s.method,
+        status: s.status,
+        provider: s.provider,
+        referenceCode: s.referenceCode,
+        paidAt: s.paidAt,
+        refundedAt: s.refundedAt,
+        refundedAmount: s.refundedAmount,
+        expiresAt: s.expiresAt,
+        createdAt: s.createdAt,
+      };
+    });
+
+    return {
+      message: msg.adminSubscription.invoicesSuccess,
+      data: { items, total: items.length },
+    };
+  }
+
+  /** Admin records a "called user to chase payment" note. */
+  async createCallLog(
+    adminId: string,
+    userId: string,
+    note: string,
+    msg: Messages,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException(msg.users.notFound);
+
+    const log = await this.prisma.subscriptionCallLog.create({
+      data: { userId, adminId, note: note.trim() },
+      select: { id: true, userId: true, adminId: true, note: true, createdAt: true },
+    });
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: 'subscription.call_log',
+      targetType: AUDIT_TARGET_TYPE.USER,
+      targetId: userId,
+      metadata: { callLogId: log.id, notePreview: note.slice(0, 120) },
+    });
+
+    return { message: msg.adminSubscription.callLogCreated, data: log };
+  }
+
+  /** List call notes for a user — newest first. */
+  async listCallLogs(userId: string, msg: Messages) {
+    const items = await this.prisma.subscriptionCallLog.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, userId: true, adminId: true, note: true, createdAt: true },
+    });
+
+    const adminIds = Array.from(new Set(items.map((i) => i.adminId)));
+    const admins = adminIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: adminIds } },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+    const adminMap = new Map(admins.map((a) => [a.id, a]));
+
+    return {
+      message: msg.adminSubscription.callLogListSuccess,
+      data: {
+        items: items.map((i) => ({
+          ...i,
+          admin: adminMap.get(i.adminId) ?? null,
+        })),
+        total: items.length,
+      },
+    };
+  }
+
+  /**
    * Grant a new trial or extend an existing trial.
    * - If user has an active trial → extend from current trialEndsAt
    * - If trial expired or none → start from now

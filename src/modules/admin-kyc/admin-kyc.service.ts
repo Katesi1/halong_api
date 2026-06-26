@@ -365,6 +365,188 @@ export class AdminKycService {
     };
   }
 
+  /**
+   * Admin KYC detail. Returns full submission + user + uploads + computed
+   * "verification fields" (7 booleans) FE renders in a checklist.
+   *
+   * The 7 verification flags are derived from data already on KycSubmission/
+   * KycUpload — no extra columns added. Threshold rationale documented inline.
+   */
+  async getDetail(submissionId: string, msg: Messages) {
+    const submission = await this.prisma.kycSubmission.findUnique({
+      where: { id: submissionId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            avatar: true,
+            role: true,
+            kycBypass: true,
+            kycStatus: true,
+            createdAt: true,
+          },
+        },
+        uploads: {
+          select: {
+            id: true,
+            type: true,
+            imageUrl: true,
+            imageUrlThumb: true,
+            ocrResult: true,
+            ocrConfidence: true,
+            faceMatchScore: true,
+            livenessScore: true,
+            provider: true,
+            uploadedAt: true,
+          },
+        },
+        payments: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            planId: true,
+            cycle: true,
+            rooms: true,
+            totalAmount: true,
+            method: true,
+            status: true,
+            paidAt: true,
+          },
+        },
+      },
+    });
+    if (!submission) {
+      throw new NotFoundException(msg.kyc.submissionNotFound);
+    }
+
+    const uploadByType = new Map(submission.uploads.map((u) => [u.type, u]));
+    const front = uploadByType.get('cccd_front');
+    const back = uploadByType.get('cccd_back');
+    const selfie = uploadByType.get('selfie');
+
+    const OCR_THRESHOLD = 0.8; // FPT/VNPT eKYC trả 0..1
+    const FACE_MATCH_THRESHOLD = 0.7;
+    const LIVENESS_THRESHOLD = 0.7;
+
+    const ocrFront = front?.ocrResult as Record<string, unknown> | null | undefined;
+    const ocrBack = back?.ocrResult as Record<string, unknown> | null | undefined;
+    const expirePresent = !!(ocrFront?.expire_date || ocrFront?.expireDate || ocrFront?.doe);
+    const addressPresent = !!(ocrBack?.address || ocrFront?.address);
+
+    // 7 verification fields — boolean checklist for admin UI.
+    // Each entry: { key, label, passed, source (free-form for FE tooltip) }
+    const verificationFields: Array<{ key: string; label: string; passed: boolean; source?: string }> = [
+      {
+        key: 'cccdFrontUploaded',
+        label: 'Đã tải ảnh CCCD mặt trước',
+        passed: !!front,
+      },
+      {
+        key: 'cccdBackUploaded',
+        label: 'Đã tải ảnh CCCD mặt sau',
+        passed: !!back,
+      },
+      {
+        key: 'selfieUploaded',
+        label: 'Đã tải ảnh selfie',
+        passed: !!selfie,
+      },
+      {
+        key: 'ocrConfidenceOk',
+        label: `OCR đạt ngưỡng ${OCR_THRESHOLD}`,
+        passed:
+          (front?.ocrConfidence ?? 0) >= OCR_THRESHOLD &&
+          (back?.ocrConfidence ?? 0) >= OCR_THRESHOLD,
+        source: `front=${front?.ocrConfidence ?? null}, back=${back?.ocrConfidence ?? null}`,
+      },
+      {
+        key: 'faceMatchOk',
+        label: `Selfie khớp ảnh CCCD ≥ ${FACE_MATCH_THRESHOLD}`,
+        passed: (selfie?.faceMatchScore ?? 0) >= FACE_MATCH_THRESHOLD,
+        source: `score=${selfie?.faceMatchScore ?? null}`,
+      },
+      {
+        key: 'livenessOk',
+        label: `Liveness selfie ≥ ${LIVENESS_THRESHOLD}`,
+        passed: (selfie?.livenessScore ?? 0) >= LIVENESS_THRESHOLD,
+        source: `score=${selfie?.livenessScore ?? null}`,
+      },
+      {
+        key: 'documentMetadataPresent',
+        label: 'OCR đọc được ngày hết hạn + địa chỉ',
+        passed: expirePresent && addressPresent,
+        source: `expire=${expirePresent}, address=${addressPresent}`,
+      },
+    ];
+
+    const passedCount = verificationFields.filter((f) => f.passed).length;
+
+    return {
+      message: msg.adminKyc.detailSuccess,
+      data: {
+        id: submission.id,
+        userId: submission.userId,
+        user: submission.user,
+        status: submission.status,
+        statusLabel: KYC_STATUS_API_MAP[submission.status] || submission.status,
+        rejectReason: submission.rejectReason,
+        rejectedItems: submission.rejectedItems,
+        approvedAt: submission.approvedAt,
+        approvedById: submission.approvedById,
+        trialEndsAt: submission.trialEndsAt,
+        chargeStartsAt: submission.chargeStartsAt,
+        expectedRooms: submission.expectedRooms,
+        uploads: this.formatUploadsDetailed(submission.uploads),
+        payments: submission.payments,
+        verificationFields,
+        verificationPassedCount: passedCount,
+        verificationTotalCount: verificationFields.length,
+        createdAt: submission.createdAt,
+        updatedAt: submission.updatedAt,
+      },
+    };
+  }
+
+  private formatUploadsDetailed(
+    uploads: Array<{
+      id: string;
+      type: string;
+      imageUrl: string;
+      imageUrlThumb: string | null;
+      ocrResult: any;
+      ocrConfidence: number | null;
+      faceMatchScore: number | null;
+      livenessScore: number | null;
+      provider: string | null;
+      uploadedAt: Date;
+    }>,
+  ) {
+    const result: Record<string, any> = { cccdFront: null, cccdBack: null, selfie: null };
+    for (const u of uploads) {
+      const key =
+        u.type === 'cccd_front'
+          ? 'cccdFront'
+          : u.type === 'cccd_back'
+            ? 'cccdBack'
+            : 'selfie';
+      result[key] = {
+        id: u.id,
+        imageUrl: u.imageUrl,
+        imageUrlThumb: u.imageUrlThumb,
+        ocrResult: u.ocrResult,
+        ocrConfidence: u.ocrConfidence,
+        faceMatchScore: u.faceMatchScore,
+        livenessScore: u.livenessScore,
+        provider: u.provider,
+        uploadedAt: u.uploadedAt,
+      };
+    }
+    return result;
+  }
+
   private formatUploads(
     uploads: Array<{
       type: string;

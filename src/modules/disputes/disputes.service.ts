@@ -195,9 +195,44 @@ export class DisputesService {
         : Promise.resolve(null),
     ]);
 
+    // Chat excerpts: pull last ~20 messages from the conversation tied to this
+    // booking (any type). Owner ↔ customer for booking-type conv; falls back
+    // to none if no conversation exists yet.
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { bookingId: dispute.bookingId },
+      select: { id: true },
+    });
+    let chatExcerpts: Array<{
+      id: string;
+      senderId: string;
+      content: string;
+      createdAt: Date;
+      isSystem: boolean;
+    }> = [];
+    if (conversation) {
+      const messages = await this.prisma.message.findMany({
+        where: { conversationId: conversation.id, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: { id: true, senderId: true, content: true, createdAt: true, isSystem: true },
+      });
+      // FE expects oldest-first for transcript display.
+      chatExcerpts = messages.reverse();
+    }
+
     return {
       message: msg.disputes.getSuccess,
-      data: { ...dispute, property, booking, owner, customer },
+      data: {
+        ...dispute,
+        // FE-friendly aliases (legacy names also kept to avoid breaking other clients).
+        evidence: dispute.attachments ?? [],
+        verdict: dispute.resolution,
+        property,
+        booking,
+        owner,
+        customer,
+        chatExcerpts,
+      },
     };
   }
 
@@ -243,6 +278,7 @@ export class DisputesService {
         status: DISPUTE_STATUS.RESOLVED,
         resolution: dto.resolution.trim(),
         refundAmount: dto.refundAmount ?? null,
+        penalty: dto.penalty ?? null,
         resolvedById: adminId,
         resolvedAt: new Date(),
       },
@@ -255,7 +291,7 @@ export class DisputesService {
       targetType: AUDIT_TARGET_TYPE.DISPUTE,
       targetId: id,
       targetLabel: dispute.subject,
-      metadata: { refundAmount: dto.refundAmount ?? null },
+      metadata: { refundAmount: dto.refundAmount ?? null, penalty: dto.penalty ?? null },
     });
 
     // Notify both parties + opener (nếu khác)
