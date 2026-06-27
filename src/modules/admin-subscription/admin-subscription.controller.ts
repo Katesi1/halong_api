@@ -26,9 +26,10 @@ import { CreateCallLogDto } from './dto/call-log.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE, isSaleUnassigned } from '../../common/constants';
+import { ROLE, isSaleUnassigned, PERMISSION_MODULE } from '../../common/constants';
 import { BadRequestException } from '@nestjs/common';
 import type { Messages } from '../../i18n';
 
@@ -42,21 +43,24 @@ export class AdminSubscriptionController {
 
   // ─── Aggregate / list (no user id in path) ───────────────────────────────
   @Get('admin/subscriptions')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canRead')
   @ApiOperation({ summary: 'List subscriptions across the platform' })
   list(@Query() query: ListSubscriptionsDto, @Lang() msg: Messages) {
     return this.adminSubService.list(query, msg);
   }
 
   @Get('admin/subscriptions/count-overdue')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canRead')
   @ApiOperation({ summary: 'Count subscriptions in past_due status (sidebar badge)' })
   countOverdue(@Lang() msg: Messages) {
     return this.adminSubService.countOverdue(msg);
   }
 
   @Get('admin/subscriptions/sum-paid')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canRead')
   @ApiOperation({ summary: 'Sum of paid amounts within a date range' })
   @ApiQuery({ name: 'from', required: false, description: 'ISO date (inclusive)' })
   @ApiQuery({ name: 'to', required: false, description: 'ISO date (inclusive)' })
@@ -70,14 +74,16 @@ export class AdminSubscriptionController {
 
   // ─── Per-user operations ─────────────────────────────────────────────────
   @Get('admin/users/:id/subscription')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canRead')
   @ApiOperation({ summary: 'Get subscription snapshot for a user' })
   getSubscription(@Param('id') id: string, @Lang() msg: Messages) {
     return this.adminSubService.getSubscription(id, msg);
   }
 
   @Post('admin/users/:id/trial')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canUpdate')
   @ApiOperation({
     summary: 'Grant or extend trial (any positive days) for an OWNER',
     description:
@@ -102,7 +108,8 @@ export class AdminSubscriptionController {
   }
 
   @Delete('admin/users/:id/trial')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canDelete')
   @ApiOperation({ summary: 'Revoke active trial' })
   revokeTrial(
     @CurrentUser() admin: { id: string },
@@ -114,7 +121,8 @@ export class AdminSubscriptionController {
   }
 
   @Patch('admin/users/:id/subscription/price')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canUpdate')
   @ApiOperation({
     summary: 'Set or clear custom subscription price for an OWNER',
     description:
@@ -130,7 +138,8 @@ export class AdminSubscriptionController {
   }
 
   @Post('admin/users/:id/subscription/mark-paid')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canUpdate')
   @ApiOperation({
     summary: 'Record an offline / manual payment and extend the subscription period',
   })
@@ -144,7 +153,8 @@ export class AdminSubscriptionController {
   }
 
   @Post('admin/users/:id/subscription/freeze')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canUpdate')
   @ApiOperation({ summary: 'Freeze a subscription (block host without cancelling)' })
   freeze(
     @CurrentUser() admin: { id: string },
@@ -156,7 +166,8 @@ export class AdminSubscriptionController {
   }
 
   @Post('admin/users/:id/subscription/unfreeze')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canUpdate')
   @ApiOperation({ summary: 'Unfreeze a subscription' })
   unfreeze(
     @CurrentUser() admin: { id: string },
@@ -200,7 +211,8 @@ export class AdminSubscriptionController {
 
   // ─── Admin call logs (chase overdue payments) ───────────────────────────
   @Post('admin/subscriptions/:id/call-log')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canCreate')
   @ApiOperation({
     summary: 'Record a "called user" note for chasing payment',
     description: 'Param :id là userId của OWNER bị quá hạn. Body { note } ≥ 3 ký tự.',
@@ -215,7 +227,8 @@ export class AdminSubscriptionController {
   }
 
   @Get('admin/subscriptions/:id/call-log')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.SUBSCRIPTIONS, 'canRead')
   @ApiOperation({ summary: 'List call notes for a user (newest first)' })
   listCallLogs(@Param('id') userId: string, @Lang() msg: Messages) {
     return this.adminSubService.listCallLogs(userId, msg);

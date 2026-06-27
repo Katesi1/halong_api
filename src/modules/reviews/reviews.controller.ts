@@ -87,7 +87,8 @@ export class ReviewsController {
   }
 
   @Get('admin/reviews')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.REVIEWS_MODERATION, 'canRead')
   @ApiOperation({ summary: 'ADMIN list reviews (with filters)' })
   @ApiQuery({ name: 'status', required: false, enum: ['visible', 'hidden', 'all'] })
   @ApiQuery({ name: 'rating', required: false, type: Number, description: '1-5 — filter star bucket' })
@@ -115,21 +116,24 @@ export class ReviewsController {
   }
 
   @Get('admin/reviews/count-flagged')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.REVIEWS_MODERATION, 'canRead')
   @ApiOperation({ summary: 'ADMIN dem so review da moderate (badge sidebar)' })
   countFlagged(@Lang() msg: Messages) {
     return this.reviewsService.countFlagged(msg);
   }
 
   @Get('admin/reviews/:reviewId')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.REVIEWS_MODERATION, 'canRead')
   @ApiOperation({ summary: 'ADMIN xem chi tiet review (kem property/customer/booking hydrated)' })
   adminGetReview(@Param('reviewId') reviewId: string, @Lang() msg: Messages) {
     return this.reviewsService.adminGetReview(reviewId, msg);
   }
 
   @Delete('admin/reviews/:reviewId')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.REVIEWS_MODERATION, 'canDelete')
   @ApiOperation({ summary: 'ADMIN an review', description: 'Set is_hidden = true. Khong xoa row.' })
   @ApiResponse({ status: 200, description: 'Review hidden' })
   @ApiResponse({ status: 404, description: 'review_not_found' })
@@ -143,7 +147,8 @@ export class ReviewsController {
   }
 
   @Post('admin/reviews/:reviewId/restore')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.REVIEWS_MODERATION, 'canUpdate')
   @ApiOperation({ summary: 'ADMIN khoi phuc review da an' })
   restoreReview(
     @Param('reviewId') reviewId: string,

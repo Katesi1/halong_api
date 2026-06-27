@@ -5,8 +5,9 @@ import { TestEmailDto } from './dto/test-email.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Admin Emails')
@@ -18,7 +19,8 @@ export class AdminEmailsController {
   constructor(private emailService: EmailService) {}
 
   @Get('templates')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.EMAILS, 'canRead')
   @ApiOperation({
     summary: 'List email template keys',
     description: 'Trả danh sách template slug + trạng thái SMTP. FE render UI từ list này.',
@@ -34,7 +36,8 @@ export class AdminEmailsController {
   }
 
   @Post('test')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.EMAILS, 'canCreate')
   @ApiOperation({
     summary: 'Gửi email mẫu để verify rendering / SMTP',
     description: 'Body { template, to }. Trả { sent: boolean } — sent=false nếu SMTP chưa cấu hình.',

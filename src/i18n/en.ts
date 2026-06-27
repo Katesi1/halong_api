@@ -319,6 +319,25 @@ export const en = {
     setSuccess: 'Permissions updated successfully',
     forbidden: 'You do not have permission to perform this action',
     invalidModule: (mod: string) => `Invalid permission module: ${mod}`,
+    onlyForSale: 'Permissions can only be configured for SALE role',
+  },
+
+  // ─── System SALE (admin-grade SALE) ────────────────────────────────────────
+  systemSale: {
+    scopeInvalid: 'Invalid scope (must be "owner" or "system")',
+    onlyAdminCreate: 'Only ADMIN can create system SALE accounts',
+    cannotChangeScope: 'Cannot change scope after user creation',
+    inviteCreateSuccess: (email: string) => `System SALE invite sent to ${email}`,
+    inviteListSuccess: 'System SALE invites retrieved successfully',
+    inviteCancelSuccess: 'System SALE invite cancelled',
+    inviteAcceptSuccess: 'Joined system operations team successfully',
+    listSuccess: 'System SALE staff retrieved successfully',
+    removeSuccess: 'System SALE staff removed',
+    notFound: 'System SALE staff not found',
+    createSuccess: (name: string) => `System SALE staff ${name} created`,
+    notifyInviteAcceptedTitle: 'New system SALE staff joined',
+    notifyInviteAcceptedBody: (name: string, email: string) =>
+      `${name} (${email}) accepted the invite and joined the operations team`,
   },
 
   // ─── Staff Invites ─────────────────────────────────────────────────────────

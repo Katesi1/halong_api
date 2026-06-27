@@ -1,7 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Messages } from '../../i18n';
-import { ROLE, ALL_PERMISSION_MODULES } from '../../common/constants';
+import {
+  ROLE,
+  ALL_PERMISSION_MODULES,
+  OWNER_SCOPE_MODULES,
+  isAdminScopeModule,
+  USER_SCOPE,
+} from '../../common/constants';
 import { ModulePermissionDto } from './dto/set-permissions.dto';
 
 @Injectable()
@@ -10,12 +16,14 @@ export class PermissionsService {
 
   /**
    * Get all permissions for a user.
-   * Returns all 4 modules — fills in defaults (read-only) for missing entries.
+   * Returns all configured modules — fills in defaults for missing entries.
+   * - Owner-scope modules: default canRead=true (read luôn cho phép cho SALE owner).
+   * - Admin-scope modules: default ALL false (SALE hệ thống cần admin cấp tường minh).
    */
   async getUserPermissions(userId: string, msg: Messages) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, name: true, role: true },
+      select: { id: true, name: true, role: true, scope: true },
     });
     if (!user) throw new NotFoundException(msg.users.notFound);
 
@@ -27,10 +35,13 @@ export class PermissionsService {
 
     const permissions = ALL_PERMISSION_MODULES.map(mod => {
       const p = permMap.get(mod);
+      const isAdminModule = isAdminScopeModule(mod);
       return {
         module: mod,
         canCreate: p?.canCreate ?? false,
-        canRead: p?.canRead ?? true,
+        // Admin-scope mặc định false (admin module cần cấp tường minh).
+        // Owner-scope giữ default canRead=true (SALE owner luôn được đọc).
+        canRead: p?.canRead ?? (isAdminModule ? false : true),
         canUpdate: p?.canUpdate ?? false,
         canDelete: p?.canDelete ?? false,
       };
@@ -38,24 +49,33 @@ export class PermissionsService {
 
     return {
       message: msg.permissions.getSuccess,
-      data: { user: { id: user.id, name: user.name, role: user.role }, permissions },
+      data: { user: { id: user.id, name: user.name, role: user.role, scope: user.scope }, permissions },
     };
   }
 
   /**
    * Bulk set permissions for a user (Admin only).
-   * Upserts each module permission.
+   * - SALE owner-scope: cấu hình được các module trong OWNER_SCOPE_MODULES.
+   * - SALE system-scope: cấu hình được toàn bộ ALL_PERMISSION_MODULES (cả admin-scope).
+   * - OWNER/CUSTOMER/ADMIN: không hỗ trợ.
    */
   async setUserPermissions(userId: string, dtos: ModulePermissionDto[], msg: Messages) {
     const user = await this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null, role: { in: [ROLE.OWNER, ROLE.SALE] } },
-      select: { id: true, name: true, role: true },
+      where: { id: userId, deletedAt: null },
+      select: { id: true, name: true, role: true, scope: true },
     });
     if (!user) throw new NotFoundException(msg.users.notFound);
 
+    if (user.role !== ROLE.SALE) {
+      throw new BadRequestException(msg.permissions.onlyForSale);
+    }
+
+    const isSystem = user.scope === USER_SCOPE.SYSTEM;
+    const allowedModules: readonly string[] = isSystem ? ALL_PERMISSION_MODULES : OWNER_SCOPE_MODULES;
+
     // Validate modules
     for (const dto of dtos) {
-      if (!ALL_PERMISSION_MODULES.includes(dto.module as any)) {
+      if (!allowedModules.includes(dto.module)) {
         throw new BadRequestException(msg.permissions.invalidModule(dto.module));
       }
     }
@@ -68,7 +88,8 @@ export class PermissionsService {
             userId,
             module: dto.module,
             canCreate: dto.canCreate ?? false,
-            canRead: dto.canRead ?? true,
+            // Admin-scope mặc định false khi tạo mới (yêu cầu cấp tường minh).
+            canRead: dto.canRead ?? (isAdminScopeModule(dto.module) ? false : true),
             canUpdate: dto.canUpdate ?? false,
             canDelete: dto.canDelete ?? false,
           },
@@ -95,12 +116,14 @@ export class PermissionsService {
 
   /**
    * Check if a user has a specific permission.
-   * - ADMIN  → always allowed (system-wide bypass)
-   * - OWNER  → always allowed on their own data scope (they own the resources;
-   *            row-level scoping is handled by getEffectiveOwnerId elsewhere)
-   * - CUSTOMER → always allowed (uses dedicated customer endpoints)
-   * - SALE   → checked against UserPermission table (configured by their OWNER).
-   *            No record = read-only default.
+   * - ADMIN          → always allowed (system-wide bypass)
+   * - OWNER          → owner-scope modules allow; admin-scope modules deny
+   * - CUSTOMER       → owner-scope modules allow (uses dedicated customer endpoints);
+   *                    admin-scope modules deny
+   * - SALE owner     → checked against UserPermission table for owner-scope modules;
+   *                    default canRead=true. Admin-scope modules → always deny.
+   * - SALE system    → checked against UserPermission for cả 2 scope; default ALL false
+   *                    (admin phải cấp tường minh). canRead admin-scope cũng phải cấp.
    */
   async hasPermission(
     userId: string,
@@ -111,23 +134,42 @@ export class PermissionsService {
     // ADMIN bypasses all permission checks
     if (role === ROLE.ADMIN) return true;
 
-    // OWNER has full access on their own scope — data isolation is enforced
-    // separately via getEffectiveOwnerId in each service layer.
-    if (role === ROLE.OWNER) return true;
+    const isAdminModule = isAdminScopeModule(module);
 
-    // CUSTOMER uses their own endpoints, not affected
-    if (role === ROLE.CUSTOMER) return true;
+    // OWNER: admin-scope deny, owner-scope allow (their own data scope).
+    if (role === ROLE.OWNER) return !isAdminModule;
 
-    // SALE: read is always allowed by default
-    if (action === 'canRead') return true;
+    // CUSTOMER: same as OWNER — owner-scope allow (dedicated endpoints), admin-scope deny.
+    if (role === ROLE.CUSTOMER) return !isAdminModule;
 
-    const permission = await this.prisma.userPermission.findUnique({
-      where: { userId_module: { userId, module } },
-    });
+    // SALE — distinguish owner-scope SALE vs system-scope SALE.
+    if (role === ROLE.SALE) {
+      // Resolve scope from DB (cached/normalized by guard; here we re-fetch to be safe).
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { scope: true },
+      });
+      const isSystem = user?.scope === USER_SCOPE.SYSTEM;
 
-    // No record = default (read-only)
-    if (!permission) return false;
+      // Owner SALE accessing admin-scope module → deny.
+      if (!isSystem && isAdminModule) return false;
 
-    return permission[action];
+      // Owner SALE on owner-scope module: read luôn cho phép theo default.
+      if (!isSystem && action === 'canRead') return true;
+
+      const permission = await this.prisma.userPermission.findUnique({
+        where: { userId_module: { userId, module } },
+      });
+
+      if (!permission) {
+        // System SALE: không có row → mặc định false (kể cả read).
+        // Owner SALE: chỉ tới đây khi action ≠ canRead → false (cần admin/owner cấp).
+        return false;
+      }
+
+      return permission[action];
+    }
+
+    return false;
   }
 }

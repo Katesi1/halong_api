@@ -63,7 +63,7 @@ describe('UsersService', () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
 
       await expect(
-        service.create({ name: 'New', email: 'test@example.com', password: 'Test@123', role: ROLE.SALE }, msg),
+        service.create({ name: 'New', email: 'test@example.com', password: 'Test@123', role: ROLE.SALE }, undefined as any, msg),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -75,7 +75,7 @@ describe('UsersService', () => {
         return Promise.resolve({ id: 'new-id', ...data });
       });
 
-      await service.create({ name: 'New', email: 'new@example.com', password: 'Test@123', role: ROLE.SALE }, msg);
+      await service.create({ name: 'New', email: 'new@example.com', password: 'Test@123', role: ROLE.SALE }, undefined as any, msg);
 
       expect(prisma.user.create).toHaveBeenCalled();
     });

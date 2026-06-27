@@ -14,7 +14,7 @@ import { EmailService } from '../email/email.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { Messages } from '../../i18n';
-import { ROLE, AUDIT_ACTION, AUDIT_TARGET_TYPE } from '../../common/constants';
+import { ROLE, AUDIT_ACTION, AUDIT_TARGET_TYPE, USER_SCOPE } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
 
 const NOTIFICATION_TYPE_SYSTEM = 2;
@@ -33,10 +33,26 @@ export class UsersService {
     private email: EmailService,
   ) {}
 
-  async findAll(msg: Messages, role?: number, withStats?: boolean, q?: string) {
+  async findAll(
+    msg: Messages,
+    role?: number,
+    withStats?: boolean,
+    q?: string,
+    scope?: string,
+  ) {
+    // scope chỉ có ý nghĩa với SALE. Truyền cho non-SALE → match 0.
+    // 'all' (hoặc không truyền) → không filter.
+    let scopeWhere: Record<string, unknown> = {};
+    if (scope && scope !== 'all') {
+      if (scope !== USER_SCOPE.OWNER && scope !== USER_SCOPE.SYSTEM) {
+        throw new BadRequestException(msg.systemSale.scopeInvalid);
+      }
+      scopeWhere = { scope, role: ROLE.SALE };
+    }
+
     const select: any = {
       id: true, name: true, phone: true, email: true, avatar: true,
-      role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
+      role: true, ownerId: true, scope: true, isActive: true, gender: true, dateOfBirth: true,
       kycBypass: true, kycStatus: true,
       subscriptionStatus: true, subscriptionPlanId: true, subscriptionCycle: true,
       bannedAt: true, bannedReason: true,
@@ -70,6 +86,7 @@ export class UsersService {
         deletedAt: null,
         ...(role !== undefined ? { role } : {}),
         ...searchClause,
+        ...scopeWhere,
       },
       select,
       orderBy: { createdAt: 'desc' },
@@ -135,7 +152,7 @@ export class UsersService {
       where: { id, deletedAt: null },
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
+        role: true, ownerId: true, scope: true, isActive: true, gender: true, dateOfBirth: true,
         kycBypass: true, kycStatus: true, createdAt: true,
         properties: {
           select: { id: true, name: true, code: true },
@@ -157,17 +174,35 @@ export class UsersService {
     return { message: msg.users.getSuccess, data: user };
   }
 
-  async create(dto: CreateUserDto, msg: Messages) {
+  async create(dto: CreateUserDto, currentUser: { id: string; role: number } | undefined, msg: Messages) {
     dto.email = dto.email.toLowerCase().trim();
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) throw new ConflictException(msg.users.emailDuplicate);
 
+    // scope chỉ có nghĩa với SALE — các role khác buộc về 'owner' (default) để không lưu rác.
+    let scope = USER_SCOPE.OWNER as string;
+    if (dto.role === ROLE.SALE) {
+      if (dto.scope && dto.scope !== USER_SCOPE.OWNER && dto.scope !== USER_SCOPE.SYSTEM) {
+        throw new BadRequestException(msg.systemSale.scopeInvalid);
+      }
+      scope = dto.scope ?? USER_SCOPE.OWNER;
+      // Chỉ ADMIN được tạo SALE hệ thống (system SALE quá quyền lực, system SALE không tự tạo nhau).
+      if (scope === USER_SCOPE.SYSTEM && currentUser?.role !== ROLE.ADMIN) {
+        throw new ForbiddenException(msg.systemSale.onlyAdminCreate);
+      }
+    } else if (dto.scope && dto.scope !== USER_SCOPE.OWNER) {
+      // Truyền scope=system cho non-SALE → sai bản chất.
+      throw new BadRequestException(msg.systemSale.scopeInvalid);
+    }
+
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
+    const { scope: _ignore, ...rest } = dto;
+
     const user = await this.prisma.user.create({
-      data: { ...dto, password: hashedPassword },
+      data: { ...rest, password: hashedPassword, scope },
       select: {
-        id: true, name: true, phone: true, email: true, role: true, ownerId: true,
+        id: true, name: true, phone: true, email: true, role: true, ownerId: true, scope: true,
         gender: true, dateOfBirth: true, createdAt: true,
       },
     });
@@ -537,10 +572,17 @@ export class UsersService {
 
   async getAvailableStaff(msg: Messages) {
     const staff = await this.prisma.user.findMany({
-      where: { role: ROLE.SALE, ownerId: null, isActive: true, deletedAt: null },
+      // Loại trừ system SALE (scope=system) — họ thuộc hệ thống, không gán cho OWNER được.
+      where: {
+        role: ROLE.SALE,
+        ownerId: null,
+        scope: USER_SCOPE.OWNER,
+        isActive: true,
+        deletedAt: null,
+      },
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, ownerId: true, isActive: true, createdAt: true,
+        role: true, ownerId: true, scope: true, isActive: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -552,7 +594,7 @@ export class UsersService {
       where: { ownerId, role: ROLE.SALE, deletedAt: null },
       select: {
         id: true, name: true, phone: true, email: true,
-        role: true, isActive: true, createdAt: true,
+        role: true, scope: true, isActive: true, createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -566,6 +608,11 @@ export class UsersService {
     if (!sale) throw new NotFoundException(msg.users.staffUserNotFound);
 
     if (sale.role !== ROLE.SALE) {
+      throw new BadRequestException(msg.users.staffOnlySaleRole);
+    }
+
+    // System SALE không được gán cho OWNER (họ thuộc hệ thống).
+    if (sale.scope === USER_SCOPE.SYSTEM) {
       throw new BadRequestException(msg.users.staffOnlySaleRole);
     }
 
@@ -587,18 +634,26 @@ export class UsersService {
 
   // ─── Admin moderation actions ──────────────────────────────────────────────
 
-  async banUser(adminId: string, userId: string, reason: string, msg: Messages) {
+  /** Chống leo quyền: system SALE không được tác động lên user role=ADMIN. */
+  private assertCallerCanTargetAdmin(caller: { role: number }, targetRole: number, msg: Messages) {
+    if (targetRole === ROLE.ADMIN && caller.role !== ROLE.ADMIN) {
+      throw new ForbiddenException(msg.common.forbidden);
+    }
+  }
+
+  async banUser(caller: { id: string; role: number }, userId: string, reason: string, msg: Messages) {
     if (!reason || reason.trim().length < 5) {
       throw new BadRequestException(msg.users.banReasonRequired);
     }
-    if (adminId === userId) {
+    if (caller.id === userId) {
       throw new BadRequestException(msg.users.cannotSelfTarget);
     }
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, isActive: true, bannedAt: true },
+      select: { id: true, role: true, isActive: true, bannedAt: true },
     });
     if (!user) throw new NotFoundException(msg.users.notFound);
+    this.assertCallerCanTargetAdmin(caller, user.role, msg);
     if (!user.isActive || user.bannedAt) {
       throw new BadRequestException(msg.users.alreadyBanned);
     }
@@ -608,15 +663,15 @@ export class UsersService {
         isActive: false,
         bannedAt: new Date(),
         bannedReason: reason.trim(),
-        bannedBy: adminId,
+        bannedBy: caller.id,
         refreshToken: null,
       },
       select: { id: true, name: true, email: true, role: true, isActive: true, bannedAt: true, bannedReason: true },
     });
-    this.logger.log(`User ${userId} banned by admin=${adminId} reason="${reason}"`);
+    this.logger.log(`User ${userId} banned by caller=${caller.id} reason="${reason}"`);
     void this.auditLog.log({
-      actorId: adminId,
-      actorRole: ROLE.ADMIN,
+      actorId: caller.id,
+      actorRole: caller.role,
       action: AUDIT_ACTION.USER_BAN,
       targetType: AUDIT_TARGET_TYPE.USER,
       targetId: userId,
@@ -626,15 +681,16 @@ export class UsersService {
     return { message: msg.users.banSuccess, data: updated };
   }
 
-  async unbanUser(adminId: string, userId: string, msg: Messages) {
-    if (adminId === userId) {
+  async unbanUser(caller: { id: string; role: number }, userId: string, msg: Messages) {
+    if (caller.id === userId) {
       throw new BadRequestException(msg.users.cannotSelfTarget);
     }
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, bannedAt: true },
+      select: { id: true, role: true, bannedAt: true },
     });
     if (!user) throw new NotFoundException(msg.users.notFound);
+    this.assertCallerCanTargetAdmin(caller, user.role, msg);
     if (!user.bannedAt) {
       throw new BadRequestException(msg.users.notBanned);
     }
@@ -648,10 +704,10 @@ export class UsersService {
       },
       select: { id: true, name: true, email: true, role: true, isActive: true },
     });
-    this.logger.log(`User ${userId} unbanned by admin=${adminId}`);
+    this.logger.log(`User ${userId} unbanned by caller=${caller.id}`);
     void this.auditLog.log({
-      actorId: adminId,
-      actorRole: ROLE.ADMIN,
+      actorId: caller.id,
+      actorRole: caller.role,
       action: AUDIT_ACTION.USER_UNBAN,
       targetType: AUDIT_TARGET_TYPE.USER,
       targetId: userId,
@@ -730,12 +786,12 @@ export class UsersService {
     };
   }
 
-  async changeRole(adminId: string, userId: string, newRole: number, msg: Messages) {
+  async changeRole(caller: { id: string; role: number }, userId: string, newRole: number, msg: Messages) {
     const allowedRoles: number[] = [ROLE.ADMIN, ROLE.OWNER, ROLE.SALE, ROLE.CUSTOMER];
     if (!allowedRoles.includes(newRole)) {
       throw new BadRequestException(msg.users.invalidRole);
     }
-    if (adminId === userId) {
+    if (caller.id === userId) {
       throw new BadRequestException(msg.users.cannotSelfTarget);
     }
     const user = await this.prisma.user.findUnique({
@@ -743,22 +799,29 @@ export class UsersService {
       select: { id: true, role: true, ownerId: true },
     });
     if (!user) throw new NotFoundException(msg.users.notFound);
+    // Chống leo quyền: chỉ ADMIN được tác động lên user ADMIN HOẶC nâng cấp lên ADMIN.
+    this.assertCallerCanTargetAdmin(caller, user.role, msg);
+    if (newRole === ROLE.ADMIN && caller.role !== ROLE.ADMIN) {
+      throw new ForbiddenException(msg.common.forbidden);
+    }
 
     // When demoting to SALE → must clear ownerId if downgrading, but caller can re-assign separately.
     // When promoting to OWNER → clear ownerId.
-    const data: { role: number; ownerId?: string | null } = { role: newRole };
+    // Khi role mới ≠ SALE → reset scope='owner' (scope chỉ có ngữ nghĩa với SALE).
+    const data: { role: number; ownerId?: string | null; scope?: string } = { role: newRole };
     if (newRole === ROLE.OWNER || newRole === ROLE.ADMIN || newRole === ROLE.CUSTOMER) {
       data.ownerId = null;
+      data.scope = USER_SCOPE.OWNER;
     }
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data,
       select: { id: true, name: true, email: true, role: true, ownerId: true, isActive: true },
     });
-    this.logger.log(`Role changed user=${userId} ${user.role}→${newRole} by admin=${adminId}`);
+    this.logger.log(`Role changed user=${userId} ${user.role}→${newRole} by caller=${caller.id}`);
     void this.auditLog.log({
-      actorId: adminId,
-      actorRole: ROLE.ADMIN,
+      actorId: caller.id,
+      actorRole: caller.role,
       action: AUDIT_ACTION.USER_CHANGE_ROLE,
       targetType: AUDIT_TARGET_TYPE.USER,
       targetId: userId,

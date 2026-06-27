@@ -22,9 +22,10 @@ import { GetKycQueueDto } from './dto/get-kyc-queue.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { KYC_ADMIN_FILTER, ROLE } from '../../common/constants';
+import { KYC_ADMIN_FILTER, ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Admin KYC')
@@ -40,7 +41,8 @@ export class AdminKycController {
   constructor(private adminKycService: AdminKycService) {}
 
   @Get('queue')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.KYC, 'canRead')
   @ApiOperation({
     summary: 'Danh sách hồ sơ KYC (một endpoint, filter tab 0–3)',
   })
@@ -71,7 +73,8 @@ export class AdminKycController {
   }
 
   @Get('count-pending')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.KYC, 'canRead')
   @ApiOperation({
     summary:
       'Badge chờ duyệt (deprecated — dùng pendingCount trong GET /queue)',
@@ -81,7 +84,8 @@ export class AdminKycController {
   }
 
   @Get(':id')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.KYC, 'canRead')
   @ApiOperation({
     summary: 'Chi tiết hồ sơ KYC kèm 7 mục xác minh',
     description: 'Trả full submission + uploads + verificationFields (7 boolean checklist).',
@@ -91,7 +95,8 @@ export class AdminKycController {
   }
 
   @Post('submissions/:id/approve')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.KYC, 'canUpdate')
   @ApiOperation({ summary: 'Approve KYC submission' })
   approve(
     @CurrentUser() user: any,
@@ -103,7 +108,8 @@ export class AdminKycController {
   }
 
   @Post('submissions/:id/reject')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.KYC, 'canUpdate')
   @ApiOperation({ summary: 'Reject KYC submission' })
   reject(
     @CurrentUser() user: any,

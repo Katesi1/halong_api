@@ -319,6 +319,25 @@ export const vi = {
     setSuccess: 'Cập nhật quyền thành công',
     forbidden: 'Bạn không có quyền thực hiện thao tác này',
     invalidModule: (mod: string) => `Module quyền không hợp lệ: ${mod}`,
+    onlyForSale: 'Chỉ cấu hình quyền được cho user role=SALE',
+  },
+
+  // ─── System SALE (admin-grade SALE quản trị hệ thống) ──────────────────────
+  systemSale: {
+    scopeInvalid: 'scope không hợp lệ (chỉ chấp nhận "owner" hoặc "system")',
+    onlyAdminCreate: 'Chỉ ADMIN được tạo SALE hệ thống',
+    cannotChangeScope: 'Không thể đổi scope sau khi tạo user',
+    inviteCreateSuccess: (email: string) => `Đã gửi lời mời SALE hệ thống tới ${email}`,
+    inviteListSuccess: 'Lấy danh sách lời mời SALE hệ thống thành công',
+    inviteCancelSuccess: 'Đã huỷ lời mời SALE hệ thống',
+    inviteAcceptSuccess: 'Tham gia hệ thống thành công',
+    listSuccess: 'Lấy danh sách SALE hệ thống thành công',
+    removeSuccess: 'Đã gỡ SALE hệ thống',
+    notFound: 'SALE hệ thống không tồn tại',
+    createSuccess: (name: string) => `Đã tạo SALE hệ thống ${name}`,
+    notifyInviteAcceptedTitle: 'SALE hệ thống mới đã tham gia',
+    notifyInviteAcceptedBody: (name: string, email: string) =>
+      `${name} (${email}) đã chấp nhận lời mời và gia nhập đội ngũ vận hành`,
   },
 
   // ─── Staff Invites ─────────────────────────────────────────────────────────

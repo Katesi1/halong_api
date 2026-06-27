@@ -18,9 +18,10 @@ import { PaymentService } from './payment.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 import {
   IsOptional,
@@ -54,7 +55,8 @@ export class AdminPaymentsController {
   constructor(private paymentService: PaymentService) {}
 
   @Get()
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PAYMENTS, 'canRead')
   @ApiOperation({
     summary: 'List payment sessions để đối soát thủ công',
     description:
@@ -94,7 +96,8 @@ export class AdminPaymentsController {
   }
 
   @Post(':sessionId/mark-paid')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PAYMENTS, 'canUpdate')
   @ApiOperation({
     summary: 'Admin xác nhận đã nhận tiền cho session (manual reconcile)',
     description:

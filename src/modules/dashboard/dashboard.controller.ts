@@ -2,11 +2,12 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 import { DashboardStatsResponse, ReportsResponse } from '../../common/dto/api-response.dto';
 
@@ -59,7 +60,8 @@ export class DashboardController {
     });
   }
 
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.DASHBOARD, 'canRead')
   @Get('admin/reports/risk-kpis')
   @ApiOperation({
     summary: 'Risk KPIs cho /admin/reports — 5 chi so co san + delta vs ky truoc + top host cancel',

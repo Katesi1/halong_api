@@ -14,7 +14,10 @@ model User {
   email            String    @unique
   password         String? // null nếu user chỉ login Google
   role             Int       @default(2) // 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER
-  ownerId          String? // SALE → trỏ về User có role OWNER (chủ của mình)
+  /// SALE scope: "owner" (thuộc 1 OWNER, mặc định) | "system" (admin-grade SALE do ADMIN tạo).
+  /// Field áp dụng riêng cho role=SALE; các role khác giữ "owner" vô nghĩa nhưng giữ default cho data legacy.
+  scope            String    @default("owner")
+  ownerId          String? // SALE → trỏ về User có role OWNER (chủ của mình). System SALE có ownerId=null
   gender           Int? // 0=MALE, 1=FEMALE, 2=OTHER
   dateOfBirth      DateTime?
   isActive         Boolean   @default(true)
@@ -128,11 +131,13 @@ model UserDevice {
 
 model StaffInvite {
   id             String    @id @default(uuid())
-  ownerId        String
+  ownerId        String // OWNER tạo invite, hoặc ADMIN id nếu là system invite (ngữ nghĩa "inviter")
   email          String
   token          String    @unique // 64 hex chars (32 bytes random)
   shortCode      String    @unique // "HL-XXXXXX" — dùng cho UX nhập tay
   status         String    @default("pending") // pending | accepted | expired | cancelled
+  /// "owner" (mặc định, SALE thuộc OWNER) | "system" (admin tạo SALE hệ thống, accepted user → role=SALE scope=system ownerId=null)
+  scope          String    @default("owner")
   expiresAt      DateTime
   acceptedAt     DateTime?
   acceptedUserId String?   @unique

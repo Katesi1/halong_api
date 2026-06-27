@@ -250,7 +250,8 @@ export class PropertiesController {
   // ─── Admin moderation ─────────────────────────────────────────────────────
 
   @Post(':id/approve')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PROPERTIES_MODERATION, 'canUpdate')
   @ApiOperation({ summary: 'ADMIN duyệt property (chuyển moderationStatus → approved)' })
   approveProperty(
     @Param('id') id: string,
@@ -261,7 +262,8 @@ export class PropertiesController {
   }
 
   @Post(':id/reject')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PROPERTIES_MODERATION, 'canUpdate')
   @ApiOperation({ summary: 'ADMIN từ chối property' })
   rejectProperty(
     @Param('id') id: string,
@@ -273,7 +275,8 @@ export class PropertiesController {
   }
 
   @Post(':id/suspend')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PROPERTIES_MODERATION, 'canUpdate')
   @ApiOperation({ summary: 'ADMIN tạm ngưng property đang hoạt động' })
   suspendProperty(
     @Param('id') id: string,
@@ -285,7 +288,8 @@ export class PropertiesController {
   }
 
   @Patch(':id/hot')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PROPERTIES_MODERATION, 'canUpdate')
   @ApiOperation({
     summary: 'ADMIN bật/tắt badge "Hot" cho property',
     description:

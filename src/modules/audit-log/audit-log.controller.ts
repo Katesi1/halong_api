@@ -4,8 +4,9 @@ import { AuditLogService } from './audit-log.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Audit Log')
@@ -17,8 +18,9 @@ export class AuditLogController {
   constructor(private auditLogService: AuditLogService) {}
 
   @Get()
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'List audit log entries (ADMIN only)' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.AUDIT, 'canRead')
+  @ApiOperation({ summary: 'List audit log entries (ADMIN + system SALE audit.canRead)' })
   @ApiQuery({ name: 'action', required: false, description: 'Filter by exact action slug' })
   @ApiQuery({ name: 'targetType', required: false, description: 'user | property | booking | dispute | ...' })
   @ApiQuery({ name: 'actorId', required: false, description: 'Filter by actor user id' })

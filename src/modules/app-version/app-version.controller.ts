@@ -4,10 +4,11 @@ import { AppVersionService } from './app-version.service';
 import { UpdateVersionDto } from './dto/update-version.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('App Version')
@@ -34,9 +35,10 @@ export class AppVersionController {
 
   @Post('admin/app-version')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.APP_VERSION, 'canUpdate')
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Admin upsert version (ADMIN only)' })
+  @ApiOperation({ summary: 'Admin upsert version (ADMIN + system SALE có quyền appVersion.canUpdate)' })
   @ApiResponse({ status: 201 })
   upsertVersion(@Body() dto: UpdateVersionDto, @Lang() msg: Messages) {
     return this.appVersionService.upsertVersion(dto, msg);

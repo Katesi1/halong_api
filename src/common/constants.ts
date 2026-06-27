@@ -12,25 +12,43 @@ export const ROLE = {
 // Helper: roles that can manage properties/bookings (non-customer, non-admin management)
 export const STAFF_ROLES = [ROLE.OWNER, ROLE.SALE] as const;
 
+/**
+ * SALE scope — phân biệt 2 loại SALE:
+ * - "owner"  → SALE thuộc 1 OWNER (mặc định, flow staff invite của OWNER).
+ * - "system" → SALE hệ thống do ADMIN tạo, quyền gần ADMIN (cấu hình qua UserPermission).
+ *              ownerId = null. Data scope như ADMIN (xem all).
+ */
+export const USER_SCOPE = {
+  OWNER: 'owner',
+  SYSTEM: 'system',
+} as const;
+
 // Sentinel value: SALE chưa gán owner → query sẽ match 0 records
 const UNASSIGNED_OWNER_ID = '__UNASSIGNED__';
 
+/** SALE hệ thống do ADMIN tạo — quyền gần ADMIN, ownerId=null. */
+export function isSystemSale(user: { role: number; scope?: string | null }): boolean {
+  return user.role === ROLE.SALE && user.scope === USER_SCOPE.SYSTEM;
+}
+
 /**
  * Get the effective ownerId for data scoping.
- * - ADMIN → null (sees all)
- * - OWNER → user.id (sees own data)
- * - SALE  → user.ownerId, hoặc UNASSIGNED nếu chưa gán (trả data rỗng)
+ * - ADMIN          → null (sees all)
+ * - SYSTEM SALE    → null (sees all, hành xử như ADMIN ở data layer)
+ * - OWNER          → user.id (sees own data)
+ * - SALE owner     → user.ownerId, hoặc UNASSIGNED nếu chưa gán (trả data rỗng)
  */
-export function getEffectiveOwnerId(user: { id: string; role: number; ownerId?: string | null }): string | null {
+export function getEffectiveOwnerId(user: { id: string; role: number; ownerId?: string | null; scope?: string | null }): string | null {
   if (user.role === ROLE.ADMIN) return null;
+  if (isSystemSale(user)) return null;
   if (user.role === ROLE.OWNER) return user.id;
   if (user.role === ROLE.SALE) return user.ownerId || UNASSIGNED_OWNER_ID;
   return null;
 }
 
-/** SALE chưa được gán cho owner nào */
-export function isSaleUnassigned(user: { role: number; ownerId?: string | null }): boolean {
-  return user.role === ROLE.SALE && !user.ownerId;
+/** SALE owner-scope chưa được gán cho owner nào (không bao gồm system SALE) */
+export function isSaleUnassigned(user: { role: number; ownerId?: string | null; scope?: string | null }): boolean {
+  return user.role === ROLE.SALE && user.scope !== USER_SCOPE.SYSTEM && !user.ownerId;
 }
 
 export const BOOKING_STATUS = {
@@ -266,11 +284,42 @@ export const KYC_UPLOAD_TYPE = {
 
 // ─── Permission Constants ────────────────────────────────────────────────────
 
-export const PERMISSION_MODULE = {
+/**
+ * Owner-scope modules — quyền của SALE thuộc OWNER (scope=owner).
+ * SALE owner mặc định có canRead=true; canCreate/Update/Delete cấp qua UI của OWNER.
+ */
+export const PERMISSION_MODULE_OWNER_SCOPE = {
   PROPERTIES: 'properties',
   BOOKINGS: 'bookings',
   CALENDAR: 'calendar',
   REVIEWS: 'reviews',
+} as const;
+
+/**
+ * Admin-scope modules — quyền dành riêng cho SALE hệ thống (scope=system) do ADMIN cấp.
+ * ADMIN bypass tất cả. SALE owner KHÔNG có quyền truy cập các module này (default false).
+ * SALE hệ thống mặc định KHÔNG có quyền nào; admin phải cấp tường minh.
+ */
+export const PERMISSION_MODULE_ADMIN_SCOPE = {
+  USERS: 'users',                          // quản lý user (ban/unban/role/reset-password/...)
+  KYC: 'kyc',                              // duyệt KYC
+  SUBSCRIPTIONS: 'subscriptions',          // quản lý gói + freeze/unfreeze/trial/mark-paid
+  PAYMENTS: 'payments',                    // đối soát manual bank
+  DISPUTES: 'disputes',                    // moderation tranh chấp
+  REVIEWS_MODERATION: 'reviewsModeration', // ẩn/khôi phục review
+  PROPERTIES_MODERATION: 'propertiesModeration', // approve/reject/suspend/hot property
+  AUDIT: 'audit',                          // xem audit log
+  LEADS: 'leads',                          // xem/sửa lead (toàn hệ thống)
+  SUPPORT: 'support',                      // trả lời support ticket (admin view)
+  EMAILS: 'emails',                        // email template + test send
+  BILLING: 'billing',                      // CRUD billing plan
+  APP_VERSION: 'appVersion',               // set version mobile force-update
+  DASHBOARD: 'dashboard',                  // báo cáo cấp hệ thống (admin reports)
+} as const;
+
+export const PERMISSION_MODULE = {
+  ...PERMISSION_MODULE_OWNER_SCOPE,
+  ...PERMISSION_MODULE_ADMIN_SCOPE,
 } as const;
 
 export const PERMISSION_ACTION = {
@@ -281,6 +330,12 @@ export const PERMISSION_ACTION = {
 } as const;
 
 export const ALL_PERMISSION_MODULES = Object.values(PERMISSION_MODULE);
+export const OWNER_SCOPE_MODULES = Object.values(PERMISSION_MODULE_OWNER_SCOPE) as readonly string[];
+export const ADMIN_SCOPE_MODULES = Object.values(PERMISSION_MODULE_ADMIN_SCOPE) as readonly string[];
+
+export function isAdminScopeModule(mod: string): boolean {
+  return ADMIN_SCOPE_MODULES.includes(mod);
+}
 
 // Status mapping for API response (camelCase for frontend)
 export const KYC_STATUS_API_MAP: Record<string, string> = {

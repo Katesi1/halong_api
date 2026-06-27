@@ -33,6 +33,9 @@
 21. [Changelog & Bug fixes](#21-changelog--bug-fixes)
 22. [FE Q&A — Confirms & Design decisions](#22-fe-qa--confirms--design-decisions)
 23. [Uploads — Generic file upload cho Chat & các module khác](#23-uploads--generic-file-upload)
+24. [Mobile Profile Endpoints](#24-mobile-profile-endpoints-support--feedback--data-export--consents--notification-prefs)
+25. [FE Web Admin v2 — Bổ sung 2026-06-23](#25-fe-web-admin-v2--bổ-sung-2026-06-23)
+26. [**System SALE — Admin-grade SALE (v1.15)**](#26-system-sale--admin-grade-sale-v115--2026-06-26)
 
 ---
 
@@ -279,6 +282,7 @@ state.setUser(user.data);
     "dateOfBirth": null,
     "kycBypass": false,
     "kycStatus": "approved",
+    "isKycVerified": true,
     "subscriptionStatus": "trial",
     "subscriptionPlanId": "rooms_5",
     "subscriptionCycle": "monthly",
@@ -310,6 +314,14 @@ state.setUser(user.data);
 ```
 Với ADMIN/OWNER/CUSTOMER → `permissions: []` (mảng rỗng, KHÔNG phải `undefined`).
 
+**`isKycVerified`** (derived flag, đọc-only) = `kycBypass === true || kycStatus === 'approved'`. FE app dùng cờ này để quyết định banner:
+
+- `isKycVerified = true` + `kycStatus = 'approved'` → user tự nộp KYC và được duyệt → ẩn banner KYC.
+- `isKycVerified = true` + `kycBypass = true` (kèm bất kỳ `kycStatus` nào, kể cả `none/pending/rejected`) → admin cấp bypass → **ẩn banner KYC, KHÔNG nhắc user lên KYC nữa**.
+- `isKycVerified = false` → hiển thị banner / CTA "Hoàn tất KYC" như cũ.
+
+Cùng quy tắc đã dùng cho `host.isKycVerified` ở §4.11.
+
 ### 2.6 Lợi ích của pattern này
 
 | | Pattern cũ (login trả user) | Pattern mới (tách 2 endpoint) |
@@ -330,6 +342,8 @@ Backend chặn quá 3 account tạo cùng 1 device trong 24h (dựa trên `User-
 ## 2A. Phân quyền & Authorization — Quy tắc tổng
 
 > **Đọc kỹ section này trước khi gọi bất kỳ endpoint nào.** FE đôi khi gặp 401/403 không hiểu vì sao — câu trả lời đa số nằm ở đây.
+>
+> ⚠️ **v1.15 (2026-06-26)** — Mọi endpoint admin giờ chấp nhận thêm **SALE hệ thống** (`role=2 + scope=system`) khi user có quyền tương ứng trong bảng `user_permissions`. Đọc §26 để hiểu mô hình mới đầy đủ. PermissionGuard giờ check cả `users / kyc / subscriptions / disputes / ...` chứ không chỉ 4 module owner-scope cũ.
 
 ### 2A.1 Ba lớp guard BE chạy theo thứ tự
 
@@ -3618,3 +3632,288 @@ Migration `20260623091337_dispute_penalty_call_log` đã apply lên prod DB:
 - Thêm table `subscription_call_logs (id, userId, adminId, note TEXT, createdAt)` + index `(userId, createdAt DESC)`
 
 Không touch booking/payment/user table (rủi ro thấp).
+
+---
+
+## 26. System SALE — Admin-grade SALE (v1.15 · 2026-06-26)
+
+> SALE của hệ thống: ADMIN tạo SALE với quyền gần ADMIN, cấu hình per-module qua bảng `user_permissions`. Khác với SALE thuộc OWNER (hiện hữu).
+
+### 26.1 Hai loại SALE
+
+Cùng `role=2` (SALE) nhưng phân biệt bằng cột mới **`User.scope`**:
+
+| `scope` | Ý nghĩa | `ownerId` | Cách tạo | Data scope | Default permissions |
+|---|---|---|---|---|---|
+| `"owner"` (default) | SALE thuộc 1 OWNER (legacy) | OWNER id | OWNER invite qua `POST /staff/invites` | Chỉ data của OWNER mình | 4 module owner-scope, `canRead=true` (xem §12) |
+| `"system"` | SALE hệ thống (admin-grade) | `null` | ADMIN invite qua `POST /admin/system-staff/invites` HOẶC tạo trực tiếp `POST /users { role: 2, scope: "system" }` | Toàn hệ thống (như ADMIN, `getEffectiveOwnerId → null`) | **Không có gì** — ADMIN phải cấp tường minh qua `PUT /permissions/:userId` |
+
+User mới đăng ký Google/Apple/password đều mặc định `scope="owner"`. System SALE chỉ được tạo qua ADMIN, không tự sign-up.
+
+### 26.2 Permission modules — mở rộng
+
+Bảng `user_permissions` giờ chấp nhận thêm **admin-scope modules** (chỉ áp dụng cho `scope=system`):
+
+#### Owner-scope (legacy, áp dụng cho SALE thuộc OWNER)
+
+| module | Endpoint mẫu | Default cho SALE owner |
+|---|---|---|
+| `properties` | `/properties` CRUD | `canRead=true` |
+| `bookings` | `/bookings` CRUD | `canRead=true, canCreate=true, canUpdate=true` |
+| `calendar` | `/calendar/*` | CRUD đầy đủ |
+| `reviews` | `/properties/:id/reviews/:reviewId/reply` | `canRead=true, canUpdate=true` |
+
+#### Admin-scope (system SALE, default ALL false — phải cấp tường minh)
+
+| module | Endpoint mẫu | Action mapping |
+|---|---|---|
+| `users` | `/users` CRUD, `/users/:id/ban|unban|reset-password|...`, `/permissions/:userId`, `/admin/system-staff/*` | GET=`canRead`, POST tạo=`canCreate`, ban/unban/reset/role/kyc-bypass/revoke=`canUpdate`, DELETE=`canDelete` |
+| `kyc` | `/admin/kyc/queue|count-pending|:id`, `submissions/:id/approve|reject` | `canRead` list/detail, `canUpdate` approve/reject |
+| `subscriptions` | `/admin/subscriptions`, `/admin/users/:id/subscription/*`, `/admin/subscriptions/:id/call-log` | `canRead` list, `canUpdate` mark-paid/freeze/unfreeze/price/grant-trial, `canCreate` call-log, `canDelete` `DELETE trial` |
+| `payments` | `/admin/payments/*` | `canRead`, `canUpdate` (mark-paid) |
+| `disputes` | `/admin/disputes/*` | `canRead`, `canUpdate` (investigate/resolve/reject) |
+| `reviewsModeration` | `/admin/reviews/*` | `canRead`, `canUpdate` (restore), `canDelete` (hide) |
+| `propertiesModeration` | `/properties/:id/approve|reject|suspend|hot` | `canUpdate` cho mọi action |
+| `audit` | `/admin/audit-log` | `canRead` |
+| `leads` | (reserved cho admin view lead toàn hệ thống) | `canRead` |
+| `support` | (reserved cho admin ticket reply) | `canRead`, `canUpdate` |
+| `emails` | `/admin/emails/templates`, `/admin/emails/test` | `canRead`, `canCreate` (test send) |
+| `billing` | `/admin/billing-plans` CRUD | CRUD đầy đủ |
+| `appVersion` | `POST /admin/app-version` | `canUpdate` |
+| `dashboard` | `/admin/reports/risk-kpis` | `canRead` |
+
+> **ADMIN bypass toàn bộ permission check** — luôn pass dù bảng `user_permissions` trống.
+> **OWNER + CUSTOMER** chỉ pass owner-scope module; admin-scope module luôn deny.
+
+### 26.3 Endpoint mới — Quản lý System SALE
+
+Base path: `/admin/system-staff`. Roles: `ADMIN` HOẶC `SALE scope=system` (với permission tương ứng trên module `users`).
+
+| Method | Path | Permission yêu cầu | Body / Query | Mô tả |
+|---|---|---|---|---|
+| `POST` | `/admin/system-staff/invites` | `users.canCreate` | `{ email }` | Tạo invite SALE hệ thống. Reuse bảng `staff_invites` với `scope=system`, `ownerId=adminId` (inviter). TTL 7 ngày. Gửi email + trả `inviteLink` + `shortCode HL-XXXXXX`. |
+| `GET` | `/admin/system-staff/invites?status=` | `users.canRead` | `?status=pending\|accepted\|expired\|cancelled\|all` | List invite system, default all status. |
+| `DELETE` | `/admin/system-staff/invites/:id` | `users.canUpdate` | — | Huỷ invite đang pending. 400 nếu không phải scope=system hoặc đã accept. |
+| `GET` | `/admin/system-staff?isActive=` | `users.canRead` | `?isActive=true\|false\|all` | List system SALE, hydrate `permissions[]` per user. |
+| `DELETE` | `/admin/system-staff/:userId` | `users.canDelete` | — | Soft-disable system SALE (`isActive=false`, clear `refreshToken` + xoá device tokens). |
+
+#### Verify + Accept dùng chung với owner invite
+
+Endpoint `GET /staff/invites/verify/:token` và `POST /staff/invites/accept` đã có sẵn, **giờ trả thêm field `scope`** trong verify response để FE biết loại invite:
+
+```json
+{
+  "success": true,
+  "data": {
+    "email": "ops@halong24h.com",
+    "scope": "system",
+    "owner": { "name": "Halong24h Admin", "avatar": null, "homestayName": null },
+    "expiresAt": "...",
+    "status": "pending"
+  }
+}
+```
+
+Khi accept thành công:
+- `scope=owner` → tạo user `role=SALE, scope=owner, ownerId=invite.ownerId`. BE seed 4 row `user_permissions` default cho owner-scope modules.
+- `scope=system` → tạo user `role=SALE, scope=system, ownerId=null`. BE **KHÔNG seed** permission gì — ADMIN tự cấp qua `PUT /permissions/:userId`.
+
+FCM push khi system invite được accept: `pushType=system_staff_invite_accepted`, deepLink `/admin/system-staff`.
+
+#### 26.3.2 `GET /users?scope=` — Lọc theo SALE scope (server-side)
+
+`GET /users` đã hỗ trợ thêm query `scope` để FE Web không phải lọc client-side.
+
+| `scope` | Hành vi |
+|---|---|
+| `owner` | Chỉ SALE thuộc OWNER (`role=SALE && scope='owner'`). BE tự ép `role=2`. |
+| `system` | Chỉ SALE hệ thống (`role=SALE && scope='system'`). BE tự ép `role=2`. |
+| `all` hoặc bỏ qua | Không lọc theo scope. |
+| Giá trị khác | **400** `systemSale.scopeInvalid`. |
+
+Có thể kết hợp với `role`, `q`, `withStats`. Nếu truyền `role=1&scope=system` → nghịch logic (OWNER không có scope=system), BE giữ điều kiện `role=SALE` của filter scope → kết quả rỗng (đúng semantic).
+
+Ví dụ:
+
+```
+GET /users?scope=system&withStats=true&q=ops
+GET /users?scope=owner&role=2
+GET /users?scope=all   # = GET /users (không lọc)
+```
+
+Auth: ADMIN hoặc system SALE có `users.canRead` (không đổi so với endpoint gốc).
+
+### 26.4 `POST /users` — Tạo user kèm scope
+
+ADMIN có thể tạo trực tiếp system SALE không cần qua invite:
+
+```json
+{
+  "name": "Ops Manager",
+  "email": "ops@halong24h.com",
+  "phone": "0900000000",
+  "password": "Strong@123",
+  "role": 2,
+  "scope": "system"
+}
+```
+
+Validate:
+- `scope` chỉ chấp nhận `"owner"` hoặc `"system"`. Sai → 400 `systemSale.scopeInvalid`.
+- `scope=system` + `role≠2` → 400 (system chỉ áp dụng cho SALE).
+- `scope=system` + caller không phải ADMIN → 403 `systemSale.onlyAdminCreate`.
+
+Response thêm field `scope` cho mọi user shape (`GET /auth/profile`, `GET /users`, `GET /users/:id`).
+
+### 26.5 `PUT /permissions/:userId` — Cấp quyền System SALE
+
+Endpoint cũ vẫn dùng. Mở rộng:
+- Target user phải có `role=SALE`. Truyền userId khác → 400 `permissions.onlyForSale`.
+- Target `scope=owner` → chỉ chấp nhận 4 owner-scope modules. Truyền admin-scope module → 400 `permissions.invalidModule(mod)`.
+- Target `scope=system` → chấp nhận tất cả modules (owner + admin scope).
+- Default khi tạo row mới cho admin-scope module: `canRead = false` (phải cấp tường minh). Owner-scope module giữ default `canRead = true`.
+
+**Body example cho system SALE**:
+```json
+{
+  "permissions": [
+    { "module": "users",                 "canCreate": true, "canRead": true, "canUpdate": true, "canDelete": false },
+    { "module": "kyc",                   "canRead": true, "canUpdate": true },
+    { "module": "subscriptions",         "canRead": true, "canUpdate": true, "canCreate": true },
+    { "module": "payments",              "canRead": true, "canUpdate": true },
+    { "module": "disputes",              "canRead": true, "canUpdate": true },
+    { "module": "reviewsModeration",     "canRead": true, "canUpdate": true, "canDelete": true },
+    { "module": "propertiesModeration",  "canRead": true, "canUpdate": true },
+    { "module": "audit",                 "canRead": true },
+    { "module": "emails",                "canRead": true, "canCreate": true },
+    { "module": "billing",               "canRead": true, "canCreate": true, "canUpdate": true, "canDelete": true },
+    { "module": "appVersion",            "canUpdate": true },
+    { "module": "dashboard",             "canRead": true }
+  ]
+}
+```
+
+Response `GET /permissions/:userId` trả về tất cả module (cả những module chưa có row, dùng default), kèm `user.scope` để FE biết hiển thị form owner-scope hay full admin-scope:
+
+```json
+{
+  "data": {
+    "user": { "id": "uuid", "name": "Ops Manager", "role": 2, "scope": "system" },
+    "permissions": [ /* 18 entries: 4 owner-scope + 14 admin-scope */ ]
+  }
+}
+```
+
+### 26.6 Authorization guard — hành vi mới
+
+Bổ sung cho §2A.1:
+
+```
+JwtAuthGuard          → user object kèm field `scope` (string)
+RolesGuard            → user.role phải có trong whitelist @Roles(...)
+PermissionGuard       → endpoint có @Permission(module, action) → check user_permissions
+```
+
+`PermissionGuard.hasPermission(userId, role, module, action)` logic mới:
+- ADMIN → allow (bypass)
+- OWNER → allow nếu module thuộc owner-scope; deny nếu admin-scope
+- CUSTOMER → allow nếu module thuộc owner-scope; deny nếu admin-scope
+- SALE:
+  - Resolve `scope` từ DB (1 query mỗi request).
+  - Owner SALE truy cập admin-scope module → deny (luôn 403).
+  - Owner SALE truy cập owner-scope module: `canRead = true` default; CRUD khác phải có row `user_permissions`.
+  - System SALE: phải có row `user_permissions` với action=true cho **mọi** module (kể cả `canRead`). Không có row → deny.
+
+Endpoint admin (vd `/admin/disputes`, `/users`, `/admin/kyc/queue`) giờ có 2 decorator:
+
+```ts
+@Roles(ROLE.ADMIN, ROLE.SALE)
+@Permission(PERMISSION_MODULE.DISPUTES, 'canRead')
+```
+
+- SALE owner → pass `@Roles`, fail `@Permission` (admin-scope) → 403.
+- SALE system có `disputes.canRead=true` → pass cả 2 → vào được.
+- ADMIN → pass cả 2 (bypass permission).
+
+### 26.7 Chống leo quyền (privilege escalation)
+
+System SALE có thể có `users.canUpdate / canDelete` nhưng **không được tác động lên ADMIN user**:
+
+| Action | Block khi caller không phải ADMIN |
+|---|---|
+| `POST /users/:id/ban` với target ADMIN | 403 `common.forbidden` |
+| `POST /users/:id/unban` với target ADMIN | 403 `common.forbidden` |
+| `PATCH /users/:id/role` với target ADMIN hoặc `newRole=ADMIN` | 403 `common.forbidden` |
+
+System SALE cũng **không tự tạo system SALE khác** qua `POST /users` (chỉ ADMIN). Riêng `POST /admin/system-staff/invites` thì system SALE có `users.canCreate` vẫn tạo được — đây là trade-off vì luồng invite an toàn hơn (cần email + accept).
+
+### 26.8 Schema migration — `20260626053013_add_user_scope`
+
+```sql
+ALTER TABLE "staff_invites" ADD COLUMN "scope" TEXT NOT NULL DEFAULT 'owner';
+ALTER TABLE "users"         ADD COLUMN "scope" TEXT NOT NULL DEFAULT 'owner';
+```
+
+Additive, non-destructive. Mọi user/invite hiện hữu giữ `scope='owner'` (legacy behavior).
+
+### 26.9 FE migration checklist
+
+#### Web Admin
+
+- [ ] Trang `/admin/users` — thêm filter `scope=owner|system|all`, badge "Hệ thống" cho row có `scope=system`. **Server-side đã hỗ trợ** `GET /users?scope=owner|system|all` (xem §26.3.2) — gỡ logic lọc client-side.
+- [ ] Form tạo user role=SALE — thêm select `scope` (Admin-only thấy option "system").
+- [ ] Trang mới `/admin/system-staff` — list system SALE + permissions per user.
+- [ ] Trang mới `/admin/system-staff/invites` — danh sách invite + nút tạo + huỷ.
+- [ ] Modal cấp quyền — render dynamic 4 modules (owner-scope) hoặc 18 modules (system-scope) tuỳ `user.scope` trả về từ `GET /permissions/:userId`.
+- [ ] Hiển thị badge "SALE hệ thống" thay vì "Nhân viên của OWNER" trong header.
+- [ ] System SALE login → ẩn các UI sub plan / KYC (không áp dụng cho system).
+
+#### Mobile (nếu có app cho system SALE)
+
+- [ ] `GET /auth/profile` đã trả thêm `scope` — lưu trong state.
+- [ ] Nếu `role=2 && scope=system` → render UI admin-grade thay vì UI staff thường.
+- [ ] Mọi endpoint `/admin/*` giờ chấp nhận token system SALE có permission tương ứng.
+
+#### Cả hai
+
+- [ ] Phân biệt 401 (token sai) vs 403 (thiếu permission). System SALE bị 403 trên endpoint admin → kiểm tra `PUT /permissions/:userId` đã cấp đủ chưa.
+- [ ] Endpoint accept invite (`/staff/invites/verify/:token`) giờ trả `scope` — FE hiển thị UI khác cho 2 loại invite.
+
+### 26.10 Quick start cho ADMIN
+
+```bash
+# 1. Tạo system SALE bằng POST /users (admin chủ động, set password ngay)
+curl -X POST https://api.halong24h.com/users \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ops Manager",
+    "email": "ops@halong24h.com",
+    "password": "TempPass@123",
+    "role": 2,
+    "scope": "system"
+  }'
+
+# 2. Cấp quyền — ví dụ toàn quyền KYC + Subscription + Disputes
+curl -X PUT https://api.halong24h.com/permissions/<new-user-id> \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "permissions": [
+      { "module": "kyc",           "canRead": true, "canUpdate": true },
+      { "module": "subscriptions", "canRead": true, "canUpdate": true, "canCreate": true },
+      { "module": "disputes",      "canRead": true, "canUpdate": true }
+    ]
+  }'
+
+# 3. Hoặc dùng invite flow (gửi email cho user tự set password)
+curl -X POST https://api.halong24h.com/admin/system-staff/invites \
+  -H "Authorization: Bearer <admin-token>" \
+  -d '{ "email": "ops@halong24h.com" }'
+# → email được gửi, user click link → POST /staff/invites/accept
+# → SALE scope=system được tạo, ADMIN cấp permissions sau
+```
+
+### 26.11 Changelog
+
+- **2026-06-26 (v1.15)** — Thêm system SALE: `User.scope` + `StaffInvite.scope`, mở rộng `user_permissions` thêm 14 admin-scope modules, mới module `/admin/system-staff/*`, sweep mọi admin controller chấp nhận thêm SALE (kèm `@Permission`), thêm guard chống leo quyền target ADMIN.

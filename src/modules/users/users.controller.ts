@@ -14,9 +14,10 @@ import { BanUserDto, AdminResetPasswordDto, ChangeRoleDto } from './dto/admin-ac
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Users')
@@ -28,16 +29,25 @@ export class UsersController {
   constructor(private usersService: UsersService) {}
 
   @Get()
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'Danh sách user (Admin only)' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canRead')
+  @ApiOperation({ summary: 'Danh sách user (ADMIN + system SALE có users.canRead)' })
   @ApiQuery({ name: 'role', required: false, description: '0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER' })
   @ApiQuery({ name: 'withStats', required: false, description: 'true → bundle `stats.{propertyCount,bookingCount}` cho mỗi user' })
   @ApiQuery({ name: 'q', required: false, description: 'Keyword search theo name / phone / email (không phân biệt hoa thường, max 100 ký tự)' })
+  @ApiQuery({
+    name: 'scope',
+    required: false,
+    enum: ['owner', 'system', 'all'],
+    description:
+      'Lọc theo SALE scope. `owner` = SALE thuộc OWNER. `system` = SALE hệ thống (admin-grade). `all` hoặc bỏ qua = không lọc. Khi truyền `owner`/`system`, BE tự ép `role=2`.',
+  })
   @ApiResponse({ status: 200, type: UserListResponse })
   findAll(
     @Query('role') role: string,
     @Query('withStats') withStats: string,
     @Query('q') q: string,
+    @Query('scope') scope: string,
     @Lang() msg: Messages,
   ) {
     return this.usersService.findAll(
@@ -45,6 +55,7 @@ export class UsersController {
       role !== undefined ? parseInt(role) : undefined,
       withStats === 'true',
       q,
+      scope,
     );
   }
 
@@ -114,11 +125,16 @@ export class UsersController {
   }
 
   @Post()
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'Tạo user mới (Admin only)' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canCreate')
+  @ApiOperation({
+    summary: 'Tạo user mới (ADMIN + system SALE có users.canCreate)',
+    description:
+      'Truyền role=2 + scope="system" để tạo SALE hệ thống (chỉ ADMIN được tạo system SALE). ADMIN sẽ cấp quyền chi tiết qua PUT /permissions/:userId.',
+  })
   @ApiResponse({ status: 201, type: UserResponse })
-  create(@Body() dto: CreateUserDto, @Lang() msg: Messages) {
-    return this.usersService.create(dto, msg);
+  create(@Body() dto: CreateUserDto, @CurrentUser() currentUser: any, @Lang() msg: Messages) {
+    return this.usersService.create(dto, currentUser, msg);
   }
 
   @Post('my-staff')
@@ -146,8 +162,9 @@ export class UsersController {
   }
 
   @Patch(':id/kyc-bypass')
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'Bật/tắt quyền bỏ qua KYC cho OWNER (Admin only)' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canUpdate')
+  @ApiOperation({ summary: 'Bật/tắt quyền bỏ qua KYC cho OWNER (ADMIN + system SALE users.canUpdate)' })
   @ApiResponse({ status: 200, type: UserResponse })
   toggleKycBypass(
     @Param('id') id: string,
@@ -171,8 +188,9 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'Xóa user (Admin only)' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canDelete')
+  @ApiOperation({ summary: 'Xóa user (ADMIN + system SALE users.canDelete)' })
   @ApiResponse({ status: 200, type: MessageResponse })
   remove(@Param('id') id: string, @CurrentUser('id') currentUserId: string, @Lang() msg: Messages) {
     return this.usersService.remove(id, currentUserId, msg);
@@ -181,31 +199,34 @@ export class UsersController {
   // ─── Admin moderation actions ──────────────────────────────────────────────
 
   @Post(':id/ban')
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'ADMIN ban user (soft-disable + revoke sessions)' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canUpdate')
+  @ApiOperation({ summary: 'Ban user (ADMIN + system SALE users.canUpdate)' })
   banUser(
     @Param('id') id: string,
     @Body() dto: BanUserDto,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() caller: any,
     @Lang() msg: Messages,
   ) {
-    return this.usersService.banUser(adminId, id, dto.reason, msg);
+    return this.usersService.banUser(caller, id, dto.reason, msg);
   }
 
   @Post(':id/unban')
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'ADMIN gỡ ban user' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canUpdate')
+  @ApiOperation({ summary: 'Gỡ ban user (ADMIN + system SALE users.canUpdate)' })
   unbanUser(
     @Param('id') id: string,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() caller: any,
     @Lang() msg: Messages,
   ) {
-    return this.usersService.unbanUser(adminId, id, msg);
+    return this.usersService.unbanUser(caller, id, msg);
   }
 
   @Post(':id/revoke-sessions')
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'ADMIN thu hồi tất cả phiên đăng nhập + FCM token của user' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canUpdate')
+  @ApiOperation({ summary: 'Thu hồi tất cả phiên đăng nhập + FCM token (ADMIN + system SALE users.canUpdate)' })
   revokeSessions(
     @Param('id') id: string,
     @CurrentUser('id') adminId: string,
@@ -215,9 +236,10 @@ export class UsersController {
   }
 
   @Post(':id/reset-password')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canUpdate')
   @ApiOperation({
-    summary: 'ADMIN reset password user',
+    summary: 'Reset password user (ADMIN + system SALE users.canUpdate)',
     description:
       'Body { newPassword? } — không truyền: BE tự sinh mật khẩu tạm và trả về 1 lần để admin gửi cho user.',
   })
@@ -231,14 +253,15 @@ export class UsersController {
   }
 
   @Patch(':id/role')
-  @Roles(ROLE.ADMIN)
-  @ApiOperation({ summary: 'ADMIN đổi role user' })
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.USERS, 'canUpdate')
+  @ApiOperation({ summary: 'Đổi role user (ADMIN + system SALE users.canUpdate)' })
   changeRole(
     @Param('id') id: string,
     @Body() dto: ChangeRoleDto,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() caller: any,
     @Lang() msg: Messages,
   ) {
-    return this.usersService.changeRole(adminId, id, dto.role, msg);
+    return this.usersService.changeRole(caller, id, dto.role, msg);
   }
 }

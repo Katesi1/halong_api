@@ -1,11 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsBoolean, IsOptional, IsArray, ValidateNested, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ALL_PERMISSION_MODULES } from '../../../common/constants';
 
 export class ModulePermissionDto {
-  @ApiProperty({ example: 'properties', description: 'Module: properties | bookings | calendar | reviews' })
+  @ApiProperty({
+    example: 'properties',
+    description:
+      'Module key. Owner-scope: properties | bookings | calendar | reviews. Admin-scope (chỉ áp dụng cho SALE hệ thống): users | kyc | subscriptions | payments | disputes | reviewsModeration | propertiesModeration | audit | leads | support | emails | billing | appVersion | dashboard',
+  })
   @IsString()
-  @IsIn(['properties', 'bookings', 'calendar', 'reviews'])
+  @IsIn(ALL_PERMISSION_MODULES as readonly string[])
   module: string;
 
   @ApiProperty({ example: false, required: false })

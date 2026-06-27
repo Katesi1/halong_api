@@ -547,7 +547,7 @@ export class AuthService {
       where: { id: userId },
       select: {
         id: true, name: true, phone: true, email: true, avatar: true,
-        role: true, ownerId: true, isActive: true, gender: true, dateOfBirth: true,
+        role: true, ownerId: true, scope: true, isActive: true, gender: true, dateOfBirth: true,
         emailVerified: true, createdAt: true, updatedAt: true,
         kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
         subscriptionCycle: true, subscriptionProvider: true, subscriptionPriceOverride: true,

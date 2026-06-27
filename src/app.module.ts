@@ -25,6 +25,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { EmailModule } from './modules/email/email.module';
 import { StaffModule } from './modules/staff/staff.module';
+import { SystemStaffModule } from './modules/system-staff/system-staff.module';
 import { FirebaseModule } from './modules/firebase/firebase.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { AppVersionModule } from './modules/app-version/app-version.module';
@@ -72,6 +73,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     PermissionsModule,
     EmailModule,
     StaffModule,
+    SystemStaffModule,
     FirebaseModule,
     DevicesModule,
     AppVersionModule,

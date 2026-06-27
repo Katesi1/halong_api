@@ -6,9 +6,10 @@ import { ResolveDisputeDto, RejectDisputeDto } from './dto/resolve-dispute.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Permission } from '../../common/decorators/permission.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Lang } from '../../common/decorators/lang.decorator';
-import { ROLE } from '../../common/constants';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Disputes')
@@ -35,7 +36,8 @@ export class DisputesController {
 
   // ─── Admin endpoints ──────────────────────────────────────────────────────
   @Get('admin/disputes')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.DISPUTES, 'canRead')
   @ApiOperation({ summary: 'List disputes (ADMIN)' })
   @ApiQuery({ name: 'status', required: false })
   @ApiQuery({ name: 'type', required: false })
@@ -63,21 +65,24 @@ export class DisputesController {
   }
 
   @Get('admin/disputes/count-active')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.DISPUTES, 'canRead')
   @ApiOperation({ summary: 'Count pending + investigating disputes (sidebar badge)' })
   countActive(@Lang() msg: Messages) {
     return this.disputesService.countActive(msg);
   }
 
   @Get('admin/disputes/:id')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.DISPUTES, 'canRead')
   @ApiOperation({ summary: 'Chi tiết dispute kèm property/booking/parties' })
   findOne(@Param('id') id: string, @Lang() msg: Messages) {
     return this.disputesService.findOne(id, msg);
   }
 
   @Post('admin/disputes/:id/investigate')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.DISPUTES, 'canUpdate')
   @ApiOperation({ summary: 'Chuyển dispute sang trạng thái đang điều tra' })
   investigate(
     @Param('id') id: string,
@@ -88,7 +93,8 @@ export class DisputesController {
   }
 
   @Post('admin/disputes/:id/resolve')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.DISPUTES, 'canUpdate')
   @ApiOperation({ summary: 'Đóng dispute với phán quyết (kèm refundAmount nếu có)' })
   resolve(
     @Param('id') id: string,
@@ -100,7 +106,8 @@ export class DisputesController {
   }
 
   @Post('admin/disputes/:id/reject')
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.DISPUTES, 'canUpdate')
   @ApiOperation({ summary: 'Bác dispute' })
   reject(
     @Param('id') id: string,

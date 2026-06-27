@@ -29,4 +29,15 @@ export class CreateUserDto {
   @IsIn([0, 1, 2, 3], { message: 'Role không hợp lệ (0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)' })
   @Type(() => Number)
   role: number;
+
+  @ApiPropertyOptional({
+    example: 'system',
+    description:
+      'Chỉ áp dụng khi role=SALE: "owner" (mặc định, SALE thuộc 1 OWNER) | "system" (SALE hệ thống, ownerId=null, ADMIN cấp quyền qua /permissions/:userId).',
+    enum: ['owner', 'system'],
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['owner', 'system'], { message: 'scope phải là "owner" hoặc "system"' })
+  scope?: string;
 }

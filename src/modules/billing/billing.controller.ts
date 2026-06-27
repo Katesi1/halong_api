@@ -22,7 +22,8 @@ import { Lang } from '../../common/decorators/lang.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ROLE } from '../../common/constants';
+import { Permission } from '../../common/decorators/permission.decorator';
+import { ROLE, PERMISSION_MODULE } from '../../common/constants';
 import type { Messages } from '../../i18n';
 
 @ApiTags('Billing')
@@ -45,7 +46,8 @@ export class BillingController {
   // ─── Admin CRUD ────────────────────────────────────────────────────────
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BILLING, 'canRead')
   @ApiBearerAuth('access-token')
   @Get('admin/billing-plans')
   @ApiOperation({ summary: 'Admin: list all billing plans (incl. inactive)' })
@@ -54,7 +56,8 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BILLING, 'canCreate')
   @ApiBearerAuth('access-token')
   @Post('admin/billing-plans')
   @ApiOperation({ summary: 'Admin: create new billing plan' })
@@ -63,7 +66,8 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BILLING, 'canUpdate')
   @ApiBearerAuth('access-token')
   @Put('admin/billing-plans/:id')
   @ApiOperation({ summary: 'Admin: update a billing plan' })
@@ -76,7 +80,8 @@ export class BillingController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(ROLE.ADMIN)
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BILLING, 'canDelete')
   @ApiBearerAuth('access-token')
   @Delete('admin/billing-plans/:id')
   @ApiOperation({

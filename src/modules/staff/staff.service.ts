@@ -21,6 +21,7 @@ import {
   KYC_STATUS,
   NOTIFICATION_TYPE,
   PERMISSION_MODULE,
+  USER_SCOPE,
 } from '../../common/constants';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
@@ -237,6 +238,7 @@ export class StaffService {
       message: msg.staff.inviteVerifySuccess,
       data: {
         email: invite.email,
+        scope: invite.scope, // "owner" | "system" — FE phân biệt UI
         owner: {
           name: invite.owner.name,
           avatar: invite.owner.avatar,
@@ -280,7 +282,10 @@ export class StaffService {
           googleSub: payload.sub,
           emailVerified: true,
           role: ROLE.SALE,
-          ownerId: invite.ownerId,
+          // System invite (scope=system) → SALE hệ thống, ownerId=null.
+          // Owner invite (scope=owner)   → SALE thuộc OWNER (ownerId = invite.ownerId).
+          scope: invite.scope === USER_SCOPE.SYSTEM ? USER_SCOPE.SYSTEM : USER_SCOPE.OWNER,
+          ownerId: invite.scope === USER_SCOPE.SYSTEM ? null : invite.ownerId,
           isActive: true,
           password: null,
         },
@@ -307,7 +312,8 @@ export class StaffService {
           phone: dto.phone || null,
           password: hashedPassword,
           role: ROLE.SALE,
-          ownerId: invite.ownerId,
+          scope: invite.scope === USER_SCOPE.SYSTEM ? USER_SCOPE.SYSTEM : USER_SCOPE.OWNER,
+          ownerId: invite.scope === USER_SCOPE.SYSTEM ? null : invite.ownerId,
           isActive: true,
           emailVerified: false,
         },
@@ -321,28 +327,46 @@ export class StaffService {
       data: { status: 'accepted', acceptedAt: new Date(), acceptedUserId: newUser.id },
     });
 
-    // Default permissions for new SALE: full CRUD on operational modules,
+    // Default permissions for new SALE owner-scope: full CRUD on operational modules,
     // read-only on properties. OWNER can adjust later via PUT /permissions/:userId.
-    await this.prisma.userPermission.createMany({
-      data: [
-        { userId: newUser.id, module: PERMISSION_MODULE.PROPERTIES, canCreate: false, canRead: true,  canUpdate: false, canDelete: false },
-        { userId: newUser.id, module: PERMISSION_MODULE.BOOKINGS,   canCreate: true,  canRead: true,  canUpdate: true,  canDelete: false },
-        { userId: newUser.id, module: PERMISSION_MODULE.CALENDAR,   canCreate: true,  canRead: true,  canUpdate: true,  canDelete: true  },
-        { userId: newUser.id, module: PERMISSION_MODULE.REVIEWS,    canCreate: false, canRead: true,  canUpdate: true,  canDelete: false },
-      ],
-      skipDuplicates: true,
-    });
+    // System SALE: KHÔNG cấp default — admin tự cấp tường minh qua /permissions/:userId
+    // (admin-scope modules đều phải có row UserPermission tương ứng).
+    if (invite.scope !== USER_SCOPE.SYSTEM) {
+      await this.prisma.userPermission.createMany({
+        data: [
+          { userId: newUser.id, module: PERMISSION_MODULE.PROPERTIES, canCreate: false, canRead: true,  canUpdate: false, canDelete: false },
+          { userId: newUser.id, module: PERMISSION_MODULE.BOOKINGS,   canCreate: true,  canRead: true,  canUpdate: true,  canDelete: false },
+          { userId: newUser.id, module: PERMISSION_MODULE.CALENDAR,   canCreate: true,  canRead: true,  canUpdate: true,  canDelete: true  },
+          { userId: newUser.id, module: PERMISSION_MODULE.REVIEWS,    canCreate: false, canRead: true,  canUpdate: true,  canDelete: false },
+        ],
+        skipDuplicates: true,
+      });
+    }
 
-    // Notify OWNER: nhân viên đã accept invite
-    await this.notifications.notifyUser(
-      invite.ownerId,
-      msg.staff.notifyInviteAcceptedTitle,
-      msg.staff.notifyInviteAcceptedBody(newUser.name, newUser.email),
-      NOTIFICATION_TYPE.SYSTEM,
-      newUser.id,
-      'staff',
-      { pushType: 'staff_invite_accepted', deepLink: '/staff/manage' },
-    );
+    // Notify inviter: nhân viên đã accept invite
+    // - scope=owner  → notify OWNER (chủ team)
+    // - scope=system → notify ADMIN đã tạo invite (lưu trong invite.ownerId)
+    if (invite.scope === USER_SCOPE.SYSTEM) {
+      await this.notifications.notifyUser(
+        invite.ownerId,
+        msg.systemSale.notifyInviteAcceptedTitle,
+        msg.systemSale.notifyInviteAcceptedBody(newUser.name, newUser.email),
+        NOTIFICATION_TYPE.SYSTEM,
+        newUser.id,
+        'staff',
+        { pushType: 'system_staff_invite_accepted', deepLink: '/admin/system-staff' },
+      );
+    } else {
+      await this.notifications.notifyUser(
+        invite.ownerId,
+        msg.staff.notifyInviteAcceptedTitle,
+        msg.staff.notifyInviteAcceptedBody(newUser.name, newUser.email),
+        NOTIFICATION_TYPE.SYSTEM,
+        newUser.id,
+        'staff',
+        { pushType: 'staff_invite_accepted', deepLink: '/staff/manage' },
+      );
+    }
 
     const tokens = await this.authService.issueTokensFor({
       id: newUser.id, email: newUser.email, role: newUser.role,
