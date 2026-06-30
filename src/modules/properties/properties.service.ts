@@ -21,6 +21,41 @@ import { SearchPropertiesDto } from './dto/search-properties.dto';
 import { FavoritesService } from './favorites.service';
 import { Prisma } from '@prisma/client';
 
+/**
+ * Owner phải thoả 2 gate giống lúc tạo property thì property mới hiện public:
+ *   - User active (chưa banned, chưa soft-delete)
+ *   - kycBypass=true HOẶC (kycStatus='approved' AND subscription entitled)
+ *   - Subscription entitled = active HOẶC (trial AND trialEndsAt còn hiệu lực)
+ * Mirror logic `isOwnerEntitled` ở `src/common/subscription.ts` — khi owner hết
+ * trial/chưa KYC thì các endpoint customer KHÔNG trả property của họ.
+ */
+function ownerVisibleFilter(): Prisma.UserWhereInput {
+  return {
+    isActive: true,
+    bannedAt: null,
+    deletedAt: null,
+    OR: [
+      { kycBypass: true },
+      {
+        AND: [
+          { kycStatus: 'approved' },
+          {
+            OR: [
+              { subscriptionStatus: 'active' },
+              {
+                AND: [
+                  { subscriptionStatus: 'trial' },
+                  { trialEndsAt: { gt: new Date() } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
 @Injectable()
 export class PropertiesService {
   constructor(
@@ -36,6 +71,7 @@ export class PropertiesService {
     msg: Messages,
     includeInactive?: boolean,
     view?: string,
+    moderationStatus?: 'pending' | 'approved' | 'rejected' | 'suspended',
   ) {
     const effectiveOwnerId = getEffectiveOwnerId(user);
     const where: any = effectiveOwnerId
@@ -51,6 +87,10 @@ export class PropertiesService {
 
     if (view) {
       where.view = view;
+    }
+
+    if (moderationStatus) {
+      where.moderationStatus = moderationStatus;
     }
 
     const properties = await this.prisma.property.findMany({
@@ -77,7 +117,7 @@ export class PropertiesService {
     view?: string,
     userId?: string | null,
   ) {
-    const where: Prisma.PropertyWhereInput = { isActive: true, deletedAt: null };
+    const where: Prisma.PropertyWhereInput = { isActive: true, deletedAt: null, moderationStatus: 'approved', owner: ownerVisibleFilter() };
 
     if (type !== undefined) where.type = type;
     if (view) where.view = view;
@@ -123,7 +163,7 @@ export class PropertiesService {
       throw new ForbiddenException(msg.common.forbidden);
     }
 
-    const where: Prisma.PropertyWhereInput = { isActive: true, deletedAt: null };
+    const where: Prisma.PropertyWhereInput = { isActive: true, deletedAt: null, moderationStatus: 'approved', owner: ownerVisibleFilter() };
 
     if (dto.type !== undefined) where.type = dto.type;
     if (dto.view) where.view = dto.view;
@@ -571,7 +611,7 @@ export class PropertiesService {
   // rating breakdown, host KYC + memberSince. KHÔNG trả phone/email chủ nhà.
   async findPublicDetail(slug: string, msg: Messages) {
     const property = await this.prisma.property.findFirst({
-      where: { slug, isActive: true, deletedAt: null },
+      where: { slug, isActive: true, deletedAt: null, moderationStatus: 'approved', owner: ownerVisibleFilter() },
       select: {
         id: true,
         slug: true,
@@ -702,25 +742,115 @@ export class PropertiesService {
     };
   }
 
+  /**
+   * Similar properties — gợi ý ở cuối trang property detail (carousel "Cơ sở khác").
+   * Ưu tiên: cùng district → cùng city → cùng type. Loại bỏ chính property gốc + inactive/deleted.
+   * Sort theo isHot desc → ratingAvg desc → reviewCount desc.
+   */
+  async findSimilarBySlug(slug: string, limit: number, msg: Messages) {
+    const source = await this.prisma.property.findFirst({
+      where: { slug, isActive: true, deletedAt: null },
+      select: { id: true, type: true, city: true, district: true },
+    });
+    if (!source) throw new NotFoundException(msg.properties.notFound);
+
+    const safeLimit = Math.min(Math.max(1, Number(limit) || 8), 20);
+
+    // Strategy: build OR list theo độ ưu tiên (district > city > type),
+    // sort isHot/rating/reviewCount, lấy top N.
+    const orFilters: any[] = [];
+    if (source.district) orFilters.push({ district: source.district });
+    if (source.city) orFilters.push({ city: source.city });
+    orFilters.push({ type: source.type });
+
+    const items = await this.prisma.property.findMany({
+      where: {
+        id: { not: source.id },
+        isActive: true,
+        deletedAt: null,
+        moderationStatus: 'approved',
+        owner: ownerVisibleFilter(),
+        OR: orFilters,
+      },
+      select: PROPERTY_CARD_SELECT,
+      orderBy: [
+        { isHot: 'desc' },
+        { ratingAvg: 'desc' },
+        { reviewCount: 'desc' },
+        { createdAt: 'desc' },
+      ],
+      take: safeLimit,
+    });
+
+    return {
+      message: msg.properties.listSuccess,
+      data: items.map((row) => toPropertyCard(row as any)),
+    };
+  }
+
+  /**
+   * Public list theo OWNER — dùng cho web "lịch phòng" mà OWNER share trong nhóm Zalo.
+   * SALE click link không cần login. Trả tất cả property active+approved của owner,
+   * kèm ownerPhone để bấm Zalo gọi nhanh. Owner banned/inactive → 404.
+   */
+  async findPublicByOwner(ownerId: string, msg: Messages) {
+    const owner = await this.prisma.user.findFirst({
+      where: { id: ownerId, ...ownerVisibleFilter() },
+      select: { id: true, name: true, phone: true, avatar: true },
+    });
+    if (!owner) throw new NotFoundException(msg.properties.ownerNotFound);
+
+    const items = await this.prisma.property.findMany({
+      where: {
+        ownerId,
+        isActive: true,
+        deletedAt: null,
+        moderationStatus: 'approved',
+      },
+      select: PROPERTY_CARD_SELECT,
+      orderBy: [{ isHot: 'desc' }, { name: 'asc' }],
+    });
+
+    return {
+      message: msg.properties.publicByOwnerSuccess,
+      data: {
+        owner: {
+          id: owner.id,
+          name: owner.name,
+          phone: owner.phone,
+          avatarUrl: owner.avatar,
+        },
+        items: items.map((row) => toPropertyCard(row as any)),
+        total: items.length,
+      },
+    };
+  }
+
   // ─── Public Share (no auth, no prices) ──────────────────────────────────────
 
   async findShareDetail(id: string, msg: Messages) {
-    const property = await this.prisma.property.findUnique({
-      where: { id },
+    const property = await this.prisma.property.findFirst({
+      where: { id, isActive: true, deletedAt: null, moderationStatus: 'approved', owner: ownerVisibleFilter() },
       select: {
         id: true,
+        slug: true,
         name: true,
         code: true,
         type: true,
+        view: true,
         address: true,
+        city: true,
+        district: true,
         latitude: true,
         longitude: true,
         mapLink: true,
-        view: true,
         bedrooms: true,
         bathrooms: true,
         standardGuests: true,
         maxGuests: true,
+        floorArea: true,
+        adultSurcharge: true,
+        childSurcharge: true,
         amenities: true,
         description: true,
         rules: true,
@@ -728,12 +858,17 @@ export class PropertiesService {
         cancellationPolicy: true,
         checkInTime: true,
         checkOutTime: true,
-        isActive: true,
-        images: { orderBy: { order: 'asc' } },
+        ratingAvg: true,
+        reviewCount: true,
+        isHot: true,
+        images: {
+          select: { id: true, imageUrl: true, isCover: true, order: true },
+          orderBy: { order: 'asc' },
+        },
       },
     });
 
-    if (!property || !property.isActive) {
+    if (!property) {
       throw new NotFoundException(msg.properties.notFound);
     }
 

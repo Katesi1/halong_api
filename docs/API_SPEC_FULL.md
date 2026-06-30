@@ -3,7 +3,7 @@
 > Tài liệu chính thức cho team FE Web (Next.js admin/host) và App Mobile (Android/iOS).
 > Bao gồm tất cả endpoint, schema response, business rule, WebSocket guide và integration checklist.
 >
-> **Cập nhật**: 2026-06-05 (v1.8 — thêm §2A Authorization rules đầy đủ cho FE) · **BE base**: NestJS 11 · **DB**: PostgreSQL + Prisma · **Auth**: JWT · **Real-time**: Socket.IO
+> **Cập nhật**: 2026-06-27 (v1.16 — customer web booking detail mở cho khách + similar properties + enrich BookingDto) · **BE base**: NestJS 11 · **DB**: PostgreSQL + Prisma · **Auth**: JWT · **Real-time**: Socket.IO
 
 ---
 
@@ -686,23 +686,52 @@ Base path: `/properties`.
 
 ### 4.1 Public
 
+> **Visibility rule (BẮT BUỘC — áp dụng cho TẤT CẢ public endpoint dưới)**: chỉ trả property thoả **đủ 2 nhóm điều kiện**:
+>
+> **(A) Property-level:** `isActive=true` AND `deletedAt=null` AND `moderationStatus='approved'`.
+>
+> **(B) Owner-level (v1.16.5+):** owner phải còn quyền dùng tính năng (gate giống lúc tạo phòng):
+> - Owner `isActive=true`, `bannedAt=null`, `deletedAt=null`, **VÀ**
+> - `kycBypass=true` **HOẶC** (`kycStatus='approved'` **AND** subscription entitled).
+> - Subscription entitled = `subscriptionStatus='active'` **HOẶC** (`subscriptionStatus='trial'` **AND** `trialEndsAt > now`).
+>
+> Owner mất entitlement (hết trial chưa thanh toán, admin freeze, KYC bị thu hồi, banned…) → **TẤT CẢ property của họ tự động biến mất khỏi web khách hàng** (search/list/detail/share/by-owner/similar). Slug/id của property bị filter → **404 NotFound**.
+>
+> Áp dụng tăng tiến:
+> - **v1.16.2 (2026-06-29)** — fix property-level filter (chỉ moderationStatus).
+> - **v1.16.5 (2026-06-29)** — bổ sung owner-level entitlement filter (gate đối xứng với create flow).
+
 | Method | Path | Query |
 |---|---|---|
 | `GET` | `/properties/public` | `checkinDate?, checkoutDate?, guests?, minPrice?, maxPrice?, type?, view?` — **array phẳng PropertyCardDto[]** (legacy, dùng cho mobile) |
 | `GET` | `/properties/search` | Full filter + pagination + sort — **dùng cho customer web list/search** (xem §4.7) |
 | `GET` | `/properties/public/:slug` | **Chi tiết phòng cho customer web** (kèm giá + host) — xem §4.11 |
-| `GET` | `/properties/share/:id` | — (trả PropertyDto không kèm giá, theo `id`, dùng cho share link nội bộ) |
+| `GET` | `/properties/public/:slug/similar?limit=8` | **Cơ sở tương tự** (carousel cuối trang detail) — xem §4.12 |
+| `GET` | `/properties/public/by-owner/:ownerId` | **Danh sách phòng công khai của 1 chủ nhà** (no auth) — dùng cho link Zalo "lịch phòng" — xem §4.13 |
+| `GET` | `/properties/share/:id` | **Preview share link 1 phòng** — KHÔNG trả giá bán + KHÔNG trả host info. CÓ trả surcharge + đầy đủ thông tin phòng. Dùng cho `preview.halong24h.com`. Xem §4.14 |
 
 ### 4.2 Authenticated CRUD
 
 | Method | Path | Role |
 |---|---|---|
-| `GET` | `/properties?includeInactive&view` | ADMIN/OWNER/SALE |
+| `GET` | `/properties?includeInactive&view&moderationStatus` | ADMIN/OWNER/SALE |
 | `GET` | `/properties/:id` | Any auth |
 | `POST` | `/properties` | ADMIN/OWNER (+ permission) |
 | `PATCH` | `/properties/:id` | ADMIN/OWNER/SALE (+ permission) |
 | `PUT` | `/properties/:id/prices` | ADMIN/OWNER/SALE (+ permission) |
 | `DELETE` | `/properties/:id` | ADMIN/OWNER (+ permission) |
+
+**`GET /properties` query params:**
+
+| Param | Kiểu | Mô tả |
+|---|---|---|
+| `includeInactive` | bool | ADMIN truyền `true` để thấy property `isActive=false`. OWNER/SALE tự động thấy hết property của mình (kể cả inactive), không cần truyền. |
+| `view` | `sea \| city \| mountain \| garden \| pool` | Lọc theo view |
+| `moderationStatus` | `pending \| approved \| rejected \| suspended` | **(v1.16.3 NEW)** Lọc server-side theo trạng thái duyệt. Dùng cho admin tab "Chờ duyệt / Đã duyệt / Từ chối / Tạm ngưng". Giá trị khác → ignore. |
+
+**Response DTO** trả về tất cả scalar fields của Property (do Prisma `include`), bao gồm: `moderationStatus`, `isHot`, `slug`, `ratingAvg`, `reviewCount`, `isActive`, `deletedAt`, `moderationRejectedReason`, `moderationReviewedAt`, `moderationReviewedBy` — cộng `owner: {id, name, phone}`, `images[]`, `_count: { bookings }`. Xem shape mẫu §4.5.
+
+> **Lưu ý isHot trong list admin/owner**: Sample JSON §4.5 không liệt kê đủ field nhưng response thực tế **có** `isHot: boolean`. Toggle Hot ở admin FE đọc thẳng field này, không cần endpoint riêng.
 
 ### 4.3 Images (multipart)
 
@@ -721,15 +750,17 @@ Base path: `/properties`.
 | `POST` | `/properties/:id/suspend` | `{ reason? }` |
 | `PATCH` | `/properties/:id/hot` | `{ isHot: true \| false }` — bật/tắt badge Hot (xem §4.10) |
 
-> **Business rule (v1.9+)**: OWNER đã KYC + subscription active/trial → `POST /properties` tạo ngay `moderationStatus = "approved"`, `isActive = true` (public mặc định). OWNER tự bật/tắt `isActive` qua `PATCH /properties/:id`. ADMIN/SALE tạo thay mặt owner cũng `approved` + `isActive = true`.
+> **Business rule (v1.9+, confirmed v1.16.4)**: OWNER đã KYC + subscription active/trial → `POST /properties` tạo ngay `moderationStatus = "approved"`, `isActive = true` (public mặc định). OWNER tự bật/tắt `isActive` qua `PATCH /properties/:id`. ADMIN/SALE tạo thay mặt owner cũng `approved` + `isActive = true`.
 > **Điều kiện tạo phòng**: KYC approved (hoặc `kycBypass`) + subscription entitled — hai cổng độc lập, không còn hàng chờ duyệt admin khi tạo mới.
 > **OWNER/SALE list:** `GET /properties` tự động bao gồm property `inactive/rejected/suspended` của mình (không cần truyền `?includeInactive=true`). ADMIN/khác phải truyền `?includeInactive=true` mới thấy inactive.
+>
+> **Tab "Chờ duyệt" của admin FE:** Vì auto-approve khi tạo, tab này **về cơ bản sẽ trống** với property mới. Chỉ chứa property bị OWNER edit sau khi admin reject (BE đã wire reset `pending`? — KHÔNG, code hiện reset thẳng về `approved`, xem [properties.service.ts:362-368](src/modules/properties/properties.service.ts#L362-L368)). Trong thực tế, sau v1.16.4 (legacy sweep) **không còn row `pending` nào**. Admin chủ yếu dùng `/reject` và `/suspend` để xử lý ngược, không cần queue duyệt phòng mới.
 
 **Moderation status**:
-- `approved` — property được phép hoạt động; public khi `isActive = true`
+- `approved` — property được phép hoạt động; public khi `isActive = true`. Trạng thái mặc định mọi property mới.
 - `rejected` — admin từ chối → `isActive = false`; OWNER edit lại → auto `approved`, tự bật `isActive` nếu muốn public
 - `suspended` — admin tạm ngưng property đang hoạt động → `isActive = false`; OWNER **không** tự bật lại (`PATCH isActive=true` → 403); cần admin `POST /properties/:id/approve`
-- `pending` — legacy (dữ liệu cũ trước v1.9); property mới không còn vào trạng thái này
+- `pending` — **DEPRECATED**. Code mới không bao giờ tạo trạng thái này. Dữ liệu legacy đã được sweep về `approved` ở v1.16.4 (xem changelog). Vẫn giữ trong enum để query `?moderationStatus=pending` không vỡ.
 
 ### 4.5 PropertyDto (admin/owner — full)
 
@@ -750,6 +781,9 @@ Base path: `/properties`.
   "moderationRejectedReason": null,
   "moderationReviewedAt": null,
   "moderationReviewedBy": null,
+  "isHot": false,
+  "ratingAvg": 4.92,
+  "reviewCount": 37,
   "bedrooms": 3, "bathrooms": 2,
   "standardGuests": 6, "maxGuests": 8,
   "floorArea": 120,
@@ -759,7 +793,6 @@ Base path: `/properties`.
   "cancellationPolicy": 1,
   "rules": "...", "services": ["..."], "description": "...",
   "checkInTime": "14:00", "checkOutTime": "12:00",
-  "ratingAvg": 4.92, "reviewCount": 37,
   "images": [{ "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }]
 }
 ```
@@ -805,6 +838,8 @@ Shape rút gọn cho card khách hàng. Tính sẵn `minPrice`, `rating`, `revie
 ### 4.7 `GET /properties/search` (customer web)
 
 Paginated + filter + sort, **toàn bộ ở server-side**. Lý do: FE chỉ thấy 1 trang nên lọc/sort client sẽ sai. Không hỗ trợ FE filter sau khi nhận data.
+
+> **Visibility**: tuân theo visibility rule §4.1 — chỉ trả property `isActive=true, deletedAt=null, moderationStatus='approved'`. Property chờ duyệt / bị từ chối / bị tạm ngưng tự ẩn khỏi kết quả search (kể cả khi match keyword `q`).
 
 **Query params** (tất cả optional):
 
@@ -905,7 +940,7 @@ Response:
 Endpoint **chi tiết phòng cho FE web khách hàng** (`webhalong24h.com/property/{slug}`). Không cần auth.
 
 - Tra theo `slug` (vd `b1503-03`). Slug ổn định, unique, không đổi khi rename — FE bookmark/cache 60s an toàn.
-- Chỉ trả property `isActive=true, deletedAt=null`. Slug không tồn tại / inactive → **404**.
+- Chỉ trả property `isActive=true, deletedAt=null, moderationStatus='approved'`. Slug không tồn tại / inactive / chưa duyệt / bị reject / bị suspend → **404**.
 - Kèm **đầy đủ giá** (`weekdayPrice`, `weekendPrice`, `holidayPrice`) — khác với `/share/:id` (không có giá).
 - **Không** trả `phone`/`email` chủ nhà (chat-mediated). Host info chỉ gồm name + avatar + KYC badge + memberSince + totalProperties.
 
@@ -982,6 +1017,134 @@ Ghi chú field:
 
 **FE migration**: bỏ workaround scan `/properties/search` → map slug → id → `/share/:id`. Gọi thẳng `/properties/public/:slug`.
 
+### 4.12 Similar properties — `GET /properties/public/:slug/similar`
+
+Carousel "Cơ sở khác" ở cuối trang property detail customer web. Public, không cần auth.
+
+**Query**:
+
+| Param | Kiểu | Default | Ghi chú |
+|---|---|---|---|
+| `limit` | int 1–20 | 8 | Số lượng tối đa trả về |
+
+**Algorithm**:
+1. Tra property nguồn theo `slug` (`isActive=true, deletedAt=null`); slug không tồn tại → 404.
+2. Build `OR` filter theo độ ưu tiên: cùng `district` → cùng `city` → cùng `type` (PostgreSQL gộp tất cả, không weighted scoring).
+3. Loại bỏ chính property nguồn + bất kỳ property `inactive | deleted | moderationStatus != 'approved'`.
+4. Sort: `isHot desc → ratingAvg desc → reviewCount desc → createdAt desc`. Lấy top `limit`.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "message": "Lấy danh sách cơ sở thành công",
+  "data": [PropertyCardDto, PropertyCardDto, ...]
+}
+```
+
+Mỗi item dùng shape `PropertyCardDto` (§4.6). `isFavorited` luôn `false` (endpoint public, không attempt resolve user).
+
+### 4.13 Public list theo owner — `GET /properties/public/by-owner/:ownerId`
+
+Endpoint **public** (no auth) cho use case "chủ nhà share lịch phòng vào nhóm Zalo": OWNER copy link `webhalong24h.com/zalo-cal/<ownerId>`, dán vào nhóm Zalo, các SALE click → mở web thấy hết phòng của OWNER kèm SĐT để bấm Zalo gọi nhanh, không cần đăng nhập.
+
+- Tra theo `ownerId` (UUID của User). Owner không tồn tại / `isActive=false` / `bannedAt != null` / `deletedAt != null` → **404**.
+- Chỉ trả property `isActive=true, deletedAt=null, moderationStatus='approved'` (không lộ pending/rejected/suspended).
+- Sort: `isHot desc → name asc`.
+- Không cần filter ngày — endpoint chỉ liệt kê phòng, SALE bấm sang `GET /calendar/public-grid?propertyId=...` (§6.1) để xem lịch trống.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "message": "Lấy danh sách cơ sở của chủ nhà thành công",
+  "data": {
+    "owner": {
+      "id": "uuid",
+      "name": "Nguyễn Văn A",
+      "phone": "0901234567",
+      "avatarUrl": "https://res.cloudinary.com/.../avatar.jpg"
+    },
+    "items": [PropertyCardDto, PropertyCardDto, ...],
+    "total": 10
+  }
+}
+```
+
+Mỗi item dùng shape `PropertyCardDto` (§4.6). `isFavorited` luôn `false` (public, không attempt resolve user). `owner.phone` có thể `null` nếu OWNER chưa cập nhật SĐT — FE phải handle gracefully (ẩn nút Zalo).
+
+> **Lưu ý quyền riêng tư**: endpoint này tiết lộ SĐT của OWNER và danh sách phòng. Đây là chủ ý — OWNER chủ động share link Zalo cho team SALE. Nếu sau này cần revoke được link (vd: thay đổi đội ngũ), sẽ phải thêm field `User.publicShareToken` và đổi endpoint sang `/properties/public/by-token/:token` (defer khi cần).
+
+### 4.14 Public share detail — `GET /properties/share/:id`
+
+Endpoint **public** (no auth) cho use case "OWNER share thông tin 1 phòng cụ thể qua Zalo/Messenger/Facebook" — link trỏ về `https://preview.halong24h.com/{propertyId}`. Trang preview hiển thị **đầy đủ thông tin phòng** nhưng **CHE 2 nhóm field nhạy cảm**:
+
+- **KHÔNG** trả thông tin chủ nhà (no `owner` block, no SĐT, no avatar).
+- **KHÔNG** trả giá bán phòng (`weekdayPrice`, `weekendPrice`, `holidayPrice` — tuyệt đối không xuất hiện trong response).
+- **CÓ** trả giá phụ thu (`adultSurcharge`, `childSurcharge`) — vì đây là policy phòng, không phải giá bán.
+
+Visibility: tuân theo rule §4.1 (property `isActive=true, deletedAt=null, moderationStatus='approved'` + owner còn entitlement). Sai → **404**.
+
+**Response shape (v1.16.6 — đã bổ sung surcharge + floorArea + city/district + rating + slug + isHot):**
+
+```json
+{
+  "success": true,
+  "message": "...",
+  "data": {
+    "id": "uuid",
+    "slug": "b1503-03",
+    "name": "B1503",
+    "code": "03",
+    "type": 1,
+    "view": "sea",
+    "address": "Toà Alacarte",
+    "city": "Hạ Long",
+    "district": "Bãi Cháy",
+    "latitude": 20.95,
+    "longitude": 107.05,
+    "mapLink": "https://maps.google.com/...",
+    "bedrooms": 2,
+    "bathrooms": 1,
+    "standardGuests": 2,
+    "maxGuests": 4,
+    "floorArea": 45,
+    "adultSurcharge": 200000,
+    "childSurcharge": 100000,
+    "amenities": ["ac", "wifi", "tv", "pool"],
+    "description": "Alacarte căn góc...",
+    "rules": "Check-in sau 14:00...",
+    "services": ["Đưa đón sân bay"],
+    "cancellationPolicy": 1,
+    "checkInTime": "14:00",
+    "checkOutTime": "12:00",
+    "ratingAvg": 4.92,
+    "reviewCount": 37,
+    "isHot": false,
+    "images": [
+      { "id": "uuid", "imageUrl": "https://...", "isCover": true, "order": 0 }
+    ]
+  }
+}
+```
+
+Ghi chú field:
+- `floorArea` (m²) — `null` nếu owner chưa điền. FE tự ẩn dòng diện tích.
+- `adultSurcharge`, `childSurcharge` (VND) — có thể `null` nếu owner chưa cấu hình → FE hiểu là "không thu phụ thu" / "miễn phí".
+- `city`, `district` — display-only (owner điền tay), `null` nếu chưa nhập.
+- `mapLink` — link Google Maps owner gắn, có thể `null`.
+- `cancellationPolicy` — 0=FLEXIBLE, 1=MODERATE, 2=STRICT (xem [§19 Enums](#19-enums-reference)).
+- `ratingAvg`, `reviewCount` — denormalized; `ratingAvg=0` khi `reviewCount=0` → FE tự ẩn rating section.
+- `isHot` — admin curated badge.
+- `images[]` — đã sort `order` asc; mỗi item có `isCover` để FE chọn ảnh đầu.
+
+**Field cố ý KHÔNG trả** (để FE biết chắc không phải BE quên):
+- `weekdayPrice`, `weekendPrice`, `holidayPrice` — giá bán phòng.
+- `ownerId`, `owner` (name/phone/avatar) — thông tin chủ nhà.
+- `moderationStatus`, `isActive`, `deletedAt` — trạng thái internal.
+
 ---
 
 ## 5. Bookings
@@ -995,7 +1158,7 @@ Base path: `/bookings`. Auth required.
 | `GET` | `/bookings?propertyId&status&page&limit` | ADMIN/OWNER/SALE | — |
 | `GET` | `/bookings/my-bookings?status&page&limit` | Any auth | — |
 | `GET` | `/bookings/calendar/:propertyId?year&month` | ADMIN/OWNER/SALE | Lịch tháng cho 1 property |
-| `GET` | `/bookings/:id` | ADMIN/OWNER/SALE | — |
+| `GET` | `/bookings/:id` | Any auth (xem §5.3.1) | ADMIN/OWNER/SALE thấy booking trong scope; **CUSTOMER thấy booking của chính mình** (`booking.customerId === user.id`). Khác → 403 |
 | `POST` | `/bookings/hold` | ADMIN/OWNER/SALE (CUSTOMER bị chặn) | Hold 30 phút |
 | `POST` | `/bookings/customer-hold` | CUSTOMER (+all) | Hold 24h |
 | `PATCH` | `/bookings/:id/confirm` | ADMIN/OWNER/SALE | HOLD → CONFIRMED |
@@ -1041,11 +1204,35 @@ Base path: `/bookings`. Auth required.
   "guestCount": 4,
   "notes": "...",
   "propertyName": "Villa Bãi Cháy",
-  "nights": 2
+  "nights": 2,
+  "code": "HL-A1B2C3D4",
+  "propertySlug": "villa-bai-chay-vl001",
+  "coverImageUrl": "https://res.cloudinary.com/.../cover.jpg",
+  "host": { "name": "Nguyễn Văn A", "phone": null },
+  "cancellationPolicy": 1,
+  "hasReview": false,
+  "depositDeadlineAt": "2026-06-04T11:00:00.000Z"
 }
 ```
 
 Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
+
+**Field mở rộng cho customer web (v1.16, áp dụng cho `findOne`, `getMyBookings`, `findAll`):**
+
+| Field | Kiểu | Ghi chú |
+|---|---|---|
+| `code` | `string` | Mã hiển thị `HL-XXXXXXXX` (8 ký tự hex đầu của booking id, upper-case). Khách dùng để đối chiếu khi liên hệ chủ nhà. Derive ở BE — không lưu DB |
+| `propertySlug` | `string \| null` | Slug property → FE build URL `/property/{slug}` |
+| `coverImageUrl` | `string \| null` | Ảnh cover (fallback ảnh đầu danh sách) |
+| `host` | `{ name, phone } \| null` | Chủ nhà. **`phone` CHỈ trả khi `status >= CONFIRMED` (= 1, 3, 4)** — tránh leak số trước khi cọc. HOLD/CANCELLED → `phone = null` |
+| `cancellationPolicy` | `0 \| 1 \| 2 \| null` | Chính sách huỷ của property: 0=FLEXIBLE, 1=MODERATE, 2=STRICT. Xem [§19 Enums](#19-enums-reference) |
+| `hasReview` | `boolean` | True nếu customer đã review booking này → FE disable nút "Đánh giá" |
+| `depositDeadlineAt` | `ISO \| null` | Hạn cọc: HOLD = `holdExpireAt` (countdown khách phải cọc trong cửa sổ này); CONFIRMED/CANCELLED/... = `null` (chưa có business rule riêng cho CONFIRMED) |
+
+**Field tạm thời chưa có (BE đang chờ schema):**
+
+- `vietqr` (`{ bankBin, bankName, accountNumber, accountName, memo }`) — **CHƯA trả về**. Schema hiện chưa lưu thông tin bank của OWNER per property. FE muốn hiển thị VietQR phải đợi BE thêm field bank trên User/Property hoặc dùng nội bộ Halong24h. Workaround tạm: FE ẩn panel VietQR booking-deposit, hướng dẫn khách chat trực tiếp chủ nhà để gửi STK.
+- `approvedAt` (timestamp HOLD → CONFIRMED) — **CHƯA có field DB riêng**. FE dùng `updatedAt` làm proxy khi `status >= CONFIRMED` (chấp nhận sai số nếu booking đã được update sau confirm). BE sẽ bổ sung field `confirmedAt` trong migration sau nếu FE cần độ chính xác.
 
 **Status `4=NO_SHOW`** (v1.14): cron mỗi ngày 03:30 tự đánh khi booking `CONFIRMED` đã qua `checkoutDate > 24h` mà `paidAt = null` (khách không tới + không hoàn tất thanh toán tại chỗ). FE hiển thị label "Khách không đến". App mobile cũ không biết status 4 → rơi vào nhánh default; nên cập nhật bản tiếp theo để hiển thị đúng.
 
@@ -1062,14 +1249,22 @@ Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
 - FE web hiển thị: gặp `null` thì show "Chưa chốt giá" (không hardcode 0 ₫).
 - **Countdown HOLD**: dùng `holdRemainingSeconds` (server-computed, đã tính cả lệch giờ client), không tự tính `holdExpireAt - Date.now()`.
 
-### 5.3.1 GET /bookings/:id — response giàu hơn list
+### 5.3.1 GET /bookings/:id — quyền truy cập + response giàu hơn list
+
+**Quyền truy cập (v1.16):**
+- ADMIN/OWNER/SALE: theo scope effective owner như cũ.
+- **CUSTOMER**: truy cập được nếu `booking.customerId === user.id`. Người khác → 403 `bookings.forbiddenAccess`.
+
+FE web khách hàng giờ gọi `GET /bookings/:id` trực tiếp thay vì lọc trong `/bookings/my-bookings` để lấy detail.
 
 Detail include thêm so với item trong list:
 - `property.images` — 5 ảnh đầu (sort `order` asc), không bị giới hạn `isCover`.
 - `property.owner` — `{ id, name, phone }`.
+- `property.cancellationPolicy` — số 0/1/2.
 - `sale` — `{ id, name, phone }` (giống list).
+- `review` — `{ id }` hoặc null (dùng để derive `hasReview`).
 
-Các field còn lại (`holdRemainingSeconds`, `propertyName`, `nights`) tính giống list.
+Field flatten thêm so với list: tất cả field §5.3 mở rộng (`code`, `propertySlug`, `coverImageUrl`, `host`, `cancellationPolicy`, `hasReview`, `depositDeadlineAt`) đều có ở cả detail và list.
 
 ### 5.3.2 PATCH /bookings/:id/cancel — Email khách kèm lý do
 
@@ -2515,6 +2710,47 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 
 ## 21. Changelog & Bug fixes
 
+### v1.16.6 — 2026-06-30 (Enrich `/properties/share/:id` cho preview.halong24h.com)
+
+OWNER share link 1 phòng cụ thể qua Zalo/Messenger → trỏ về `https://preview.halong24h.com/{propertyId}`. Endpoint `/properties/share/:id` đã có sẵn từ trước nhưng response thiếu các field web preview cần.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| Bổ sung fields vào response | `slug`, `city`, `district`, `floorArea`, `adultSurcharge`, `childSurcharge`, `ratingAvg`, `reviewCount`, `isHot`. Vẫn KHÔNG trả `weekdayPrice/weekendPrice/holidayPrice` (giá bán) và KHÔNG trả `owner` block (thông tin chủ nhà) — đúng yêu cầu nghiệp vụ. |
+| `images[]` shape chuẩn hoá | Giờ select tường minh `{id, imageUrl, isCover, order}` thay vì lấy hết Prisma scalar (trước đây có `publicId, createdAt, propertyId` dư thừa). |
+| Bỏ field `isActive` khỏi response | Trước đây leak `isActive=true` ra public — vô nghĩa vì WHERE clause đã chỉ trả property `isActive=true`. |
+| Doc bổ sung §4.14 | Spec đầy đủ response shape cho team web preview. |
+
+**Breaking?** Có rủi ro nhỏ: nếu FE cũ đang đọc `data.isActive`/`data.images[].publicId`/`data.images[].createdAt`, sẽ thấy `undefined`. Hiện chưa biết consumer nào dùng — `share/:id` dùng cho internal share link, scope nhỏ. FE web preview là consumer mới, đọc spec mới.
+
+### v1.16 — 2026-06-27 (Customer web booking detail + similar properties + enriched BookingDto)
+
+Phản hồi cho danh sách yêu cầu FE web khách hàng (received 2026-06-27).
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `GET /bookings/:id` mở cho CUSTOMER | Bỏ `@Roles(ADMIN,OWNER,SALE)` + `@Permission(BOOKINGS, READ)` trên controller; service check `booking.customerId === user.id` cho CUSTOMER (xem §5.3.1). Không cần wait FE lọc `my-bookings`. |
+| BookingDto enrich (cả `findOne`, `getMyBookings`, `findAll`) | Thêm `code` (HL-XXXXXXXX), `propertySlug`, `coverImageUrl`, `host: {name, phone}` (phone CHỈ trả khi `status >= CONFIRMED`), `cancellationPolicy`, `hasReview`, `depositDeadlineAt` (HOLD = `holdExpireAt`, khác = null). Xem §5.3. |
+| `GET /properties/public/:slug/similar` (NEW) | Public endpoint trả `PropertyCardDto[]` cho carousel "Cơ sở khác" cuối trang detail. Sort district → city → type, isHot/rating/reviewCount desc. Xem §4.12. |
+| Confirm enum `cancellationPolicy` | 0=FLEXIBLE, 1=MODERATE, 2=STRICT (đã có trong [§19 Enums](#19-enums-reference) — không đổi). FE không cần đoán. |
+| Confirm `PropertyCardDto` đã có `latitude` + `longitude` | Field tồn tại trong `PROPERTY_CARD_SELECT` từ trước, response `/properties/search` + `/properties/public` đã trả. FE đang bịa toạ độ là do chưa wire, không phải BE thiếu. |
+
+**Field cần thêm CHƯA implement** (cần quyết định business hoặc schema migration — defer ngoài turn này):
+
+| Field | Lý do defer | Tạm thời |
+|---|---|---|
+| `vietqr` ({bankBin, bankName, accountNumber, accountName, memo}) | Schema hiện chưa lưu bank info per-owner/property. Cần quyết định: per-owner bank, system bank Halong24h, hay FE generate VietQR client-side khi có data | FE ẩn panel VietQR booking-deposit, hướng dẫn khách chat trực tiếp chủ nhà |
+| `approvedAt` (HOLD → CONFIRMED timestamp) | Chưa có field `confirmedAt` riêng trên `Booking` | FE fallback `updatedAt` khi `status >= CONFIRMED` (chấp nhận sai số nhỏ) |
+
+**Yêu cầu CHƯA implement** (scope lớn — cần PRD + migration riêng, không nằm trong turn này):
+
+| Yêu cầu | Lý do defer |
+|---|---|
+| A.3 Cruises (Du thuyền) | Cần thiết kế module mới: schema (`Cruise`, `CruiseRoom`, `CruiseAmenity`, `CruiseReview`...), CRUD cho host, public list/detail. Khối lượng tương đương module `properties`. Cần PRD + sprint riêng. |
+| A.4 Chat pre-booking (no bookingId) | Hiện schema `Conversation` bắt buộc `bookingId` cho `type=booking`. Cần thêm `type='property_inquiry'` + `propertyId` nullable, sửa `ConversationsService.create`, sửa ACL (member resolve từ property.owner thay vì booking). Có rủi ro làm lệch chat retention. Cần align với team chat. |
+| A.5 Blog / Articles | Module hoàn toàn mới: schema (`Article`, `ArticleCategory`), seed data, admin CMS. FE thấy ưu tiên thấp → defer khi có nội dung thực sự. |
+| WebSocket realtime chat confirm | WS gateway đã có sẵn (xem §17.4) — `wss://api.halong24h.com/chat`, auth qua `socket.auth.token`. Đã production-ready. FE chỉ cần wire — không có thay đổi BE trong turn này. |
+
 ### v1.12.1 — 2026-06-11 (Trial quota fix: 1 SALE slot + machine `code` cho 403)
 
 Hot-fix sau khi phát hiện OWNER vừa đăng ký không mời được nhân viên dù trial còn hạn.
@@ -3172,7 +3408,7 @@ ChatService `sendMessage` đã tự gọi `markAttached`. FE chỉ cần:
 
 ---
 
-> **Phiên bản tài liệu**: v1.8 — 2026-06-05 (Authorization rules). Mọi thay đổi schema/endpoint vui lòng cập nhật file này và thông báo team FE qua channel chung.
+> **Phiên bản tài liệu**: v1.16 — 2026-06-27 (Customer web booking detail + similar properties + enriched BookingDto). Mọi thay đổi schema/endpoint vui lòng cập nhật file này và thông báo team FE qua channel chung.
 >
 > **Lưu ý cho FE Web + Mobile**: trước khi wire bất kỳ endpoint nào, đọc:
 > - **§2.3 + §2.4** — pattern auth chuẩn (tách login và profile)
@@ -3914,6 +4150,35 @@ curl -X POST https://api.halong24h.com/admin/system-staff/invites \
 # → SALE scope=system được tạo, ADMIN cấp permissions sau
 ```
 
-### 26.11 Changelog
+### 26.11 System SALE xem toàn bộ phòng — tái dùng `GET /properties`
+
+System SALE **không có endpoint riêng** để list toàn bộ property hệ thống. Tái dùng `GET /properties`:
+
+- Endpoint `GET /properties` đã gắn `@Roles(ADMIN, OWNER, SALE) + @Permission(properties, canRead)`.
+- ADMIN cấp `properties.canRead=true` cho system SALE qua `PUT /permissions/:userId`.
+- Service `findAll` tự gọi `getEffectiveOwnerId(user)` → `null` cho system SALE (vì `isSystemSale(user) === true`) → **không filter `ownerId`** → SALE thấy hết property toàn hệ thống y như ADMIN.
+
+> Phân biệt: SALE owner-scope mặc định có `canRead=true` nhưng `getEffectiveOwnerId` trả về `user.ownerId` → chỉ thấy property của OWNER mình. System SALE phải được ADMIN cấp tường minh, sau đó thấy hết.
+
+Ví dụ cấp toàn quyền view property + booking + calendar cho system SALE:
+
+```bash
+curl -X PUT https://api.halong24h.com/permissions/<system-sale-id> \
+  -H "Authorization: Bearer <admin-token>" \
+  -d '{
+    "permissions": [
+      { "module": "properties", "canRead": true },
+      { "module": "bookings",   "canRead": true },
+      { "module": "calendar",   "canRead": true }
+    ]
+  }'
+```
+
+### 26.12 Changelog
 
 - **2026-06-26 (v1.15)** — Thêm system SALE: `User.scope` + `StaffInvite.scope`, mở rộng `user_permissions` thêm 14 admin-scope modules, mới module `/admin/system-staff/*`, sweep mọi admin controller chấp nhận thêm SALE (kèm `@Permission`), thêm guard chống leo quyền target ADMIN.
+- **2026-06-27 (v1.16.1)** — Document §26.11: system SALE tái dùng `GET /properties` (chỉ cần ADMIN cấp `properties.canRead`). Thêm public endpoint `GET /properties/public/by-owner/:ownerId` (§4.13) — chủ nhà share link Zalo, SALE click không cần đăng nhập.
+- **2026-06-29 (v1.16.2)** — **Fix visibility leak**: 4 public endpoint (`GET /properties/public`, `GET /properties/search`, `GET /properties/public/:slug`, `GET /properties/share/:id`) bị drift khỏi spec — chỉ filter `isActive + deletedAt`, để lọt property `moderationStatus IN ('pending','rejected','suspended')` ra web khách hàng. Đã enforce filter `moderationStatus='approved'` (§4.1, §4.7, §4.11). Slug/id property chưa duyệt → **404**. FE web khách hàng không phải đổi gì; FE web quản lý dùng `GET /properties?includeInactive=true` + 3 endpoint `POST /properties/:id/{approve,reject,suspend}` (§4.4) để dựng UI duyệt cơ sở.
+- **2026-06-29 (v1.16.3)** — **Thêm `?moderationStatus` cho `GET /properties`** (§4.2): query server-side `pending | approved | rejected | suspended` để admin FE list theo tab gọn hơn (thay vì lấy hết `includeInactive=true` rồi lọc client-side). Bổ sung `isHot`, `ratingAvg`, `reviewCount` vào sample JSON §4.5 (response thực tế đã có sẵn — Prisma `include` tự trả mọi scalar field). FE web quản lý đọc `isHot` từ list/detail để hiển thị toggle Hot, không cần gọi endpoint riêng.
+- **2026-06-29 (v1.16.4)** — **Chốt business rule: GIỮ auto-approve khi tạo property + sweep legacy `pending`**. Sau v1.16.2 fix visibility leak, property legacy `moderationStatus='pending'` (tạo thời code cũ trước v1.9) bị filter ẩn khỏi mọi public endpoint, bao gồm `/properties/public/by-owner/:ownerId`. Migration `20260629104500_legacy_pending_approve_sweep` đã apply prod: UPDATE mọi property `pending` của OWNER active + KYC approved (hoặc `kycBypass`) → `approved + moderationReviewedAt=NOW()`. Property của OWNER bị banned/inactive hoặc chưa KYC giữ nguyên `pending`. Property `rejected`/`suspended` không động vào. **Tác động FE**: (1) `/properties/public/by-owner/:ownerId` giờ trả đủ danh sách phòng của OWNER cho use case Zalo. (2) Admin FE web quản lý: tab "Chờ duyệt" về cơ bản sẽ trống vì auto-approve khi tạo. Có thể giữ tab cho legacy edge case (property của owner chưa KYC bị stuck pending) nhưng nếu UI rỗng là bình thường. Tab "Đã duyệt / Từ chối / Tạm ngưng" mới là tab chính dùng. (3) FE web khách hàng KHÔNG đổi gì — visibility rule §4.1 vẫn enforce `approved`.
+- **2026-06-29 (v1.16.5)** — **Owner-level entitlement filter cho 6 public endpoint**. Trước đây visibility rule chỉ check property-level (`isActive + deletedAt + moderationStatus`). Nếu OWNER hết trial / bị admin freeze subscription / KYC bị thu hồi / bị banned sau khi đã tạo phòng → phòng vẫn lộ ra customer web (lỗi nghiệp vụ — owner không còn quyền dùng platform mà vẫn nhận khách qua đó). v1.16.5 bổ sung **owner-level filter** mirror đúng entitlement gate lúc tạo phòng (xem helper `ownerVisibleFilter` trong [properties.service.ts](src/modules/properties/properties.service.ts)): owner phải `isActive + bannedAt=null + deletedAt=null` **VÀ** (`kycBypass=true` HOẶC (`kycStatus='approved'` AND subscription entitled)). Áp dụng cho cả 6 endpoint public: `/properties/public`, `/properties/search`, `/properties/public/:slug`, `/properties/public/:slug/similar`, `/properties/public/by-owner/:ownerId`, `/properties/share/:id`. **Tác động FE**: web khách hàng và link Zalo tự động ẩn phòng của owner không còn quyền — không cần FE check thêm. Khi owner mark-paid trở lại → phòng tự xuất hiện ngay (không cần re-index, filter là live query). Slug/ownerId không thoả entitlement → **404 NotFound** (giống behaviour của moderationStatus filter — không leak trạng thái).

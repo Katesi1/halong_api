@@ -111,6 +111,37 @@ export class PropertiesController {
   }
 
   @Public()
+  @Get('public/:slug/similar')
+  @ApiOperation({
+    summary: 'Cơ sở tương tự (carousel "Cơ sở khác")',
+    description:
+      'Trả danh sách property cùng khu vực/loại theo slug nguồn. Ưu tiên cùng district → cùng city → cùng type. Sort isHot desc → ratingAvg desc → reviewCount desc. Loại bỏ chính property nguồn + inactive/deleted/rejected.',
+  })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Số lượng tối đa (1-20, default 8)' })
+  @ApiResponse({ status: 200, description: 'PropertyCardDto[]' })
+  @ApiResponse({ status: 404, description: 'Slug not found / property inactive' })
+  findSimilarBySlug(
+    @Param('slug') slug: string,
+    @Query('limit') limit: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.propertiesService.findSimilarBySlug(slug, limit ? parseInt(limit) : 8, msg);
+  }
+
+  @Public()
+  @Get('public/by-owner/:ownerId')
+  @ApiOperation({
+    summary: 'Danh sách phòng công khai của 1 chủ nhà (no auth)',
+    description:
+      'Dùng cho web "lịch phòng" mà chủ nhà copy link gắn vào nhóm Zalo. SALE click link, không cần đăng nhập, thấy hết phòng đang hoạt động của chủ nhà đó + SĐT để gọi Zalo. Trả PropertyCardDto[] + owner { id, name, phone, avatarUrl }. Owner bị banned / inactive → 404.',
+  })
+  @ApiResponse({ status: 200, description: 'OK — { owner, items, total }' })
+  @ApiResponse({ status: 404, description: 'Owner not found / inactive / banned' })
+  findPublicByOwner(@Param('ownerId') ownerId: string, @Lang() msg: Messages) {
+    return this.propertiesService.findPublicByOwner(ownerId, msg);
+  }
+
+  @Public()
   @Get('share/:id')
   @ApiOperation({ summary: 'Thông tin property công khai (share link)', description: 'Trả về thông tin property không bao gồm giá, dùng cho share link khách hàng' })
   @ApiResponse({ status: 200, type: PropertyResponse })
@@ -125,14 +156,18 @@ export class PropertiesController {
   @ApiOperation({ summary: 'Danh sách properties' })
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'Admin thấy cả property đang tắt' })
   @ApiQuery({ name: 'view', required: false, description: '"sea" hoặc "city"' })
+  @ApiQuery({ name: 'moderationStatus', required: false, enum: ['pending', 'approved', 'rejected', 'suspended'], description: 'Lọc theo trạng thái duyệt — dùng cho admin tab "Chờ duyệt / Đã duyệt / Từ chối / Tạm ngưng"' })
   @ApiResponse({ status: 200, type: PropertyListResponse })
   findAll(
     @CurrentUser() user: any,
     @Query('includeInactive') includeInactive: string,
     @Query('view') view: string,
+    @Query('moderationStatus') moderationStatus: string,
     @Lang() msg: Messages,
   ) {
-    return this.propertiesService.findAll(user, msg, includeInactive === 'true', view || undefined);
+    const allowed = ['pending', 'approved', 'rejected', 'suspended'] as const;
+    const ms = allowed.includes(moderationStatus as any) ? (moderationStatus as typeof allowed[number]) : undefined;
+    return this.propertiesService.findAll(user, msg, includeInactive === 'true', view || undefined, ms);
   }
 
   @Get(':id')

@@ -119,6 +119,7 @@ export const vi = {
     setHotOnSuccess: 'Đã đặt cơ sở thành Hot',
     setHotOffSuccess: 'Đã bỏ Hot khỏi cơ sở',
     publicDetailSuccess: 'Lấy chi tiết cơ sở thành công',
+    publicByOwnerSuccess: 'Lấy danh sách cơ sở của chủ nhà thành công',
   },
 
   // ─── Favorites (per-user wishlist) ───────────────────────────────────────────

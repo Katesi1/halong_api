@@ -119,6 +119,7 @@ export const en = {
     setHotOnSuccess: 'Property marked as Hot',
     setHotOffSuccess: 'Property unmarked as Hot',
     publicDetailSuccess: 'Property detail retrieved successfully',
+    publicByOwnerSuccess: "Owner's property list retrieved successfully",
   },
 
   // ─── Favorites (per-user wishlist) ───────────────────────────────────────────

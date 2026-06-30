@@ -13,6 +13,18 @@ import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
 import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+
+/** Mã hiển thị HL-XXXXXXXX cho khách đối chiếu khi liên hệ chủ nhà. */
+function deriveBookingCode(id: string): string {
+  return `HL-${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+}
+
+/** Pick cover image URL from a property image list. */
+function pickCoverImageUrl(images?: { imageUrl: string; isCover: boolean; order?: number }[] | null): string | null {
+  if (!images || images.length === 0) return null;
+  const cover = images.find((img) => img.isCover);
+  return (cover ?? images[0]).imageUrl;
+}
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { EmailService } from '../email/email.service';
@@ -63,11 +75,14 @@ export class BookingsService {
         include: {
           property: {
             select: {
-              id: true, name: true, code: true, type: true,
-              images: { where: { isCover: true }, take: 1 },
+              id: true, name: true, slug: true, code: true, type: true,
+              cancellationPolicy: true,
+              images: { where: { isCover: true }, take: 1, select: { id: true, imageUrl: true, isCover: true, order: true } },
+              owner: { select: { id: true, name: true, phone: true } },
             },
           },
           sale: { select: { id: true, name: true, phone: true } },
+          review: { select: { id: true } },
         },
         orderBy: { createdAt: 'desc' },
         take,
@@ -81,10 +96,7 @@ export class BookingsService {
       if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
         holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
       }
-      // Flatten denorm fields cho FE: propertyName + nights
-      const propertyName = booking.property?.name ?? null;
-      const nights = this.calcNights(booking.checkinDate, booking.checkoutDate);
-      return { ...booking, holdRemainingSeconds, propertyName, nights };
+      return { ...booking, holdRemainingSeconds, ...this.enrichBookingExtras(booking) };
     });
 
     return {
@@ -100,6 +112,56 @@ export class BookingsService {
     return Math.max(0, Math.round(ms / (24 * 60 * 60 * 1000)));
   }
 
+  /**
+   * Enrich booking với các field FE customer-web cần:
+   *  - code: HL-XXXXXXXX để khách đối chiếu
+   *  - propertySlug, coverImageUrl: link + thumbnail
+   *  - host: { name, phone } — phone CHỈ lộ khi status >= CONFIRMED (tránh leak trước khi cọc)
+   *  - cancellationPolicy: 0/1/2 từ property
+   *  - hasReview: đã review chưa
+   *  - depositDeadlineAt: cho HOLD = holdExpireAt; cho CONFIRMED chưa có business rule → null
+   *  - vietqr: chưa có bank info per-owner trong schema → omit (BE chưa sẵn sàng, chờ schema mở rộng)
+   */
+  private enrichBookingExtras(booking: any): {
+    code: string;
+    propertyName: string | null;
+    propertySlug: string | null;
+    coverImageUrl: string | null;
+    host: { name: string | null; phone: string | null } | null;
+    cancellationPolicy: number | null;
+    hasReview: boolean;
+    depositDeadlineAt: Date | null;
+    nights: number;
+  } {
+    const property = booking?.property;
+    const owner = property?.owner;
+    const isConfirmedOrBeyond =
+      booking.status === BOOKING_STATUS.CONFIRMED ||
+      booking.status === BOOKING_STATUS.COMPLETED;
+    const host = owner
+      ? {
+          name: owner.name ?? null,
+          phone: isConfirmedOrBeyond ? owner.phone ?? null : null,
+        }
+      : null;
+    const depositDeadlineAt =
+      booking.status === BOOKING_STATUS.HOLD ? booking.holdExpireAt ?? null : null;
+    return {
+      code: deriveBookingCode(booking.id),
+      propertyName: property?.name ?? null,
+      propertySlug: property?.slug ?? null,
+      coverImageUrl: pickCoverImageUrl(property?.images),
+      host,
+      cancellationPolicy:
+        typeof property?.cancellationPolicy === 'number'
+          ? property.cancellationPolicy
+          : null,
+      hasReview: Boolean(booking.review),
+      depositDeadlineAt,
+      nights: this.calcNights(booking.checkinDate, booking.checkoutDate),
+    };
+  }
+
   async findOne(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
@@ -111,6 +173,7 @@ export class BookingsService {
           },
         },
         sale: { select: { id: true, name: true, phone: true } },
+        review: { select: { id: true } },
       },
     });
 
@@ -127,8 +190,7 @@ export class BookingsService {
       data: {
         ...booking,
         holdRemainingSeconds,
-        propertyName: booking.property?.name ?? null,
-        nights: this.calcNights(booking.checkinDate, booking.checkoutDate),
+        ...this.enrichBookingExtras(booking),
       },
     };
   }
@@ -583,10 +645,13 @@ export class BookingsService {
         include: {
           property: {
             select: {
-              id: true, name: true, code: true, type: true,
-              images: { where: { isCover: true }, take: 1 },
+              id: true, name: true, slug: true, code: true, type: true,
+              cancellationPolicy: true,
+              images: { where: { isCover: true }, take: 1, select: { id: true, imageUrl: true, isCover: true, order: true } },
+              owner: { select: { id: true, name: true, phone: true } },
             },
           },
+          review: { select: { id: true } },
         },
         orderBy: { createdAt: 'desc' },
         take,
@@ -595,17 +660,17 @@ export class BookingsService {
       this.prisma.booking.count({ where }),
     ]);
 
-    const bookingsWithHoldTtl = bookings.map((booking) => {
+    const bookingsWithExtras = bookings.map((booking) => {
       let holdRemainingSeconds = 0;
       if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
         holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
       }
-      return { ...booking, holdRemainingSeconds };
+      return { ...booking, holdRemainingSeconds, ...this.enrichBookingExtras(booking) };
     });
 
     return {
       message: msg.bookings.myListSuccess,
-      data: bookingsWithHoldTtl,
+      data: bookingsWithExtras,
       meta: { total, page: currentPage, limit: take },
     };
   }
@@ -795,6 +860,14 @@ export class BookingsService {
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
   private checkBookingAccess(booking: any, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
+    // CUSTOMER (role=3) chỉ xem được booking của chính mình.
+    if (user.role === ROLE.CUSTOMER) {
+      if (booking.customerId !== user.id) {
+        throw new ForbiddenException(msg.bookings.forbiddenAccess);
+      }
+      return;
+    }
+    // ADMIN/OWNER/SALE scope theo effective owner của property.
     const effectiveOwnerId = getEffectiveOwnerId(user);
     if (effectiveOwnerId && booking.property?.ownerId !== effectiveOwnerId) {
       throw new ForbiddenException(msg.bookings.forbiddenAccess);

@@ -100,9 +100,10 @@ export class BookingsController {
   }
 
   @Get(':id')
-  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
-  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.READ)
-  @ApiOperation({ summary: 'Chi tiết booking' })
+  @ApiOperation({
+    summary: 'Chi tiết booking',
+    description: 'ADMIN/OWNER/SALE thấy booking của team; CUSTOMER thấy booking của chính mình (booking.customerId === user.id). Người khác → 403.',
+  })
   @ApiResponse({ status: 200, type: BookingResponse })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.findOne(id, user, msg);
