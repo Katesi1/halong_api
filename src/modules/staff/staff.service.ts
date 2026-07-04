@@ -250,7 +250,11 @@ export class StaffService {
     };
   }
 
-  async acceptInvite(dto: AcceptInviteDto, msg: Messages) {
+  async acceptInvite(
+    dto: AcceptInviteDto,
+    msg: Messages,
+    meta: { clientType?: 'mobile' | 'web' } = {},
+  ) {
     const invite = await this.findInviteByTokenOrCode(dto.token);
     if (!invite) throw new NotFoundException(msg.staff.inviteNotFound);
     if (invite.status === 'accepted') throw new GoneException(msg.staff.inviteAlreadyAccepted);
@@ -368,9 +372,10 @@ export class StaffService {
       );
     }
 
-    const tokens = await this.authService.issueTokensFor({
-      id: newUser.id, email: newUser.email, role: newUser.role,
-    });
+    const tokens = await this.authService.issueTokensFor(
+      { id: newUser.id, email: newUser.email, role: newUser.role },
+      meta.clientType ?? 'web',
+    );
 
     return {
       message: msg.staff.inviteAcceptSuccess,
@@ -417,7 +422,8 @@ export class StaffService {
 
     await this.prisma.user.update({
       where: { id: staffId },
-      data: { isActive: false, refreshToken: null },
+      // Remove SALE khỏi team → logout mọi phiên (mobile + web)
+      data: { isActive: false, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
     });
 
     // Notify SALE: bị xoá khỏi team → FE detect và logout

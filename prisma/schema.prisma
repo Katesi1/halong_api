@@ -21,7 +21,9 @@ model User {
   gender           Int? // 0=MALE, 1=FEMALE, 2=OTHER
   dateOfBirth      DateTime?
   isActive         Boolean   @default(true)
-  refreshToken     String?
+  refreshToken     String?   // DEPRECATED — legacy 1-session-total. Giữ để tương thích dữ liệu cũ, có thể drop sau.
+  refreshTokenMobile String? // Session app native (Android/iOS). Login mobile mới → đá device cũ.
+  refreshTokenWeb    String? // Session web browser. Login web mới → đá browser cũ.
   googleSub        String?   @unique // Google's sub claim — stable user ID
   appleSub         String?   @unique // Apple's sub claim — stable user ID
   emailVerified    Boolean   @default(false)
@@ -238,6 +240,8 @@ model Property {
   @@index([isActive, deletedAt])
   @@index([type])
   @@index([isHot])
+  @@index([ownerId])
+  @@index([amenities], type: Gin)
   @@map("properties")
 }
 
@@ -301,6 +305,10 @@ model Booking {
   customer User?           @relation("CustomerBookings", fields: [customerId], references: [id])
   review   PropertyReview?
 
+  @@index([propertyId, status])
+  @@index([checkinDate, checkoutDate])
+  @@index([saleId])
+  @@index([customerId])
   @@map("bookings")
 }
 

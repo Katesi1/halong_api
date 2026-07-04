@@ -311,30 +311,26 @@ export class CalendarService {
       throw new BadRequestException(msg.users.saleNotAssigned);
     }
 
-    const results: Array<{
-      propertyId: string;
-      date: string;
-      ok: boolean;
-      error?: string;
-    }> = [];
-
-    for (const item of items) {
-      try {
-        if (mode === 'lock') {
-          await this.lockDate(item.propertyId, item.date, undefined, user, msg);
-        } else {
-          await this.unlockDate(item.propertyId, item.date, user, msg);
+    // Xử lý song song thay vì tuần tự — mỗi item độc lập, giữ nguyên thứ tự kết quả.
+    const results = await Promise.all(
+      items.map(async (item) => {
+        try {
+          if (mode === 'lock') {
+            await this.lockDate(item.propertyId, item.date, undefined, user, msg);
+          } else {
+            await this.unlockDate(item.propertyId, item.date, user, msg);
+          }
+          return { propertyId: item.propertyId, date: item.date, ok: true } as const;
+        } catch (err: any) {
+          return {
+            propertyId: item.propertyId,
+            date: item.date,
+            ok: false,
+            error: err?.message ?? 'failed',
+          } as const;
         }
-        results.push({ propertyId: item.propertyId, date: item.date, ok: true });
-      } catch (err: any) {
-        results.push({
-          propertyId: item.propertyId,
-          date: item.date,
-          ok: false,
-          error: err?.message ?? 'failed',
-        });
-      }
-    }
+      }),
+    );
 
     const succeeded = results.filter((r) => r.ok).length;
     return {

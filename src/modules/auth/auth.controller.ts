@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Ip, Patch, Post, UseGuards } from '@nes
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { LoginResponse, MessageResponse, ProfileResponse } from '../../common/dto/api-response.dto';
-import { AuthService } from './auth.service';
+import { AuthService, normalizeClientType } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
@@ -34,10 +34,15 @@ export class AuthController {
   register(
     @Body() dto: RegisterDto,
     @Headers('x-device-id') deviceId: string | undefined,
+    @Headers('x-client-type') clientTypeHeader: string | undefined,
     @Ip() ip: string,
     @Lang() msg: Messages,
   ) {
-    return this.authService.register(dto, msg, { deviceId: deviceId || null, ip: ip || null });
+    return this.authService.register(dto, msg, {
+      deviceId: deviceId || null,
+      ip: ip || null,
+      clientType: normalizeClientType(clientTypeHeader),
+    });
   }
 
   @Public()
@@ -46,8 +51,14 @@ export class AuthController {
   @ApiOperation({ summary: 'Đăng nhập', description: 'Trả về accessToken và refreshToken' })
   @ApiResponse({ status: 200, type: LoginResponse })
   @ApiResponse({ status: 429, description: 'Quá nhiều lần đăng nhập sai' })
-  login(@Body() dto: LoginDto, @Lang() msg: Messages) {
-    return this.authService.login(dto, msg);
+  login(
+    @Body() dto: LoginDto,
+    @Headers('x-client-type') clientTypeHeader: string | undefined,
+    @Lang() msg: Messages,
+  ) {
+    return this.authService.login(dto, msg, {
+      clientType: normalizeClientType(clientTypeHeader),
+    });
   }
 
   @Public()
@@ -60,10 +71,15 @@ export class AuthController {
   googleAuth(
     @Body() dto: GoogleAuthDto,
     @Headers('x-device-id') deviceId: string | undefined,
+    @Headers('x-client-type') clientTypeHeader: string | undefined,
     @Ip() ip: string,
     @Lang() msg: Messages,
   ) {
-    return this.authService.googleAuth(dto, msg, { deviceId: deviceId || null, ip: ip || null });
+    return this.authService.googleAuth(dto, msg, {
+      deviceId: deviceId || null,
+      ip: ip || null,
+      clientType: normalizeClientType(clientTypeHeader),
+    });
   }
 
   @Public()
@@ -76,10 +92,16 @@ export class AuthController {
   appleAuth(
     @Body() dto: AppleAuthDto,
     @Headers('x-device-id') deviceId: string | undefined,
+    @Headers('x-client-type') clientTypeHeader: string | undefined,
     @Ip() ip: string,
     @Lang() msg: Messages,
   ) {
-    return this.authService.appleAuth(dto, msg, { deviceId: deviceId || null, ip: ip || null });
+    return this.authService.appleAuth(dto, msg, {
+      deviceId: deviceId || null,
+      ip: ip || null,
+      // Apple Sign-In gần như luôn từ app iOS → default mobile nếu FE không gửi.
+      clientType: normalizeClientType(clientTypeHeader ?? 'mobile'),
+    });
   }
 
   @Public()
@@ -113,8 +135,13 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Đăng xuất', description: 'Vô hiệu hóa refresh token' })
   @ApiResponse({ status: 200, type: MessageResponse })
-  logout(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
-    return this.authService.logout(userId, msg);
+  logout(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('clientType') clientType: 'mobile' | 'web' | undefined,
+    @Lang() msg: Messages,
+  ) {
+    // Fallback 'web' cho token cũ (chưa có clientType trong payload).
+    return this.authService.logout(userId, clientType ?? 'web', msg);
   }
 
   @UseGuards(JwtAuthGuard)

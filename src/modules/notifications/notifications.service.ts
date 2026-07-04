@@ -166,7 +166,11 @@ export class NotificationsService {
       targetType,
     });
 
-    await this.pushToUser(property.ownerId, title, subtitle, push, targetId);
+    // Push FCM là side-effect ngoài (gọi Google, best-effort) — KHÔNG để response chờ nó.
+    // DB row phía trên đã ghi đồng bộ; đó mới là dữ liệu tin cậy hiển thị ở chuông.
+    void this.pushToUser(property.ownerId, title, subtitle, push, targetId).catch((err) =>
+      this.logger.warn(`FCM push failed (owner ${property.ownerId}): ${err?.message}`),
+    );
   }
 
   /** Notify all admins — tạo DB row + push FCM (nếu push.pushType có) */
@@ -189,9 +193,10 @@ export class NotificationsService {
       ),
     );
 
-    await Promise.all(
+    // Push FCM tách khỏi request (best-effort) — DB rows ở trên đã ghi đồng bộ.
+    void Promise.all(
       admins.map((admin) => this.pushToUser(admin.id, title, subtitle, push, targetId)),
-    );
+    ).catch((err) => this.logger.warn(`FCM push to admins failed: ${err?.message}`));
   }
 
   /** Notify a specific user — tạo DB row + push FCM (nếu push.pushType có) */
@@ -205,6 +210,23 @@ export class NotificationsService {
     push: PushMeta = {},
   ) {
     await this.create({ userId, title, subtitle, type, targetId, targetType });
-    await this.pushToUser(userId, title, subtitle, push, targetId);
+    // Push FCM tách khỏi request (best-effort) — DB row ở trên đã ghi đồng bộ.
+    void this.pushToUser(userId, title, subtitle, push, targetId).catch((err) =>
+      this.logger.warn(`FCM push failed (user ${userId}): ${err?.message}`),
+    );
+  }
+
+  /**
+   * Chỉ push FCM tới mọi device của user — KHÔNG tạo notification DB row.
+   * Dùng cho chat message (volume lớn, đã có badge unread-count riêng).
+   */
+  async pushOnly(
+    userId: string,
+    title: string,
+    body: string,
+    push: PushMeta,
+    targetId?: string,
+  ): Promise<void> {
+    await this.pushToUser(userId, title, body, push, targetId);
   }
 }

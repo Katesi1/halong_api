@@ -157,17 +157,25 @@ export class PropertiesController {
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, description: 'Admin thấy cả property đang tắt' })
   @ApiQuery({ name: 'view', required: false, description: '"sea" hoặc "city"' })
   @ApiQuery({ name: 'moderationStatus', required: false, enum: ['pending', 'approved', 'rejected', 'suspended'], description: 'Lọc theo trạng thái duyệt — dùng cho admin tab "Chờ duyệt / Đã duyệt / Từ chối / Tạm ngưng"' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Phân trang (opt-in). Truyền page/limit → data trả { items, total, page, limit, totalPages }; không truyền → trả mảng như cũ.' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Số item/trang (mặc định 20, tối đa 100). Chỉ có tác dụng khi phân trang.' })
   @ApiResponse({ status: 200, type: PropertyListResponse })
   findAll(
     @CurrentUser() user: any,
     @Query('includeInactive') includeInactive: string,
     @Query('view') view: string,
     @Query('moderationStatus') moderationStatus: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
     @Lang() msg: Messages,
   ) {
     const allowed = ['pending', 'approved', 'rejected', 'suspended'] as const;
     const ms = allowed.includes(moderationStatus as any) ? (moderationStatus as typeof allowed[number]) : undefined;
-    return this.propertiesService.findAll(user, msg, includeInactive === 'true', view || undefined, ms);
+    const pagination =
+      page !== undefined || limit !== undefined
+        ? { page: page !== undefined ? Number(page) : undefined, limit: limit !== undefined ? Number(limit) : undefined }
+        : undefined;
+    return this.propertiesService.findAll(user, msg, includeInactive === 'true', view || undefined, ms, pagination);
   }
 
   @Get(':id')
@@ -211,7 +219,7 @@ export class PropertiesController {
   @Permission(PERMISSION_MODULE.PROPERTIES, PERMISSION_ACTION.UPDATE)
   @ApiOperation({
     summary: 'Cập nhật giá property',
-    description: 'Tất cả fields optional — chỉ gửi field cần update. Fields: weekdayPrice, weekendPrice, holidayPrice, adultSurcharge, childSurcharge',
+    description: 'Tất cả 5 fields đều BẮT BUỘC, không được để trống/null: weekdayPrice, weekendPrice, holidayPrice, adultSurcharge, childSurcharge',
   })
   @ApiResponse({ status: 200, type: PropertyResponse })
   updatePrices(

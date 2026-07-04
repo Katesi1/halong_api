@@ -205,7 +205,7 @@ export const CHAT_LIMITS = {
   ATTACHMENTS_MAX: 5,
   PAGE_DEFAULT: 50,
   PAGE_MAX: 100,
-  RETENTION_DAYS: 180,
+  RETENTION_DAYS: 365,
 } as const;
 
 export const LEAD_STATUS = {

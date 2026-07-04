@@ -12,7 +12,9 @@ import {
   KYC_STATUS,
   KYC_UPLOAD_TYPE,
   KYC_STATUS_API_MAP,
+  NOTIFICATION_TYPE,
 } from '../../common/constants';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Prisma } from '@prisma/client';
 import type { Messages } from '../../i18n';
 import {
@@ -34,7 +36,27 @@ export class KycService {
   constructor(
     private prisma: PrismaService,
     private cloudinary: CloudinaryService,
+    private notifications: NotificationsService,
   ) {}
+
+  /**
+   * Báo cho toàn bộ admin khi có hồ sơ KYC mới chờ duyệt.
+   * Tạo notification DB row (đồng bộ) + push FCM (best-effort, chạy nền trong notifyAdmins).
+   */
+  private async notifyAdminsKycSubmitted(userId: string, submissionId: string) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, phone: true },
+    });
+    await this.notifications.notifyAdmins(
+      'KYC mới chờ duyệt',
+      `${u?.name ?? 'Người dùng'}${u?.phone ? ` (${u.phone})` : ''} đã gửi hồ sơ KYC, cần duyệt.`,
+      NOTIFICATION_TYPE.SYSTEM,
+      submissionId,
+      'kyc',
+      { pushType: 'kyc_submitted', deepLink: `/admin/kyc/${submissionId}` },
+    );
+  }
 
   /**
    * Đọc kycStatus hiện tại của user.
@@ -286,6 +308,7 @@ export class KycService {
             data: { kycStatus: KYC_STATUS.PENDING },
           }),
         ]);
+        await this.notifyAdminsKycSubmitted(sub.userId, submissionId);
       }
     }
   }
@@ -343,6 +366,8 @@ export class KycService {
         data: { kycStatus: KYC_STATUS.PENDING },
       }),
     ]);
+
+    await this.notifyAdminsKycSubmitted(user.id, submission.id);
 
     return {
       message: msg.kyc.submitSuccess,

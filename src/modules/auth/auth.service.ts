@@ -29,6 +29,19 @@ import { UsersService } from '../users/users.service';
 const RESET_TOKEN_TTL_MINUTES = 10;
 
 /**
+ * Phân biệt phiên login: 1 slot mobile (app Android/iOS) + 1 slot web song song.
+ * FE gửi qua header `X-Client-Type: mobile|web` khi login/register/google/apple/staff-accept.
+ * Không gửi → default 'web' (an toàn cho browser cũ chưa cập nhật).
+ */
+export type ClientType = 'mobile' | 'web';
+
+export function normalizeClientType(raw: string | undefined | null): ClientType {
+  const v = (raw || '').toLowerCase().trim();
+  if (v === 'mobile' || v === 'ios' || v === 'android' || v === 'app') return 'mobile';
+  return 'web';
+}
+
+/**
  * Apple IAP compliance: app iOS không có UI thanh toán → OWNER mới đăng ký
  * được cấp trial ngầm N ngày (mặc định 60). Hết hạn → entitlement gate ở
  * properties/staff sẽ tự khóa với message "Tài khoản chưa có quyền dùng
@@ -59,7 +72,7 @@ export class AuthService {
   async register(
     dto: RegisterDto,
     msg: Messages,
-    meta: { deviceId?: string | null; ip?: string | null } = {},
+    meta: { deviceId?: string | null; ip?: string | null; clientType?: ClientType } = {},
   ) {
     const email = dto.email.toLowerCase().trim();
 
@@ -97,8 +110,9 @@ export class AuthService {
       },
     });
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    const clientType = meta.clientType ?? 'web';
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
 
     return {
       message: msg.auth.registerSuccess,
@@ -109,7 +123,7 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto, msg: Messages) {
+  async login(dto: LoginDto, msg: Messages, meta: { clientType?: ClientType } = {}) {
     // Ưu tiên identifier (chuẩn mới), fallback email/phone (backward-compat FE cũ)
     const raw = (dto.identifier || dto.email || dto.phone || '').trim();
     if (!raw) {
@@ -140,8 +154,9 @@ export class AuthService {
       throw new UnauthorizedException(msg.auth.invalidCredentials);
     }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    const clientType = meta.clientType ?? 'web';
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -165,7 +180,7 @@ export class AuthService {
   async googleAuth(
     dto: GoogleAuthDto,
     msg: Messages,
-    meta: { deviceId?: string | null; ip?: string | null } = {},
+    meta: { deviceId?: string | null; ip?: string | null; clientType?: ClientType } = {},
   ) {
     const audience = this.configService.get<string>('GOOGLE_OAUTH_WEB_CLIENT_ID');
     if (!audience) {
@@ -251,8 +266,9 @@ export class AuthService {
       });
     }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    const clientType = meta.clientType ?? 'web';
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -273,7 +289,7 @@ export class AuthService {
   async appleAuth(
     dto: AppleAuthDto,
     msg: Messages,
-    meta: { deviceId?: string | null; ip?: string | null } = {},
+    meta: { deviceId?: string | null; ip?: string | null; clientType?: ClientType } = {},
   ) {
     const audience = this.configService.get<string>('APPLE_CLIENT_ID');
     if (!audience) throw new UnauthorizedException(msg.auth.appleTokenInvalid);
@@ -358,8 +374,9 @@ export class AuthService {
       });
     }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    const clientType = meta.clientType ?? 'mobile'; // Apple mặc định mobile (iOS)
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -457,7 +474,8 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { password: hashedPassword, refreshToken: null },
+      // Reset password → logout mọi phiên (cả mobile lẫn web).
+      data: { password: hashedPassword, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
     });
 
     return { message: msg.auth.resetPasswordSuccess, data: null };
@@ -466,7 +484,7 @@ export class AuthService {
   async refreshToken(refreshToken: string, msg: Messages) {
     // Verify chữ ký + hạn JWT. Chỉ block try/catch quanh verify để không nuốt
     // các ForbiddenException ném ở dưới (vd: user bị xoá, token DB không khớp).
-    let payload: { sub: string };
+    let payload: { sub: string; clientType?: ClientType };
     try {
       payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
@@ -480,19 +498,30 @@ export class AuthService {
       where: { id: payload.sub },
     });
 
-    // Reject nếu: user không tồn tại / đã soft-delete / bị disable / đã logout (refreshToken=null)
-    if (!user || user.deletedAt || !user.isActive || !user.refreshToken) {
+    if (!user || user.deletedAt || !user.isActive) {
       throw new ForbiddenException(msg.auth.invalidRefreshToken);
     }
 
-    // Compare với hash trong DB để chống dùng lại token cũ đã rotate
-    const isRefreshTokenValid = await bcrypt.compare(refreshToken, user.refreshToken);
-    if (!isRefreshTokenValid) {
+    // Nhận diện phiên. Token cũ (trước v1.19) không có clientType → mặc định 'web'
+    // và fallback so với cột legacy `refreshToken` để không đá tất cả user đang login.
+    const clientType: ClientType = payload.clientType === 'mobile' ? 'mobile' : 'web';
+    const storedHash =
+      clientType === 'mobile' ? user.refreshTokenMobile : user.refreshTokenWeb;
+
+    let matched = false;
+    if (storedHash) {
+      matched = await bcrypt.compare(refreshToken, storedHash);
+    }
+    // Fallback tương thích ngược 1 lần: token phát trước v1.19 nằm ở cột `refreshToken`.
+    if (!matched && !payload.clientType && user.refreshToken) {
+      matched = await bcrypt.compare(refreshToken, user.refreshToken);
+    }
+    if (!matched) {
       throw new ForbiddenException(msg.auth.invalidRefreshToken);
     }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
 
     return {
       message: msg.auth.refreshSuccess,
@@ -500,10 +529,14 @@ export class AuthService {
     };
   }
 
-  async logout(userId: string, msg: Messages) {
+  async logout(userId: string, clientType: ClientType, msg: Messages) {
+    // Chỉ clear cột của client hiện tại — session còn lại (mobile hoặc web) không bị đá.
     await this.prisma.user.update({
       where: { id: userId },
-      data: { refreshToken: null },
+      data:
+        clientType === 'mobile'
+          ? { refreshTokenMobile: null }
+          : { refreshTokenWeb: null },
     });
     return { message: msg.auth.logoutSuccess, data: null };
   }
@@ -652,16 +685,24 @@ export class AuthService {
 
   /**
    * Issue access + refresh tokens cho user vừa được tạo / login.
-   * Persist hashed refresh token vào DB.
+   * Persist hashed refresh token vào cột tương ứng với `clientType`.
    */
-  async issueTokensFor(user: { id: string; email: string; role: number }) {
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+  async issueTokensFor(
+    user: { id: string; email: string; role: number },
+    clientType: ClientType = 'web',
+  ) {
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
     return tokens;
   }
 
-  private async generateTokens(userId: string, email: string, role: number) {
-    const payload = { sub: userId, email, role };
+  private async generateTokens(
+    userId: string,
+    email: string,
+    role: number,
+    clientType: ClientType,
+  ) {
+    const payload = { sub: userId, email, role, clientType };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -677,11 +718,20 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
-  private async updateRefreshToken(userId: string, refreshToken: string) {
+  private async updateRefreshToken(
+    userId: string,
+    clientType: ClientType,
+    refreshToken: string,
+  ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
+    // Ghi vào đúng cột theo clientType. Không đụng cột kia → giữ session còn lại.
+    // Đồng thời null cột legacy `refreshToken` để không bị fallback lộn ngược trong tương lai.
     await this.prisma.user.update({
       where: { id: userId },
-      data: { refreshToken: hashedRefreshToken },
+      data:
+        clientType === 'mobile'
+          ? { refreshTokenMobile: hashedRefreshToken, refreshToken: null }
+          : { refreshTokenWeb: hashedRefreshToken, refreshToken: null },
     });
   }
 }

@@ -18,6 +18,9 @@ export interface SendResult {
   invalidTokens: string[];
 }
 
+/** Chặn trên mỗi lần gọi FCM — 1 lần treo mạng không được rò rỉ promise nền vô hạn. */
+const FCM_SEND_TIMEOUT_MS = 10_000;
+
 @Injectable()
 export class FirebaseService implements OnModuleInit {
   private readonly logger = new Logger(FirebaseService.name);
@@ -62,6 +65,9 @@ export class FirebaseService implements OnModuleInit {
     const result: SendResult = { successCount: 0, failureCount: 0, invalidTokens: [] };
     if (!this.app || tokens.length === 0) return result;
 
+    // APNs alert phải set tường minh — nếu để aps rỗng alert, iOS coi là silent push
+    // và không hiện tray khi app đã killed (Apple giới hạn, không phải bug Firebase).
+    // Set alert tường minh + mutable-content=1 để hỗ trợ Notification Service Extension.
     const message: admin.messaging.MulticastMessage = {
       tokens,
       notification: {
@@ -74,14 +80,29 @@ export class FirebaseService implements OnModuleInit {
         notification: { sound: 'default' },
       },
       apns: {
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert',
+        },
         payload: {
-          aps: { sound: 'default', badge: 1 },
+          aps: {
+            alert: {
+              title: payload.title,
+              body: payload.body ?? '',
+            },
+            sound: 'default',
+            badge: 1,
+            'mutable-content': 1,
+          },
         },
       },
     };
 
     try {
-      const resp = await admin.messaging().sendEachForMulticast(message);
+      const resp = await this.withTimeout(
+        admin.messaging().sendEachForMulticast(message),
+        FCM_SEND_TIMEOUT_MS,
+      );
       result.successCount = resp.successCount;
       result.failureCount = resp.failureCount;
 
@@ -107,5 +128,14 @@ export class FirebaseService implements OnModuleInit {
     }
 
     return result;
+  }
+
+  /** Race một promise với timeout — reject nếu quá hạn để không treo vô hạn. */
+  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`FCM send timed out after ${ms}ms`)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
   }
 }

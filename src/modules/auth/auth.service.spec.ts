@@ -230,12 +230,12 @@ describe('AuthService', () => {
     it('should clear refresh token', async () => {
       (prisma.user.update as jest.Mock).mockResolvedValue(mockUser);
 
-      const result = await service.logout('user-1', msg);
+      const result = await service.logout('user-1', 'web', msg);
 
       expect(result.data).toBeNull();
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { refreshToken: null },
+        data: { refreshTokenWeb: null },
       });
     });
   });

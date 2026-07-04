@@ -312,7 +312,10 @@ export class UsersService {
         where: { id: userId },
         data: {
           deletionScheduledAt: scheduledAt,
-          refreshToken: null, // logout mọi device ngay
+          // Logout mọi phiên ngay (cả app mobile + web)
+          refreshToken: null,
+          refreshTokenMobile: null,
+          refreshTokenWeb: null,
         },
       }),
       this.prisma.userDevice.deleteMany({ where: { userId } }),
@@ -485,6 +488,8 @@ export class UsersService {
               deletedAt: now,
               isActive: false,
               refreshToken: null,
+              refreshTokenMobile: null,
+              refreshTokenWeb: null,
               deletionScheduledAt: null,
               email: `deleted-${stamp}-${u.email}`,
               phone: u.phone ? `deleted-${stamp}-${u.phone}` : null,
@@ -665,6 +670,8 @@ export class UsersService {
         bannedReason: reason.trim(),
         bannedBy: caller.id,
         refreshToken: null,
+        refreshTokenMobile: null,
+        refreshTokenWeb: null,
       },
       select: { id: true, name: true, email: true, role: true, isActive: true, bannedAt: true, bannedReason: true },
     });
@@ -724,7 +731,8 @@ export class UsersService {
     if (!user) throw new NotFoundException(msg.users.notFound);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { refreshToken: null },
+      // Revoke sessions → clear cả 3 cột (legacy + mobile + web)
+      data: { refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
     });
     // Also remove FCM device tokens so push notifications stop reaching former sessions.
     await this.prisma.userDevice.deleteMany({ where: { userId } });
@@ -765,7 +773,8 @@ export class UsersService {
     const hashed = await bcrypt.hash(generated, 10);
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashed, refreshToken: null },
+      // Admin reset password → force logout mọi phiên (mobile + web)
+      data: { password: hashed, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
     });
     this.logger.log(`Password reset for user=${userId} by admin=${adminId}`);
     void this.auditLog.log({

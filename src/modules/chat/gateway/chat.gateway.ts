@@ -17,7 +17,6 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { ChatService } from '../chat.service';
 import { getMessages, type Messages } from '../../../i18n';
-import { NOTIFICATION_TYPE } from '../../../common/constants';
 
 interface AuthedSocket extends Socket {
   data: {
@@ -297,29 +296,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Emit qua personal room. Nếu user có >=1 socket, message tới ngay.
       this.server.to(this.userRoom(recipientId)).emit('message:new', payload);
 
-      // FCM fallback nếu user không có socket nào
-      if (!this.isOnline(recipientId)) {
-        if (senderName === null) {
-          senderName = await this.getSenderName(message.senderId);
-        }
-        // Fire-and-forget — không block luồng chat
-        void this.notifications
-          .notifyUser(
-            recipientId,
-            senderName,
-            message.content.slice(0, 120),
-            NOTIFICATION_TYPE.SYSTEM,
-            conversationId,
-            'conversation',
-            {
-              pushType: 'chat_message',
-              deepLink: `/conversations/${conversationId}`,
-            },
-          )
-          .catch((err) => {
-            this.logger.warn(`FCM fallback failed for user=${recipientId}: ${err.message}`);
-          });
+      // Luôn push FCM (multi-device sync) — không tạo notification DB row.
+      // FE mobile foreground handler tự suppress tray nếu user đang mở đúng conversation.
+      if (senderName === null) {
+        senderName = await this.getSenderName(message.senderId);
       }
+      void this.notifications
+        .pushOnly(
+          recipientId,
+          senderName,
+          message.content.slice(0, 120),
+          {
+            pushType: 'chat_message',
+            deepLink: `/conversations/${conversationId}`,
+          },
+          conversationId,
+        )
+        .catch((err) => {
+          this.logger.warn(`FCM push failed for user=${recipientId}: ${err.message}`);
+        });
     }
 
     // Sender cũng được emit để các tab/device khác của họ đồng bộ

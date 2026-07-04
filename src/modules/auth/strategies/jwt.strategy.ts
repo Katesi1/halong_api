@@ -21,7 +21,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; email: string; role: string }) {
+  async validate(payload: {
+    sub: string;
+    email: string;
+    role: string;
+    clientType?: 'mobile' | 'web';
+  }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -33,6 +38,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user || !user.isActive || user.deletedAt) {
       throw new UnauthorizedException('Tài khoản không tồn tại hoặc đã bị vô hiệu hóa');
     }
-    return user;
+    // Đính clientType từ JWT payload — controller logout / audit dùng để nhận biết phiên hiện tại.
+    return { ...user, clientType: payload.clientType };
   }
 }

@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString, IsOptional, IsNumber, IsBoolean, IsInt,
-  IsArray, IsIn, Min, Max,
+  IsArray, IsIn, Min, Max, ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PROPERTY_VIEWS } from '../property-enums';
@@ -120,38 +120,38 @@ export class UpdatePropertyDto {
   @Type(() => Number)
   cancellationPolicy?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ description: 'Giá ngày thường (VND) — nếu gửi thì không được null' })
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsNumber({}, { message: 'Giá ngày thường phải là số, không được null' })
+  @Min(0, { message: 'Giá ngày thường phải >= 0' })
   @Type(() => Number)
   weekdayPrice?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ description: 'Giá cuối tuần (VND) — nếu gửi thì không được null' })
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsNumber({}, { message: 'Giá cuối tuần phải là số, không được null' })
+  @Min(0, { message: 'Giá cuối tuần phải >= 0' })
   @Type(() => Number)
   weekendPrice?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ description: 'Giá ngày lễ (VND) — nếu gửi thì không được null' })
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsNumber({}, { message: 'Giá ngày lễ phải là số, không được null' })
+  @Min(0, { message: 'Giá ngày lễ phải >= 0' })
   @Type(() => Number)
   holidayPrice?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ description: 'Phụ thu người lớn (VND) — nếu gửi thì không được null' })
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsNumber({}, { message: 'Phụ thu người lớn phải là số, không được null' })
+  @Min(0, { message: 'Phụ thu người lớn phải >= 0' })
   @Type(() => Number)
   adultSurcharge?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ description: 'Phụ thu trẻ em (VND) — nếu gửi thì không được null' })
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsNumber({}, { message: 'Phụ thu trẻ em phải là số, không được null' })
+  @Min(0, { message: 'Phụ thu trẻ em phải >= 0' })
   @Type(() => Number)
   childSurcharge?: number;
 

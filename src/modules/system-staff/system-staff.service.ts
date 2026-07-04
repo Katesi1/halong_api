@@ -205,7 +205,8 @@ export class SystemStaffService {
 
     await this.prisma.user.update({
       where: { id: staffId },
-      data: { isActive: false, refreshToken: null },
+      // Disable system SALE → logout mọi phiên (mobile + web)
+      data: { isActive: false, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
     });
     // Xoá device tokens để dừng FCM push.
     await this.prisma.userDevice.deleteMany({ where: { userId: staffId } });

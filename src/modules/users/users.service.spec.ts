@@ -2,6 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { EmailService } from '../email/email.service';
 import { en } from '../../i18n';
 import { ROLE } from '../../common/constants';
 
@@ -37,6 +40,30 @@ describe('UsersService', () => {
               create: jest.fn(),
               update: jest.fn(),
             },
+          },
+        },
+        {
+          provide: AuditLogService,
+          useValue: {
+            log: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: NotificationsService,
+          useValue: {
+            create: jest.fn().mockResolvedValue(undefined),
+            notifyUser: jest.fn().mockResolvedValue(undefined),
+            notifyAdmins: jest.fn().mockResolvedValue(undefined),
+            notifyPropertyOwner: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: EmailService,
+          useValue: {
+            sendStaffInvite: jest.fn().mockResolvedValue(undefined),
+            sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+            sendAccountDeletionScheduled: jest.fn().mockResolvedValue(undefined),
+            sendAccountDeletionRestored: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],

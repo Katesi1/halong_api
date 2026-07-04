@@ -4,6 +4,8 @@ import { BookingsService } from './bookings.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../config/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { EmailService } from '../email/email.service';
 import { en } from '../../i18n';
 import { BOOKING_STATUS, ROLE } from '../../common/constants';
 
@@ -34,27 +36,31 @@ describe('BookingsService', () => {
   };
 
   beforeEach(async () => {
+    const prismaMock: any = {
+      booking: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
+      property: {
+        findUnique: jest.fn(),
+      },
+      calendarLock: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    // Interactive transaction: chạy callback với tx = chính prismaMock, nên tx.booking.* tái dùng mock ở trên.
+    prismaMock.$transaction = jest.fn().mockImplementation((cb: any) => cb(prismaMock));
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BookingsService,
         {
           provide: PrismaService,
-          useValue: {
-            booking: {
-              findMany: jest.fn().mockResolvedValue([]),
-              findUnique: jest.fn(),
-              findFirst: jest.fn(),
-              create: jest.fn(),
-              update: jest.fn(),
-              updateMany: jest.fn(),
-            },
-            property: {
-              findUnique: jest.fn(),
-            },
-            calendarLock: {
-              findFirst: jest.fn().mockResolvedValue(null),
-            },
-          },
+          useValue: prismaMock,
         },
         {
           provide: RedisService,
@@ -72,6 +78,18 @@ describe('BookingsService', () => {
             notifyPropertyOwner: jest.fn().mockResolvedValue(undefined),
             notifyAdmins: jest.fn().mockResolvedValue(undefined),
             notifyUser: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: AuditLogService,
+          useValue: {
+            log: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: EmailService,
+          useValue: {
+            sendBookingCancelled: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
@@ -105,7 +123,7 @@ describe('BookingsService', () => {
 
     it('should throw BadRequestException when property has confirmed booking in range', async () => {
       (prisma.property.findUnique as jest.Mock).mockResolvedValue({ id: 'property-1', isActive: true });
-      (prisma.booking.findFirst as jest.Mock).mockResolvedValue({ id: 'conflict-1' });
+      (prisma.booking.findFirst as jest.Mock).mockResolvedValue({ id: 'conflict-1', status: BOOKING_STATUS.CONFIRMED });
       (prisma.booking.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
 
       await expect(
@@ -157,7 +175,8 @@ describe('BookingsService', () => {
 
       await service.confirmBooking('booking-1', { id: 'admin-1', role: ROLE.ADMIN }, msg);
 
-      expect(redis.delHold).toHaveBeenCalledWith('property-1');
+      // Redis hold hiện key theo booking.id (không phải propertyId).
+      expect(redis.delHold).toHaveBeenCalledWith('booking-1');
     });
   });
 

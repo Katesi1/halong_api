@@ -21,6 +21,10 @@ import { SearchPropertiesDto } from './dto/search-properties.dto';
 import { FavoritesService } from './favorites.service';
 import { Prisma } from '@prisma/client';
 
+/** Giới hạn phân trang cho danh sách property nội bộ (findAll opt-in). */
+const PROPERTY_LIST_DEFAULT_LIMIT = 20;
+const PROPERTY_LIST_MAX_LIMIT = 100;
+
 /**
  * Owner phải thoả 2 gate giống lúc tạo property thì property mới hiện public:
  *   - User active (chưa banned, chưa soft-delete)
@@ -72,6 +76,7 @@ export class PropertiesService {
     includeInactive?: boolean,
     view?: string,
     moderationStatus?: 'pending' | 'approved' | 'rejected' | 'suspended',
+    pagination?: { page?: number; limit?: number },
   ) {
     const effectiveOwnerId = getEffectiveOwnerId(user);
     const where: any = effectiveOwnerId
@@ -93,13 +98,36 @@ export class PropertiesService {
       where.moderationStatus = moderationStatus;
     }
 
+    const include = {
+      owner: { select: { id: true, name: true, phone: true } },
+      images: { orderBy: { order: 'asc' as const } },
+      _count: { select: { bookings: true } },
+    };
+
+    // Phân trang opt-in: chỉ khi client truyền page/limit mới trả shape phân trang.
+    // Không truyền → giữ nguyên hành vi cũ (trả mảng) để không phá FE hiện tại.
+    if (pagination?.page !== undefined || pagination?.limit !== undefined) {
+      const page = Math.max(1, pagination.page ?? 1);
+      const limit = Math.min(PROPERTY_LIST_MAX_LIMIT, Math.max(1, pagination.limit ?? PROPERTY_LIST_DEFAULT_LIMIT));
+      const [total, items] = await this.prisma.$transaction([
+        this.prisma.property.count({ where }),
+        this.prisma.property.findMany({
+          where,
+          include,
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+      ]);
+      return {
+        message: msg.properties.listSuccess,
+        data: { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) },
+      };
+    }
+
     const properties = await this.prisma.property.findMany({
       where,
-      include: {
-        owner: { select: { id: true, name: true, phone: true } },
-        images: { orderBy: { order: 'asc' } },
-        _count: { select: { bookings: true } },
-      },
+      include,
       orderBy: { createdAt: 'desc' },
     });
 
@@ -459,7 +487,7 @@ export class PropertiesService {
 
   async updatePrices(
     id: string,
-    dto: { weekdayPrice?: number; weekendPrice?: number; holidayPrice?: number; adultSurcharge?: number; childSurcharge?: number },
+    dto: { weekdayPrice: number; weekendPrice: number; holidayPrice: number; adultSurcharge: number; childSurcharge: number },
     user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {

@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsDateString, IsOptional, IsNumber, IsInt, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsDateString, IsOptional, IsNumber, IsInt, Min, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateBookingDto {
@@ -26,10 +26,10 @@ export class CreateBookingDto {
   @IsNotEmpty({ message: 'Số điện thoại khách hàng không được để trống' })
   customerPhone: string;
 
-  @ApiPropertyOptional({ description: 'VND, integer' })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
+  @ApiPropertyOptional({ description: 'Tiền cọc (VND, integer) — nếu gửi thì không được null' })
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsInt({ message: 'Tiền cọc phải là số nguyên, không được null' })
+  @Min(0, { message: 'Tiền cọc phải >= 0' })
   @Type(() => Number)
   depositAmount?: number;
 

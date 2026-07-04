@@ -1,7 +1,8 @@
 import {
   Controller, Get, Post, Delete,
-  Body, Param, Query, UseGuards, HttpCode,
+  Body, Param, Query, UseGuards, HttpCode, Headers,
 } from '@nestjs/common';
+import { normalizeClientType } from '../auth/auth.service';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { StaffService } from './staff.service';
@@ -120,7 +121,13 @@ export class StaffController {
   @ApiResponse({ status: 403, description: 'Email Google không khớp với invite email' })
   @ApiResponse({ status: 409, description: 'Email đã có tài khoản' })
   @ApiResponse({ status: 410, description: 'Token đã hết hạn / dùng / huỷ' })
-  acceptInvite(@Body() dto: AcceptInviteDto, @Lang() msg: Messages) {
-    return this.staffService.acceptInvite(dto, msg);
+  acceptInvite(
+    @Body() dto: AcceptInviteDto,
+    @Headers('x-client-type') clientTypeHeader: string | undefined,
+    @Lang() msg: Messages,
+  ) {
+    return this.staffService.acceptInvite(dto, msg, {
+      clientType: normalizeClientType(clientTypeHeader),
+    });
   }
 }
