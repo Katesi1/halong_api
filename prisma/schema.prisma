@@ -31,6 +31,13 @@ model User {
   registerDeviceId String? // Device ID lúc tạo account — chống spam register
   registerIp       String? // IP lúc tạo account — chống spam register
 
+  // Thông tin nhận tiền của OWNER — khách chuyển khoản cọc sau khi owner confirm booking.
+  // BE tự sinh VietQR động (buildVietQrPayload) từ bankBin + bankAccountNumber; không lưu ảnh QR.
+  bankBin           String? // NAPAS BIN 6 số, vd "970436" (Vietcombank)
+  bankName          String? // Tên hiển thị ngân hàng, vd "Vietcombank"
+  bankAccountNumber String? // Số tài khoản nhận tiền
+  bankAccountName   String? // Tên chủ tài khoản (in trên QR/hiển thị)
+
   // Admin moderation
   bannedAt     DateTime?
   bannedReason String?
@@ -291,6 +298,7 @@ model Booking {
   cancelledByRole    Int?     // ROLE enum; null = system/cron
   cancelledReason    String?  // optional, pass-through cho email; không enforce
   noShowMarkedAt     DateTime?
+  completedAt        DateTime? // set khi cron auto-complete sau 12h trưa ngày trả phòng
   depositAmount Int? // VND — luôn dùng Int, tránh sai số float64
   totalAmount   Int? // VND — tổng giá trị booking (lưu lại khi tạo để tránh re-compute)
   paidAmount    Int? // VND — số tiền thực thu (cập nhật qua mark-paid)

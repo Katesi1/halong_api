@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, MinLength, IsBoolean, IsEmail, Matches, IsDateString, IsInt, IsIn } from 'class-validator';
+import { IsString, IsOptional, MinLength, MaxLength, IsBoolean, IsEmail, Matches, IsDateString, IsInt, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateUserDto {
@@ -48,4 +48,29 @@ export class UpdateUserDto {
   @IsOptional()
   @IsDateString({}, { message: 'Ngày sinh không đúng định dạng (YYYY-MM-DD)' })
   dateOfBirth?: string;
+
+  // ─── Thông tin nhận tiền (OWNER) — dùng để sinh VietQR cho khách chuyển cọc ───
+  @ApiPropertyOptional({ example: '970436', description: 'Mã BIN ngân hàng (NAPAS, 6 số). VD 970436 = Vietcombank' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6}$/, { message: 'Mã BIN ngân hàng phải gồm đúng 6 chữ số' })
+  bankBin?: string;
+
+  @ApiPropertyOptional({ example: 'Vietcombank', description: 'Tên hiển thị ngân hàng' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100, { message: 'Tên ngân hàng tối đa 100 ký tự' })
+  bankName?: string;
+
+  @ApiPropertyOptional({ example: '0123456789', description: 'Số tài khoản nhận tiền (6–20 chữ số)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{6,20}$/, { message: 'Số tài khoản phải gồm 6–20 chữ số' })
+  bankAccountNumber?: string;
+
+  @ApiPropertyOptional({ example: 'NGUYEN VAN A', description: 'Tên chủ tài khoản' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100, { message: 'Tên chủ tài khoản tối đa 100 ký tự' })
+  bankAccountName?: string;
 }

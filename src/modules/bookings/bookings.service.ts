@@ -13,6 +13,7 @@ import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
 import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+import { buildVietQrPayload, sanitizeTransferContent } from '../payment/helpers/vietqr.helper';
 
 /** Mã hiển thị HL-XXXXXXXX cho khách đối chiếu khi liên hệ chủ nhà. */
 function deriveBookingCode(id: string): string {
@@ -33,6 +34,14 @@ const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
+
+/** Việt Nam = UTC+7. Dùng để quy đổi ngày-lịch <-> instant khi so sánh mốc giờ VN. */
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+/**
+ * Booking coi như hoàn thành sau 12h trưa (giờ VN) ngày trả phòng.
+ * checkoutDate lưu dạng 00:00Z của ngày trả → mốc hoàn thành = checkoutDate + 12h - 7h = +5h.
+ */
+const COMPLETE_AFTER_CHECKOUT_MS = (12 - 7) * 60 * 60 * 1000; // 5h
 
 @Injectable()
 export class BookingsService {
@@ -78,7 +87,7 @@ export class BookingsService {
               id: true, name: true, slug: true, code: true, type: true,
               cancellationPolicy: true,
               images: { where: { isCover: true }, take: 1, select: { id: true, imageUrl: true, isCover: true, order: true } },
-              owner: { select: { id: true, name: true, phone: true } },
+              owner: { select: { id: true, name: true, phone: true, bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true } },
             },
           },
           sale: { select: { id: true, name: true, phone: true } },
@@ -120,7 +129,8 @@ export class BookingsService {
    *  - cancellationPolicy: 0/1/2 từ property
    *  - hasReview: đã review chưa
    *  - depositDeadlineAt: cho HOLD = holdExpireAt; cho CONFIRMED chưa có business rule → null
-   *  - vietqr: chưa có bank info per-owner trong schema → omit (BE chưa sẵn sàng, chờ schema mở rộng)
+   *  - paymentInfo: thông tin chuyển khoản + VietQR động — CHỈ lộ khi CONFIRMED, chưa trả (paidAt null),
+   *    owner đã cấu hình bank và booking có tiền cọc. Sinh QR từ buildVietQrPayload (không lưu ảnh).
    */
   private enrichBookingExtras(booking: any): {
     code: string;
@@ -132,6 +142,12 @@ export class BookingsService {
     hasReview: boolean;
     depositDeadlineAt: Date | null;
     nights: number;
+    paymentInfo: {
+      amount: number;
+      content: string;
+      bank: { bin: string; name: string | null; accountNumber: string; accountName: string | null };
+      qrPayload: string;
+    } | null;
   } {
     const property = booking?.property;
     const owner = property?.owner;
@@ -146,8 +162,9 @@ export class BookingsService {
       : null;
     const depositDeadlineAt =
       booking.status === BOOKING_STATUS.HOLD ? booking.holdExpireAt ?? null : null;
+    const code = deriveBookingCode(booking.id);
     return {
-      code: deriveBookingCode(booking.id),
+      code,
       propertyName: property?.name ?? null,
       propertySlug: property?.slug ?? null,
       coverImageUrl: pickCoverImageUrl(property?.images),
@@ -159,6 +176,45 @@ export class BookingsService {
       hasReview: Boolean(booking.review),
       depositDeadlineAt,
       nights: this.calcNights(booking.checkinDate, booking.checkoutDate),
+      paymentInfo: this.buildPaymentInfo(booking, owner, code),
+    };
+  }
+
+  /**
+   * Sinh thông tin chuyển khoản + VietQR cho khách trả cọc.
+   * Trả null trừ khi: status=CONFIRMED, chưa thanh toán (paidAt null), owner đủ thông tin bank,
+   * và booking có depositAmount > 0. Số tiền pre-fill vào QR = depositAmount; nội dung = mã booking.
+   */
+  private buildPaymentInfo(
+    booking: any,
+    owner: any,
+    code: string,
+  ): {
+    amount: number;
+    content: string;
+    bank: { bin: string; name: string | null; accountNumber: string; accountName: string | null };
+    qrPayload: string;
+  } | null {
+    if (booking.status !== BOOKING_STATUS.CONFIRMED) return null;
+    if (booking.paidAt) return null;
+    const amount = booking.depositAmount ?? 0;
+    if (amount <= 0) return null;
+    const bin = owner?.bankBin;
+    const accountNumber = owner?.bankAccountNumber;
+    if (!bin || !accountNumber) return null;
+
+    const content = sanitizeTransferContent(code);
+    const qrPayload = buildVietQrPayload({ bankBin: bin, accountNumber, amount, content });
+    return {
+      amount,
+      content,
+      bank: {
+        bin,
+        name: owner?.bankName ?? null,
+        accountNumber,
+        accountName: owner?.bankAccountName ?? null,
+      },
+      qrPayload,
     };
   }
 
@@ -169,7 +225,7 @@ export class BookingsService {
         property: {
           include: {
             images: { orderBy: { order: 'asc' }, take: 5 },
-            owner: { select: { id: true, name: true, phone: true } },
+            owner: { select: { id: true, name: true, phone: true, bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true } },
           },
         },
         sale: { select: { id: true, name: true, phone: true } },
@@ -204,6 +260,15 @@ export class BookingsService {
     return d;
   }
 
+  /**
+   * 00:00Z của ngày hôm nay theo lịch VN (UTC+7), cùng convention với toUTCDate.
+   * Dùng để cho phép đặt phòng từ hôm nay trở đi (checkin >= hôm nay), chỉ chặn ngày đã qua.
+   */
+  private startOfTodayUtc(): Date {
+    const vnNow = new Date(Date.now() + VN_OFFSET_MS);
+    return new Date(Date.UTC(vnNow.getUTCFullYear(), vnNow.getUTCMonth(), vnNow.getUTCDate()));
+  }
+
   async holdProperty(dto: CreateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const { propertyId, checkinDate, checkoutDate } = dto;
 
@@ -212,7 +277,8 @@ export class BookingsService {
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
-    if (checkin < new Date()) {
+    // Cho phép đặt từ hôm nay trở đi (checkin >= đầu ngày hôm nay VN), chỉ chặn ngày đã qua.
+    if (checkin < this.startOfTodayUtc()) {
       throw new BadRequestException(msg.bookings.checkinInPast);
     }
 
@@ -372,7 +438,15 @@ export class BookingsService {
   ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { property: { select: { id: true, name: true, code: true, ownerId: true } } },
+      include: {
+        property: {
+          select: {
+            id: true, name: true, code: true, ownerId: true,
+            owner: { select: { name: true, phone: true } },
+          },
+        },
+        customer: { select: { email: true, name: true } },
+      },
     });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
     this.checkBookingAccess(booking, user, msg);
@@ -420,6 +494,22 @@ export class BookingsService {
         'booking',
         { pushType: 'booking_paid', deepLink: '/my-bookings' },
       ).catch(() => undefined);
+    }
+
+    // Email xác nhận cho khách (nếu có account + email + SMTP cấu hình). Fire-and-forget.
+    if (booking.customer?.email) {
+      void this.email.sendBookingConfirmed({
+        to: booking.customer.email,
+        customerName: booking.customer.name ?? booking.customerName ?? 'Quý khách',
+        propertyName: updated.property.name,
+        propertyCode: updated.property.code,
+        checkinDate: booking.checkinDate,
+        checkoutDate: booking.checkoutDate,
+        paidAmount,
+        bookingCode: deriveBookingCode(id),
+        ownerName: booking.property.owner?.name ?? null,
+        ownerPhone: booking.property.owner?.phone ?? null,
+      }).catch(() => undefined);
     }
 
     void this.auditLog.log({
@@ -553,7 +643,8 @@ export class BookingsService {
     if (checkin >= checkout) {
       throw new BadRequestException(msg.bookings.checkoutBeforeCheckin);
     }
-    if (checkin < new Date()) {
+    // Cho phép đặt từ hôm nay trở đi (checkin >= đầu ngày hôm nay VN), chỉ chặn ngày đã qua.
+    if (checkin < this.startOfTodayUtc()) {
       throw new BadRequestException(msg.bookings.checkinInPast);
     }
 
@@ -648,7 +739,7 @@ export class BookingsService {
               id: true, name: true, slug: true, code: true, type: true,
               cancellationPolicy: true,
               images: { where: { isCover: true }, take: 1, select: { id: true, imageUrl: true, isCover: true, order: true } },
-              owner: { select: { id: true, name: true, phone: true } },
+              owner: { select: { id: true, name: true, phone: true, bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true } },
             },
           },
           review: { select: { id: true } },
@@ -835,9 +926,35 @@ export class BookingsService {
   }
 
   /**
+   * Auto-complete: booking CONFIRMED đã qua 12h trưa (giờ VN) ngày trả phòng → COMPLETED.
+   * Mục đích: đóng booking khi kỳ lưu trú kết thúc để khách có thể đánh giá căn (review yêu cầu status=COMPLETED).
+   * VD: booking 4/7–6/7 → hoàn thành lúc 12h trưa 6/7.
+   * Chạy mỗi giờ để độ trễ tối đa ~1h sau mốc trưa.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async completeCheckedOutBookings() {
+    const now = new Date();
+    const threshold = new Date(now.getTime() - COMPLETE_AFTER_CHECKOUT_MS);
+    const result = await this.prisma.booking.updateMany({
+      where: {
+        status: BOOKING_STATUS.CONFIRMED,
+        checkoutDate: { lte: threshold },
+      },
+      data: {
+        status: BOOKING_STATUS.COMPLETED,
+        completedAt: now,
+      },
+    });
+    return result.count;
+  }
+
+  /**
    * Mark NO_SHOW: booking CONFIRMED đã qua checkoutDate > 24h mà không có paidAt
    * (proxy cho "khách không đến + không hoàn tất thanh toán tại chỗ").
    * Chạy mỗi ngày 03:30 (giờ server, sau khi đêm trước đã đóng sổ).
+   * LƯU Ý: từ khi có completeCheckedOutBookings (auto-complete tại 12h trưa checkout),
+   * mọi booking CONFIRMED đã được chuyển COMPLETED trước mốc +24h → cron này gần như không còn khớp.
+   * Giữ lại làm fallback; cân nhắc chuyển NO_SHOW sang mốc theo checkin nếu cần phát hiện khách không đến.
    */
   @Cron('30 3 * * *')
   async markNoShowBookings() {

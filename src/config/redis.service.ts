@@ -15,10 +15,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       port: this.configService.get<number>('REDIS_PORT', 6379),
       password: this.configService.get<string>('REDIS_PASSWORD') || undefined,
       retryStrategy: (times) => Math.min(times * 50, 2000),
+      // Fail-fast khi Redis down: KHÔNG xếp hàng offline (tránh treo request đang await),
+      // reject nhanh sau vài lần thử để caller (hold methods) rơi vào try-catch thay vì hang.
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 2,
     });
 
+    // Chỉ log 1 dòng warn khi mất kết nối, tránh spam stacktrace mỗi lần retry.
     this.client.on('connect', () => this.logger.log('Redis connected'));
-    this.client.on('error', (err) => this.logger.error('Redis error', err));
+    this.client.on('error', (err) => this.logger.warn(`Redis unavailable: ${err.message}`));
   }
 
   async onModuleDestroy() {
@@ -51,15 +56,29 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Hold booking: key = hold:booking:{bookingId}
+  // Hold trong Redis là BEST-EFFORT: nguồn sự thật là DB (booking.holdExpireAt) + cron expire.
+  // Vì vậy các hàm dưới KHÔNG BAO GIỜ throw — Redis down không được làm hỏng luồng tạo/xác nhận booking.
   async setHold(bookingId: string, ttlSeconds = 1800): Promise<void> {
-    await this.set(`hold:booking:${bookingId}`, '1', ttlSeconds);
+    try {
+      await this.set(`hold:booking:${bookingId}`, '1', ttlSeconds);
+    } catch (err) {
+      this.logger.warn(`setHold skipped (Redis down): ${(err as Error).message}`);
+    }
   }
 
   async getHoldTtl(bookingId: string): Promise<number> {
-    return this.ttl(`hold:booking:${bookingId}`);
+    try {
+      return await this.ttl(`hold:booking:${bookingId}`);
+    } catch {
+      return -2; // ioredis convention: -2 = key không tồn tại
+    }
   }
 
   async delHold(bookingId: string): Promise<void> {
-    await this.del(`hold:booking:${bookingId}`);
+    try {
+      await this.del(`hold:booking:${bookingId}`);
+    } catch (err) {
+      this.logger.warn(`delHold skipped (Redis down): ${(err as Error).message}`);
+    }
   }
 }

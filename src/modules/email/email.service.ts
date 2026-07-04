@@ -29,6 +29,19 @@ export interface BookingCancelledEmailData {
   ownerPhone?: string | null;
 }
 
+export interface BookingConfirmedEmailData {
+  to: string;
+  customerName: string;
+  propertyName: string;
+  propertyCode?: string | null;
+  checkinDate: Date;
+  checkoutDate: Date;
+  paidAmount: number;
+  bookingCode: string;
+  ownerName?: string | null;
+  ownerPhone?: string | null;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -223,6 +236,23 @@ Bạn có thể đặt lại phòng khác trên Halong24h bất cứ lúc nào.
     }
   }
 
+  async sendBookingConfirmed(data: BookingConfirmedEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping booking-confirmed email to ${data.to} — SMTP not configured`);
+      return;
+    }
+
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const { subject, text, html } = renderBookingConfirmedEmail(data);
+
+    try {
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
+    } catch (err) {
+      this.logger.error(`Failed to send booking-confirmed to ${data.to}: ${(err as Error).message}`);
+      throw err;
+    }
+  }
+
   private escapeHtml(s: string): string {
     return s
       .replace(/&/g, '&amp;')
@@ -360,6 +390,71 @@ interface EmailSample {
   html: string;
 }
 
+/** Escape HTML entities (module-level, dùng cho các renderer standalone). */
+function escapeHtmlStr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Render email xác nhận booking (dùng chung: sendBookingConfirmed + sample admin "Send test").
+ * Trả về { subject, text, html }.
+ */
+export function renderBookingConfirmedEmail(data: BookingConfirmedEmailData): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const checkin = fmt(data.checkinDate);
+  const checkout = fmt(data.checkoutDate);
+  const propLabel = data.propertyCode ? `${data.propertyName} (${data.propertyCode})` : data.propertyName;
+  const amount = `${data.paidAmount.toLocaleString('vi-VN')} đ`;
+  const contactLine = data.ownerName || data.ownerPhone
+    ? `\n\nChủ nhà: ${data.ownerName ?? ''}${data.ownerPhone ? ` — ${data.ownerPhone}` : ''}.`
+    : '';
+
+  const text = `Xin chào ${data.customerName},
+
+Đặt phòng của bạn tại ${propLabel} đã được xác nhận và ghi nhận thanh toán.
+
+  Mã booking: ${data.bookingCode}
+  Nhận phòng: ${checkin}
+  Trả phòng:  ${checkout}
+  Đã thanh toán: ${amount}${contactLine}
+
+Hẹn gặp bạn tại ${data.propertyName}!
+
+— Halong24h Team`;
+
+  const contactHtml = data.ownerName || data.ownerPhone
+    ? `<p style="color:#666;font-size:14px">Chủ nhà: <strong>${escapeHtmlStr(data.ownerName ?? '')}</strong>${data.ownerPhone ? ` — <a href="tel:${data.ownerPhone}">${data.ownerPhone}</a>` : ''}.</p>`
+    : '';
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px;color:#1a7f37">Đặt phòng đã được xác nhận</h2>
+  <p>Xin chào <strong>${escapeHtmlStr(data.customerName)}</strong>,</p>
+  <p>Đặt phòng của bạn tại <strong>${escapeHtmlStr(propLabel)}</strong> đã được xác nhận và ghi nhận thanh toán.</p>
+  <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Mã booking</td><td style="padding:6px 0"><strong>${escapeHtmlStr(data.bookingCode)}</strong></td></tr>
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Nhận phòng</td><td style="padding:6px 0"><strong>${checkin}</strong></td></tr>
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Trả phòng</td><td style="padding:6px 0"><strong>${checkout}</strong></td></tr>
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Đã thanh toán</td><td style="padding:6px 0"><strong>${amount}</strong></td></tr>
+  </table>
+  ${contactHtml}
+  <p style="margin-top:24px">Hẹn gặp bạn tại ${escapeHtmlStr(data.propertyName)}!</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return { subject: 'Đặt phòng đã được xác nhận — Halong24h', text, html };
+}
+
 /**
  * Known templates exposed to admin UI. When wiring a real template later,
  * replace the sample here with the production renderer.
@@ -400,11 +495,18 @@ const EMAIL_TEMPLATE_SAMPLES: Record<string, EmailSample> = {
     text: 'Bấm vào link để đặt mật khẩu mới. Link hết hạn sau 10 phút. Nếu không phải bạn, có thể bỏ qua email này.',
     html: '<p>Bấm vào link để đặt mật khẩu mới. Link hết hạn sau <strong>10 phút</strong>. Nếu không phải bạn, có thể bỏ qua email này.</p>',
   },
-  booking_confirmed: {
-    subject: 'Đặt phòng đã xác nhận',
-    text: 'Booking #SAMPLE đã được xác nhận.',
-    html: '<p>Booking <b>#SAMPLE</b> đã được xác nhận.</p>',
-  },
+  booking_confirmed: renderBookingConfirmedEmail({
+    to: '',
+    customerName: 'Nguyễn Văn A',
+    propertyName: 'Villa Bãi Cháy 3 phòng ngủ',
+    propertyCode: 'HL-DEMO01',
+    checkinDate: new Date('2026-07-10T00:00:00.000Z'),
+    checkoutDate: new Date('2026-07-12T00:00:00.000Z'),
+    paidAmount: 500000,
+    bookingCode: 'HL-ABC12345',
+    ownerName: 'Trần Thị B',
+    ownerPhone: '0901234567',
+  }),
   booking_cancelled: {
     subject: 'Đặt phòng đã huỷ',
     text: 'Booking #SAMPLE đã bị huỷ.',

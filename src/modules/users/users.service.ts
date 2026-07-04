@@ -20,7 +20,11 @@ import * as bcrypt from 'bcryptjs';
 const NOTIFICATION_TYPE_SYSTEM = 2;
 
 // Fields non-admin users can update on their own profile
-const SELF_EDITABLE_FIELDS = ['name', 'phone', 'email', 'gender', 'dateOfBirth'];
+// (bank* để OWNER tự cấu hình thông tin nhận tiền chuyển khoản từ khách)
+const SELF_EDITABLE_FIELDS = [
+  'name', 'phone', 'email', 'gender', 'dateOfBirth',
+  'bankBin', 'bankName', 'bankAccountNumber', 'bankAccountName',
+];
 
 @Injectable()
 export class UsersService {
@@ -154,6 +158,7 @@ export class UsersService {
         id: true, name: true, phone: true, email: true,
         role: true, ownerId: true, scope: true, isActive: true, gender: true, dateOfBirth: true,
         kycBypass: true, kycStatus: true, createdAt: true,
+        bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true,
         properties: {
           select: { id: true, name: true, code: true },
           where: { isActive: true, deletedAt: null },
@@ -253,6 +258,7 @@ export class UsersService {
       select: {
         id: true, name: true, phone: true, email: true, role: true, ownerId: true,
         isActive: true, gender: true, dateOfBirth: true, updatedAt: true,
+        bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true,
       },
     });
 

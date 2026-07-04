@@ -582,6 +582,7 @@ export class AuthService {
         id: true, name: true, phone: true, email: true, avatar: true,
         role: true, ownerId: true, scope: true, isActive: true, gender: true, dateOfBirth: true,
         emailVerified: true, createdAt: true, updatedAt: true,
+        bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true,
         kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
         subscriptionCycle: true, subscriptionProvider: true, subscriptionPriceOverride: true,
         subscriptionFrozenAt: true, subscriptionFrozenReason: true,

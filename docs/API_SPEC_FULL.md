@@ -591,6 +591,10 @@ state.setUser(user.data);
     "emailVerified": true,
     "gender": null,
     "dateOfBirth": null,
+    "bankBin": "970436",
+    "bankName": "Vietcombank",
+    "bankAccountNumber": "0123456789",
+    "bankAccountName": "NGUYEN VAN A",
     "kycBypass": false,
     "kycStatus": "approved",
     "isKycVerified": true,
@@ -615,6 +619,8 @@ state.setUser(user.data);
   }
 }
 ```
+
+> **Thông tin nhận tiền OWNER (mới)** — 4 field `bankBin` / `bankName` / `bankAccountNumber` / `bankAccountName` (đều `string | null`). OWNER tự cập nhật qua `PUT /users/:id` (chính mình) — nằm trong whitelist self-edit. Dùng để BE sinh VietQR cho khách trả cọc (xem `paymentInfo` trong BookingDto §5.3). `bankBin` = mã NAPAS 6 số; `bankAccountNumber` = 6–20 số. Các role khác vẫn có field nhưng thường `null`.
 
 `permissions[]` chỉ có entries cho SALE (qua module `UserPermission`):
 ```json
@@ -1508,6 +1514,10 @@ Base path: `/bookings`. Auth required.
 }
 ```
 
+**Validate ngày** (áp dụng cả `POST /bookings/hold` và `POST /bookings/customer-hold`):
+- `checkin < checkout` — sai → 400 `checkoutBeforeCheckin`.
+- `checkin >= hôm nay` (đầu ngày theo lịch VN, UTC+7) — cho phép **đặt từ hôm nay trở đi**; chỉ ngày đã qua mới 400 `checkinInPast`. (Trước đây so với thời điểm hiện tại nên chặn nhầm cả hôm nay — đã sửa.)
+
 ### 5.3 BookingDto
 
 ```json
@@ -1554,13 +1564,38 @@ Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
 | `cancellationPolicy` | `0 \| 1 \| 2 \| null` | Chính sách huỷ của property: 0=FLEXIBLE, 1=MODERATE, 2=STRICT. Xem [§19 Enums](#19-enums-reference) |
 | `hasReview` | `boolean` | True nếu customer đã review booking này → FE disable nút "Đánh giá" |
 | `depositDeadlineAt` | `ISO \| null` | Hạn cọc: HOLD = `holdExpireAt` (countdown khách phải cọc trong cửa sổ này); CONFIRMED/CANCELLED/... = `null` (chưa có business rule riêng cho CONFIRMED) |
+| `paymentInfo` | `object \| null` | **Thông tin chuyển khoản + VietQR động** cho khách trả cọc. Xem shape bên dưới |
+
+**`paymentInfo` (mới)** — CHỈ khác `null` khi **đủ tất cả**: `status = CONFIRMED (1)` **và** `paidAt = null` (chưa thu tiền) **và** OWNER đã cấu hình bank (`bankBin` + `bankAccountNumber`) **và** booking có `depositAmount > 0`. Ngược lại = `null` (khách chưa thấy QR trước khi owner confirm, hoặc đã trả rồi).
+
+```json
+{
+  "amount": 500000,                 // = depositAmount (số tiền pre-fill vào QR)
+  "content": "HL ABC12345",         // nội dung CK = mã booking đã sanitize (owner đối soát)
+  "bank": {
+    "bin": "970436",
+    "name": "Vietcombank",
+    "accountNumber": "0123456789",
+    "accountName": "NGUYEN VAN A"
+  },
+  "qrPayload": "00020101021238..."  // chuỗi EMV VietQR — FE render thành ảnh QR (KHÔNG phải URL ảnh)
+}
+```
+
+> FE render `qrPayload` thành QR bằng thư viện QR client-side (vd `qrcode`). Khách quét → app ngân hàng tự điền đúng số tiền + nội dung. Nếu `paymentInfo = null` mà booking đang CONFIRMED chưa trả → nghĩa là OWNER chưa cấu hình bank; FE hiển thị thông tin liên hệ chủ nhà để lấy STK thủ công.
+
+**Luồng thanh toán đầy đủ**: khách gửi yêu cầu đặt (HOLD) → OWNER/SALE `PATCH /bookings/:id/confirm` (→ CONFIRMED, `paymentInfo` xuất hiện) → khách quét QR chuyển cọc → OWNER/SALE `PATCH /bookings/:id/mark-paid` (set `paidAt`, `paymentInfo` → `null`). **Mới:** khi `mark-paid` thành công, nếu khách có tài khoản + email + SMTP cấu hình → BE tự gửi **email xác nhận booking** (`sendBookingConfirmed`: mã booking, ngày nhận/trả, số tiền đã thu, liên hệ chủ nhà). Fire-and-forget, không chặn response.
 
 **Field tạm thời chưa có (BE đang chờ schema):**
 
-- `vietqr` (`{ bankBin, bankName, accountNumber, accountName, memo }`) — **CHƯA trả về**. Schema hiện chưa lưu thông tin bank của OWNER per property. FE muốn hiển thị VietQR phải đợi BE thêm field bank trên User/Property hoặc dùng nội bộ Halong24h. Workaround tạm: FE ẩn panel VietQR booking-deposit, hướng dẫn khách chat trực tiếp chủ nhà để gửi STK.
+- ~~`vietqr` CHƯA trả về~~ → **ĐÃ CÓ** (mới): xem field `paymentInfo` bên dưới. OWNER cấu hình bank trong profile (`bankBin`, `bankName`, `bankAccountNumber`, `bankAccountName`); BE tự sinh VietQR động cho khách trả cọc.
 - `approvedAt` (timestamp HOLD → CONFIRMED) — **CHƯA có field DB riêng**. FE dùng `updatedAt` làm proxy khi `status >= CONFIRMED` (chấp nhận sai số nếu booking đã được update sau confirm). BE sẽ bổ sung field `confirmedAt` trong migration sau nếu FE cần độ chính xác.
 
-**Status `4=NO_SHOW`** (v1.14): cron mỗi ngày 03:30 tự đánh khi booking `CONFIRMED` đã qua `checkoutDate > 24h` mà `paidAt = null` (khách không tới + không hoàn tất thanh toán tại chỗ). FE hiển thị label "Khách không đến". App mobile cũ không biết status 4 → rơi vào nhánh default; nên cập nhật bản tiếp theo để hiển thị đúng.
+**Status `3=COMPLETED` (auto-complete)**: cron mỗi giờ tự chuyển booking `CONFIRMED` → `COMPLETED` khi đã qua **12h trưa (giờ VN) ngày trả phòng**. `checkoutDate` lưu dạng `00:00Z` của ngày trả → mốc hoàn thành = `checkoutDate + 5h` (12h VN). VD booking 4/7–6/7 → hoàn thành ~12h trưa 6/7. Khi COMPLETED, set `completedAt`. Mục đích: đóng booking để khách **đánh giá được căn** (review yêu cầu `status=COMPLETED`, xem §review). Độ trễ tối đa ~1h sau mốc trưa.
+
+**Status `4=NO_SHOW`** (v1.14): cron mỗi ngày 03:30 tự đánh khi booking `CONFIRMED` đã qua `checkoutDate > 24h` mà `paidAt = null` (khách không tới + không hoàn tất thanh toán tại chỗ). FE hiển thị label "Khách không đến". App mobile cũ không biết status 4 → rơi vào nhánh default; nên cập nhật bản tiếp theo để hiển thị đúng. **LƯU Ý (mới):** từ khi có auto-complete tại 12h trưa checkout, mọi `CONFIRMED` đã chuyển `COMPLETED` trước mốc +24h nên cron NO_SHOW gần như không còn khớp — giữ lại làm fallback. Nếu cần phát hiện khách không đến, cân nhắc chuyển mốc NO_SHOW sang theo `checkinDate`.
+
+**Field `completedAt: ISO | null`** (mới): timestamp lúc cron auto-complete chạy. Null với booking chưa hoàn thành.
 
 **Tracking cancellation** (v1.14): mọi booking ở status `CANCELLED` có thêm các field:
 - `cancelledAt: ISO | null`
@@ -1912,7 +1947,7 @@ Mỗi metric trả `{ value, prev }` để FE tính delta. `prev` = cùng window
 - `deletionRequests` (v1.14): đếm `AccountDeletionRequest` được tạo trong kỳ (cả `pending`, `completed`, `cancelled`). Phản ánh "số yêu cầu xoá account đã nhận trong kỳ".
 - `cancelRate` = tổng booking CANCELLED / tổng booking trong kỳ.
 - `hostCancelRate` (v1.14, đã unblock): cancellation `cancelledByRole ∈ {OWNER, SALE, ADMIN}` trong kỳ / booking đã cọc (`status ∈ {CONFIRMED, COMPLETED}` hoặc `paidAt != null`) trong kỳ. Booking row cũ trước v1.14 không có `cancelledByRole` → không tính vào tử số (under-count nhẹ trong giai đoạn migration ~30 ngày).
-- `noShowRate` (v1.14, đã unblock): số booking có `status=NO_SHOW` đánh trong kỳ / booking đã cọc trong kỳ. Cron mark mỗi ngày 03:30 (xem §19 enum reference).
+- `noShowRate` (v1.14, đã unblock): số booking có `status=NO_SHOW` đánh trong kỳ / booking đã cọc trong kỳ. Cron mark mỗi ngày 03:30 (xem §19 enum reference). **LƯU Ý (mới):** sau khi thêm auto-complete tại 12h trưa checkout, `CONFIRMED` đã chuyển `COMPLETED` trước mốc +24h → `noShowRate` thực tế sẽ ~0. FE không nên coi đây là chỉ số đáng tin cho tới khi mốc NO_SHOW được rework theo `checkinDate`.
 - `topHostCancel`: top 5 owner theo cancellation **host-side** (`cancelledByRole ∈ {OWNER, SALE}`) trong kỳ. `cancelRate` của 1 owner = host-cancel / total bookings của owner đó trong kỳ.
 
 ### 7A.7 Endpoints CHƯA wire (roadmap)
