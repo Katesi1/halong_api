@@ -595,6 +595,8 @@ state.setUser(user.data);
     "bankName": "Vietcombank",
     "bankAccountNumber": "0123456789",
     "bankAccountName": "NGUYEN VAN A",
+    "bankStatus": "approved",
+    "bankRejectReason": null,
     "kycBypass": false,
     "kycStatus": "approved",
     "isKycVerified": true,
@@ -620,7 +622,9 @@ state.setUser(user.data);
 }
 ```
 
-> **Thông tin nhận tiền OWNER (mới)** — 4 field `bankBin` / `bankName` / `bankAccountNumber` / `bankAccountName` (đều `string | null`). OWNER tự cập nhật qua `PUT /users/:id` (chính mình) — nằm trong whitelist self-edit. Dùng để BE sinh VietQR cho khách trả cọc (xem `paymentInfo` trong BookingDto §5.3). `bankBin` = mã NAPAS 6 số; `bankAccountNumber` = 6–20 số. Các role khác vẫn có field nhưng thường `null`.
+> **Thông tin nhận tiền OWNER** — 4 field `bankBin` / `bankName` / `bankAccountNumber` / `bankAccountName` (đều `string | null`) = **giá trị ĐÃ DUYỆT** (dùng sinh VietQR cho khách trả cọc, xem `paymentInfo` trong BookingDto §5.3). `bankBin` = mã NAPAS 6 số; `bankAccountNumber` = 6–20 số.
+>
+> ⚠️ **BREAKING (v1.21)** — `PUT /users/:id` **KHÔNG còn nhận** 4 field bank (bị strip cho non-admin). OWNER tạo/sửa tài khoản nhận tiền phải qua luồng **duyệt bởi ADMIN**: `PUT /users/me/bank` → chờ ADMIN approve mới áp vào bank* live (xem §3.3). Profile trả thêm `bankStatus: 'none' | 'pending' | 'approved' | 'rejected'` + `bankRejectReason: string | null` để FE hiển thị trạng thái. Các role khác vẫn có field nhưng thường `null`.
 
 `permissions[]` chỉ có entries cho SALE (qua module `UserPermission`):
 ```json
@@ -994,6 +998,86 @@ Base path: `/users`. Tất cả cần Bearer.
 | `PATCH` | `/users/:id/role` | `{ role: 0\|1\|2\|3 }` | Đổi role; ADMIN/OWNER/CUSTOMER → tự clear ownerId |
 
 > Mỗi action tự ghi audit log.
+
+### 3.3 Tài khoản nhận tiền OWNER — luồng duyệt bởi ADMIN (v1.21)
+
+> **Business rule**: OWNER tạo hoặc sửa tài khoản ngân hàng nhận tiền **phải được ADMIN duyệt** mới có hiệu lực. Giá trị đang chờ duyệt KHÔNG được dùng sinh VietQR — `paymentInfo` (§5.3) chỉ dùng giá trị đã duyệt (`bankStatus='approved'`).
+
+**Trạng thái** (`User.bankStatus`): `none` (chưa cấu hình) → `pending` (OWNER đã gửi, chờ duyệt) → `approved` (đã duyệt, live có hiệu lực) hoặc `rejected` (bị từ chối, giữ giá trị duyệt trước đó nếu có).
+
+#### OWNER endpoints
+
+| Method | Path | Role | Body |
+|---|---|---|---|
+| `GET` | `/users/me/bank` | OWNER | — |
+| `PUT` | `/users/me/bank` | OWNER | `{ bankBin, bankName?, bankAccountNumber, bankAccountName }` |
+
+- `bankBin` (6 số NAPAS), `bankAccountNumber` (6–20 số), `bankAccountName` **bắt buộc**; `bankName` optional.
+- `PUT` ghi vào **pending** + set `bankStatus='pending'` — KHÔNG áp vào tài khoản đang dùng. Gửi lại khi đang pending → ghi đè pending.
+- Gửi thành công → BE push notification tới ADMIN (`pushType='bank_submitted'`, deepLink `/admin/bank-accounts`).
+- `role != OWNER` → 403 `users.bankOnlyOwner`.
+
+**Response (`GET` + `PUT`)** — `data`:
+```json
+{
+  "status": "pending",
+  "current": { "bankBin": "970436", "bankName": "Vietcombank", "bankAccountNumber": "0123456789", "bankAccountName": "NGUYEN VAN A" },
+  "pending": { "bankBin": "970418", "bankName": "ACB", "bankAccountNumber": "99988877", "bankAccountName": "NGUYEN VAN A" },
+  "rejectReason": null,
+  "submittedAt": "2026-07-04T10:00:00.000Z",
+  "reviewedAt": null
+}
+```
+- `current` = giá trị đã duyệt (đang dùng cho VietQR); `null` field nếu chưa từng duyệt.
+- `pending` != `null` **chỉ khi** `status='pending'`.
+- `rejectReason` != `null` **chỉ khi** `status='rejected'`.
+
+#### ADMIN endpoints — queue duyệt
+
+| Method | Path | Role / Permission | Body / Query |
+|---|---|---|---|
+| `GET` | `/admin/bank-accounts?status&page&limit` | ADMIN / `users.canRead` | `status`: `pending`(default)`\|approved\|rejected\|all` |
+| `POST` | `/admin/users/:id/bank/approve` | ADMIN / `users.canUpdate` | — |
+| `POST` | `/admin/users/:id/bank/reject` | ADMIN / `users.canUpdate` | `{ reason }` (5–500 ký tự) |
+
+- `GET /admin/bank-accounts` → `data: { filter, pendingCount, total, page, limit, items[] }`. Mỗi item: `{ id, name, email, phone, avatar, status, current, pending, rejectReason, submittedAt, reviewedAt }`. `pendingCount` dùng cho badge sidebar.
+- **approve** → copy `pending*` → `bank*` live, `bankStatus='approved'`, clear pending. Notify OWNER (`bank_approved`). Audit `user.bank_approve`.
+- **reject** → giữ `bank*` live cũ, clear pending, lưu `reason`, `bankStatus='rejected'`. Notify OWNER (`bank_rejected`). Audit `user.bank_reject`.
+- approve/reject khi user không có yêu cầu đang chờ (`status != pending`) → 400 `users.bankNoPending`.
+
+> **Lưu ý dữ liệu cũ**: OWNER đã cấu hình bank trước v1.21 được backfill `bankStatus='approved'` → VietQR tiếp tục hoạt động, không phải gửi duyệt lại. Chỉ lần tạo/sửa **tiếp theo** mới đi qua luồng duyệt.
+
+#### 3.3.1 Hướng dẫn tích hợp cho App (OWNER)
+
+> Màn "Tài khoản nhận tiền" trong app OWNER. App **KHÔNG** gửi bank qua `PUT /users/:id` nữa (đã bị strip). Dùng đúng 2 endpoint dưới.
+
+**Luồng màn hình:**
+
+1. **Mở màn** → `GET /users/me/bank` → render theo `status`:
+   - `none` → form trống, nút "Thêm tài khoản nhận tiền".
+   - `approved` → hiển thị `current` (tài khoản đang dùng) + nút "Sửa".
+   - `pending` → hiển thị `pending` + banner "Đang chờ duyệt", **khoá nút Sửa** (hoặc cho sửa = gửi lại, ghi đè pending).
+   - `rejected` → hiển thị `current` (nếu có) + banner đỏ `rejectReason` + nút "Gửi lại".
+2. **Submit form** → `PUT /users/me/bank` với `{ bankBin, bankName?, bankAccountNumber, bankAccountName }`:
+   - Validate client: `bankBin` đúng 6 số, `bankAccountNumber` 6–20 số, `bankAccountName` không rỗng.
+   - Thành công (200) → response trả `status='pending'`; app hiện toast "Đã gửi, chờ quản trị viên duyệt" + chuyển UI sang trạng thái pending. **KHÔNG** coi là đã kích hoạt.
+   - 403 `users.bankOnlyOwner` → chỉ OWNER dùng được (SALE/CUSTOMER ẩn màn này).
+3. **Nhận kết quả duyệt** → push FCM:
+   - `bank_approved` → gọi lại `GET /users/me/bank` (hoặc `GET /auth/profile`) → chuyển UI sang `approved`. Từ giờ VietQR dùng số tài khoản này.
+   - `bank_rejected` → refetch → hiển thị `rejectReason`, cho gửi lại.
+4. **Đồng bộ nhanh**: `GET /auth/profile` đã trả `bankStatus` + `bankRejectReason` → app có thể suy trạng thái mà không cần gọi `/users/me/bank` nếu chỉ cần badge.
+
+**Push handler bổ sung** (thêm vào bảng §20.2):
+- `bank_submitted` → (ADMIN app, nếu có) mở `/admin/bank-accounts`.
+- `bank_approved`, `bank_rejected` → (OWNER app) mở màn "Tài khoản nhận tiền".
+
+**Checklist App (OWNER):**
+- [ ] Màn "Tài khoản nhận tiền": `GET /users/me/bank` khi mở, render 4 trạng thái.
+- [ ] Submit qua `PUT /users/me/bank` (KHÔNG dùng `PUT /users/:id` cho bank nữa).
+- [ ] Sau submit: hiển thị trạng thái "chờ duyệt", không hiển thị "đã kích hoạt".
+- [ ] Handle push `bank_approved` / `bank_rejected` → refetch + cập nhật UI.
+- [ ] Trạng thái `rejected`: hiển thị `rejectReason`, nút gửi lại.
+- [ ] Ẩn màn này cho non-OWNER.
 
 ---
 
@@ -1584,6 +1668,8 @@ Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
 
 > FE render `qrPayload` thành QR bằng thư viện QR client-side (vd `qrcode`). Khách quét → app ngân hàng tự điền đúng số tiền + nội dung. Nếu `paymentInfo = null` mà booking đang CONFIRMED chưa trả → nghĩa là OWNER chưa cấu hình bank; FE hiển thị thông tin liên hệ chủ nhà để lấy STK thủ công.
 
+> **Bảo mật (mới):** trong mọi booking response (`findAll`, `findOne`, `getMyBookings`), `property.owner` CHỈ gồm `{ id, name, phone }` — **KHÔNG** chứa 4 field bank (`bankBin` / `bankName` / `bankAccountNumber` / `bankAccountName`). Thông tin bank chỉ được lộ qua `paymentInfo` khi đủ điều kiện (CONFIRMED + chưa trả + owner đã cấu hình bank). Trước đây các field bank bị include raw trên mọi row (kể cả HOLD/CANCELLED, và với cả SALE) — nay đã strip khỏi response.
+
 **Luồng thanh toán đầy đủ**: khách gửi yêu cầu đặt (HOLD) → OWNER/SALE `PATCH /bookings/:id/confirm` (→ CONFIRMED, `paymentInfo` xuất hiện) → khách quét QR chuyển cọc → OWNER/SALE `PATCH /bookings/:id/mark-paid` (set `paidAt`, `paymentInfo` → `null`). **Mới:** khi `mark-paid` thành công, nếu khách có tài khoản + email + SMTP cấu hình → BE tự gửi **email xác nhận booking** (`sendBookingConfirmed`: mã booking, ngày nhận/trả, số tiền đã thu, liên hệ chủ nhà). Fire-and-forget, không chặn response.
 
 **Field tạm thời chưa có (BE đang chờ schema):**
@@ -2042,7 +2128,9 @@ BE gửi **hybrid message** — kèm cả `notification` block (tray auto-displa
 - Foreground: đã có event `message:new` từ WebSocket → FE suppress notification tray thủ công.
 - Background/killed: OS tự hiện tray từ `apns.alert` / Android `notification` block. Tap → mở `data.deepLink`.
 
-`pushType` (nằm trong `data.type`): `booking_*`, `payment_*`, `subscription_*`, `chat_message`, `lead_new`, `dispute_opened`, `dispute_resolved`, `subscription_frozen`, `subscription_price_changed`, `kyc_*`, `staff_invite_accepted`, `property_approved | rejected | suspended`, ...
+`pushType` (nằm trong `data.type`): `booking_*`, `payment_*`, `subscription_*`, `chat_message`, `lead_new`, `dispute_opened`, `dispute_resolved`, `subscription_frozen`, `subscription_price_changed`, `kyc_*`, `staff_invite_accepted`, `property_approved | rejected | suspended`, `property_updated | property_price_updated | property_images_updated`, `calendar_locked | calendar_unlocked | calendar_sold | calendar_bulk_locked | calendar_bulk_unlocked`, ...
+
+> **Đồng bộ cả TEAM khi sửa phòng / khoá lịch (NEW).** Khi **bất kỳ thành viên team** (owner hoặc SALE thuộc owner) **sửa phòng** (`property_updated` / `property_price_updated` / `property_images_updated`) hoặc **khoá/mở/đánh dấu-bán lịch** (`calendar_locked` / `calendar_unlocked` / `calendar_sold`) → BE tạo notification + push FCM tới **owner + tất cả SALE của owner đó**, **TRỪ người vừa thao tác** (không tự báo cho chính mình). Nhờ vậy mọi thành viên biết **phòng nào** bị lock/unlock, phòng nào sửa (message luôn kèm `Tên phòng (MÃ)`). Bulk lock/unlock (`POST /calendar/bulk`) gộp **1 push tổng mỗi property** (`calendar_bulk_locked/unlocked`) thay vì mỗi ngày. `deepLink = /host/properties/{propertyId}`, `targetType = 'property'`.
 
 > **`kyc_submitted` (NEW) — gửi cho ADMIN, không phải owner.** Khi owner gửi hồ sơ KYC chờ duyệt (đủ 3 ảnh auto-submit, hoặc `POST /kyc/submit` thủ công), BE tạo notification + push tới **toàn bộ admin** để vào duyệt. `deepLink = /admin/kyc/{submissionId}`, `targetType = 'kyc'`. Phân biệt với `kyc_approved` / `kyc_rejected` gửi cho owner.
 
@@ -2577,6 +2665,41 @@ Provider: `manual_bank | manual | casso | sepay | null`.
   - Else → `PAST_DUE`
 - **Mark-paid khi user đang trial**: BE clear `trialEndsAt` (chuyển sang ACTIVE), nhưng lưu `previousTrialEndsAt` vào audit metadata để có thể trace.
 
+### 10.7 STK nhận tiền MUA GÓI — admin cấu hình được (v1.23 · 2026-07-05)
+
+> **Business rule**: Tài khoản ngân hàng nhận tiền khi OWNER **mua/gia hạn gói** (subscription) trước đây **cố định trong biến môi trường** (`BANK_*`). Từ v1.23, ADMIN sửa được qua web quản lý. Đây là **STK của platform Halong24h** (khác hoàn toàn STK nhận tiền của OWNER ở §3.3 — cái đó để khách trả cọc booking, có luồng duyệt).
+
+**Nguồn giá trị (thứ tự ưu tiên):**
+1. Bảng singleton `payment_bank_account` (id cố định `default`) — nếu ADMIN đã cấu hình.
+2. Fallback biến môi trường `BANK_BIN / BANK_NAME / BANK_ACCOUNT_NUMBER / BANK_ACCOUNT_NAME` — khi chưa từng cấu hình.
+
+`source` trong response cho biết đang dùng nguồn nào: `"db"` (admin đã set) | `"env"` (fallback). Cập nhật **có hiệu lực NGAY** cho mọi `PaymentSession` mua gói tạo sau đó (VietQR + `bankInfo` sinh từ giá trị mới). Session đã tạo trước đó giữ nguyên QR cũ.
+
+| Method | Path | Role / Permission | Body |
+|---|---|---|---|
+| `GET` | `/admin/payments/receiving-bank` | ADMIN / `payments.canRead` | — |
+| `PUT` | `/admin/payments/receiving-bank` | ADMIN / `payments.canUpdate` | `{ bankBin, bankName?, bankAccountNumber, bankAccountName }` |
+
+- `bankBin` (6 số NAPAS), `bankAccountNumber` (6–20 số), `bankAccountName` **bắt buộc**; `bankName` optional (chỉ hiển thị).
+- Không có luồng duyệt — ADMIN ghi thẳng (khác STK của OWNER). Ghi audit log `payment.receiving_bank_update`.
+- System SALE có `payments.canRead/canUpdate` cũng gọi được (xem §26).
+
+**Response (`GET` + `PUT`)** — `data`:
+```json
+{
+  "bankBin": "970416",
+  "bankName": "ACB",
+  "bankAccountNumber": "21169431",
+  "bankAccountName": "NGUYEN VU NAM",
+  "source": "db",
+  "updatedAt": "2026-07-05T16:10:00.000Z"
+}
+```
+- `source`: `"db"` = admin đã cấu hình | `"env"` = đang dùng fallback env (chưa từng set) → `updatedAt = null`.
+- `bankName` có thể `null`.
+
+**FE web quản lý:** trang cài đặt "Tài khoản nhận tiền mua gói" → `GET` khi mở form (prefill + badge nguồn), `PUT` khi lưu. Validate client: `bankBin` đúng 6 số, `bankAccountNumber` 6–20 số, `bankAccountName` không rỗng. Sau `PUT` thành công → `source` chuyển `"db"`, STK mới áp dụng ngay cho session mua gói kế tiếp.
+
 ---
 
 ## 11. Staff Invites
@@ -2730,12 +2853,12 @@ ACL: OWNER/SALE của property, CUSTOMER của booking, hoặc ADMIN.
 
 `user.ban`, `user.unban`, `user.revoke_sessions`, `user.reset_password`, `user.change_role`,
 `property.approve`, `property.reject`, `property.suspend`,
-`user.delete`, `user.kyc_bypass_toggle`,
+`user.delete`, `user.kyc_bypass_toggle`, `user.bank_approve`, `user.bank_reject`,
 `subscription.trial_grant`, `subscription.trial_revoke`, `subscription.set_price`, `subscription.mark_paid`, `subscription.freeze`, `subscription.unfreeze`,
 `review.hide`, `review.restore`,
 `kyc.approve`, `kyc.reject`,
 `dispute.investigate`, `dispute.resolve`, `dispute.reject`,
-`booking.mark_paid`.
+`booking.mark_paid`, `payment.receiving_bank_update`.
 
 ### 14.2 Target types
 
@@ -3158,6 +3281,9 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 - [ ] `kyc_*` → `/dashboard` hoặc `/verify/rejected`
 - [ ] `staff_invite_accepted` → `/staff/manage`
 - [ ] `property_approved`, `property_rejected`, `property_suspended` → `/host/properties/:id`
+- [ ] `property_updated`, `property_price_updated`, `property_images_updated` → `/host/properties/:id` (owner + SALE cùng team nhận, trừ người sửa)
+- [ ] `calendar_locked`, `calendar_unlocked`, `calendar_sold`, `calendar_bulk_locked`, `calendar_bulk_unlocked` → `/host/properties/:id` (owner + SALE cùng team nhận, trừ người khoá/mở)
+- [ ] `bank_approved`, `bank_rejected` → màn "Tài khoản nhận tiền" (OWNER)
 
 ### 20.3 Common test cases trước khi ship
 
@@ -3189,6 +3315,18 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 ---
 
 ## 21. Changelog & Bug fixes
+
+### v1.22 — 2026-07-04 (Avatar trong hồ sơ tài khoản)
+
+Cho phép user tự cập nhật ảnh đại diện ở màn "Tài khoản".
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `PATCH /auth/profile` | Whitelist thêm field `avatar` (URL https, ≤ 1000 ký tự). Ghi vào `User.avatar`, trả lại trong `GET /auth/profile`. |
+| `PUT /users/:id` | `UpdateUserDto` bổ sung `avatar` (URL https). Non-admin sửa chính mình cũng gửi được (thêm vào `SELF_EDITABLE_FIELDS`); response select thêm `avatar`. |
+| Luồng upload | Ảnh upload trước qua `POST /uploads` (§23, Cloudinary) → lấy URL https trả về → gửi vào `avatar`. Không nhận multipart trực tiếp ở 2 endpoint trên. |
+
+**Breaking?** Không — chỉ thêm field optional. FE cũ không đổi gì.
 
 ### v1.20 — 2026-07-01 (Chat retention 180 → 365 ngày)
 
@@ -4135,7 +4273,7 @@ Bulk upsert. Mỗi field CRUD optional (giữ giá trị cũ nếu không gửi)
 
 | # | Endpoint | Status | Path thật | Ghi chú cho FE |
 |---|---|---|---|---|
-| 1 | `PATCH /auth/profile` | **NEW** | `PATCH /auth/profile` | Body whitelist 3 field |
+| 1 | `PATCH /auth/profile` | **NEW** | `PATCH /auth/profile` | Body whitelist 4 field (gồm `avatar` — v1.22) |
 | 2 | `PATCH /admin/users/:id/role` | EXISTS | `PATCH /users/:id/role` | KHÔNG có prefix `/admin` — đổi URL |
 | 3 | `GET /guests` | **NEW** | `GET /guests`, `GET /guests/:id` | Derive từ User role=CUSTOMER |
 | 4 | `GET /subscriptions/me/invoices` | **NEW** | `GET /subscriptions/me/invoices` | Source: PaymentSession |
@@ -4147,21 +4285,22 @@ Bulk upsert. Mỗi field CRUD optional (giữ giá trị cũ nếu không gửi)
 
 ### 25.2 #1 — `PATCH /auth/profile`
 
-User tự sửa hồ sơ cá nhân. Whitelist 3 field. Không cho đổi role/password.
+User tự sửa hồ sơ cá nhân. Whitelist 4 field. Không cho đổi role/password.
 
 **Auth**: Bearer.
 
 **Body** (tất cả optional, ít nhất 1 field):
 ```json
-{ "fullName": "Nguyễn Văn A", "email": "new@example.com", "phone": "0901234567" }
+{ "fullName": "Nguyễn Văn A", "email": "new@example.com", "phone": "0901234567", "avatar": "https://res.cloudinary.com/.../avatars/abc.jpg" }
 ```
 
 Validate:
 - `fullName`: string ≥ 1 ký tự (BE map sang `User.name`)
 - `email`: định dạng email
 - `phone`: 10 số bắt đầu `0`
+- `avatar`: URL **https** (≤ 1000 ký tự). FE upload ảnh trước qua `POST /uploads` (§23) → lấy URL trả về gửi vào đây. BE **không** nhận multipart trực tiếp ở endpoint này.
 
-**Response 200**: shape giống `GET /auth/profile` (full ProfileDto).
+**Response 200**: shape giống `GET /auth/profile` (full ProfileDto, gồm `avatar`).
 
 **Errors**:
 - `409 users.phoneDuplicate` — phone đã được user khác dùng

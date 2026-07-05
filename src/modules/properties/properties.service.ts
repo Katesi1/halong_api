@@ -11,7 +11,7 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
 import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService, PushMeta } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { kycRequired } from '../../common/errors/kyc.errors';
 import { assertOwnerEntitled } from '../../common/subscription';
@@ -397,6 +397,11 @@ export class PropertiesService {
     return { message: msg.properties.createSuccess, data: property };
   }
 
+  /** PushMeta cho sự kiện sửa phòng — deep link tới màn property. */
+  private propertyEditPush(pushType: string, propertyId: string): PushMeta {
+    return { pushType, deepLink: `/host/properties/${propertyId}` };
+  }
+
   async update(id: string, dto: UpdatePropertyDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     // Unassigned SALE cannot update
     if (user.role === ROLE.SALE && isSaleUnassigned(user)) {
@@ -445,13 +450,15 @@ export class PropertiesService {
       },
     });
 
-    await this.notifications.notifyPropertyOwner(
+    await this.notifications.notifyPropertyTeam(
       id,
+      user.id,
       'Phòng được cập nhật',
       `${updated.name} (${(updated as any).code}) đã được cập nhật`,
       NOTIFICATION_TYPE.SYSTEM,
       id,
       'property',
+      this.propertyEditPush('property_updated', id),
     );
 
     return { message: msg.properties.updateSuccess, data: updated };
@@ -505,13 +512,15 @@ export class PropertiesService {
       },
     });
 
-    await this.notifications.notifyPropertyOwner(
+    await this.notifications.notifyPropertyTeam(
       id,
+      user.id,
       'Bảng giá được cập nhật',
       `${updated.name} (${updated.code}) đã cập nhật bảng giá`,
       NOTIFICATION_TYPE.SYSTEM,
       id,
       'property',
+      this.propertyEditPush('property_price_updated', id),
     );
 
     return { message: msg.properties.updatePricesSuccess, data: updated };
@@ -558,13 +567,15 @@ export class PropertiesService {
     );
 
     const prop = await this.prisma.property.findUnique({ where: { id: propertyId }, select: { name: true, code: true } });
-    await this.notifications.notifyPropertyOwner(
+    await this.notifications.notifyPropertyTeam(
       propertyId,
+      user.id,
       'Ảnh mới được tải lên',
       `${prop?.name} (${prop?.code}) — ${images.length} ảnh mới`,
       NOTIFICATION_TYPE.SYSTEM,
       propertyId,
       'property',
+      this.propertyEditPush('property_images_updated', propertyId),
     );
 
     return { message: msg.properties.uploadSuccess(images.length), data: images };
@@ -576,7 +587,7 @@ export class PropertiesService {
     user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
   ) {
-    await this.getPropertyWithAccess(propertyId, user, msg);
+    const property = await this.getPropertyWithAccess(propertyId, user, msg);
 
     const image = await this.prisma.propertyImage.findFirst({
       where: { id: imageId, propertyId },
@@ -599,13 +610,15 @@ export class PropertiesService {
       }
     }
 
-    await this.notifications.notifyPropertyOwner(
+    await this.notifications.notifyPropertyTeam(
       propertyId,
+      user.id,
       'Ảnh đã bị xóa',
-      `Một ảnh của phòng đã bị xóa`,
+      `${(property as any).name} (${(property as any).code}): một ảnh đã bị xóa`,
       NOTIFICATION_TYPE.SYSTEM,
       propertyId,
       'property',
+      this.propertyEditPush('property_images_updated', propertyId),
     );
 
     return { message: msg.properties.deleteImageSuccess, data: null };

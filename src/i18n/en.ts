@@ -89,6 +89,20 @@ export const en = {
     passwordTooShort: 'Password must be at least 8 characters',
     passwordWeak: 'Password must contain at least 1 letter and 1 digit',
     invalidRole: 'Invalid role (only 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)',
+    // ─── Bank account (payout) moderation ───
+    bankGetSuccess: 'Bank account retrieved successfully',
+    bankSubmitSuccess: 'Bank account submitted — awaiting admin approval',
+    bankOnlyOwner: 'Only OWNER can configure a payout bank account',
+    bankListSuccess: 'Bank account requests retrieved successfully',
+    bankNoPending: 'User has no pending bank account request',
+    bankApproveSuccess: 'Bank account approved',
+    bankRejectSuccess: 'Bank account rejected',
+    bankSubmitNotifTitle: 'Bank account approval request',
+    bankSubmitNotifSubtitle: (name: string) => `${name} submitted bank details for approval`,
+    bankApprovedNotifTitle: 'Bank account approved',
+    bankApprovedNotifSubtitle: 'Your bank details have been approved and are now active.',
+    bankRejectedNotifTitle: 'Bank account rejected',
+    bankRejectedNotifSubtitle: (reason: string) => `Your bank details were rejected: ${reason}`,
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -312,6 +326,8 @@ export const en = {
       'Complete KYC verification and wait for admin approval before purchasing a plan',
     paymentPending:
       'You already have a pending payment. Please complete or cancel it before creating a new one.',
+    receivingBankGetSuccess: 'Receiving bank account retrieved successfully',
+    receivingBankUpdateSuccess: 'Receiving bank account updated successfully',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────

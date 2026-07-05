@@ -98,6 +98,17 @@ export const KYC_STATUS = {
   REJECTED: 'rejected',
 } as const;
 
+/** Trạng thái duyệt tài khoản nhận tiền của OWNER (User.bankStatus). */
+export const BANK_STATUS = {
+  NONE: 'none',       // chưa cấu hình bank
+  PENDING: 'pending', // OWNER đã gửi, chờ ADMIN duyệt
+  APPROVED: 'approved', // ADMIN đã duyệt — bank* live có hiệu lực (dùng sinh VietQR)
+  REJECTED: 'rejected', // ADMIN từ chối — giữ bank* live cũ (nếu có), OWNER phải gửi lại
+} as const;
+
+/** Filter hợp lệ cho admin bank-accounts queue. */
+export const BANK_ADMIN_FILTERS = ['pending', 'approved', 'rejected', 'all'] as const;
+
 export const KYC_SUBMISSION_STATUS = {
   DRAFT: 'draft',
   KYC_SUBMITTED: 'kyc_submitted',
@@ -250,6 +261,8 @@ export const AUDIT_ACTION = {
   USER_RESET_PASSWORD: 'user.reset_password',
   USER_CHANGE_ROLE: 'user.change_role',
   USER_KYC_BYPASS_TOGGLE: 'user.kyc_bypass_toggle',
+  USER_BANK_APPROVE: 'user.bank_approve',
+  USER_BANK_REJECT: 'user.bank_reject',
   // property
   PROPERTY_APPROVE: 'property.approve',
   PROPERTY_REJECT: 'property.reject',
@@ -270,6 +283,8 @@ export const AUDIT_ACTION = {
   KYC_REJECT: 'kyc.reject',
   // booking
   BOOKING_MARK_PAID: 'booking.mark_paid',
+  // payment (STK nhận tiền mua gói — platform receiving bank)
+  PAYMENT_RECEIVING_BANK_UPDATE: 'payment.receiving_bank_update',
   // dispute
   DISPUTE_INVESTIGATE: 'dispute.investigate',
   DISPUTE_RESOLVE: 'dispute.resolve',

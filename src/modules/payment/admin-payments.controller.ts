@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -33,6 +34,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { UpdateReceivingBankDto } from './dto/update-receiving-bank.dto';
 
 class AdminMarkPaidDto {
   @ApiPropertyOptional({
@@ -117,5 +119,35 @@ export class AdminPaymentsController {
       dto.reference,
       msg,
     );
+  }
+
+  @Get('receiving-bank')
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PAYMENTS, 'canRead')
+  @ApiOperation({
+    summary: 'Xem STK nhận tiền MUA GÓI (subscription) hiện hành',
+    description:
+      'Trả STK platform đang dùng để sinh VietQR khi OWNER mua/gia hạn gói. ' +
+      '`source="db"` = admin đã cấu hình; `source="env"` = đang dùng fallback biến môi trường (chưa từng set).',
+  })
+  getReceivingBank(@Lang() msg: Messages) {
+    return this.paymentService.adminGetReceivingBank(msg);
+  }
+
+  @Put('receiving-bank')
+  @Roles(ROLE.ADMIN, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.PAYMENTS, 'canUpdate')
+  @ApiOperation({
+    summary: 'Cập nhật STK nhận tiền MUA GÓI (subscription)',
+    description:
+      'Ghi thẳng vào STK platform (không cần duyệt — đây là tài khoản của Halong24h). ' +
+      'Có hiệu lực NGAY cho các session mua gói tạo sau đó. Ghi audit log `payment.receiving_bank_update`.',
+  })
+  updateReceivingBank(
+    @CurrentUser('id') adminId: string,
+    @Body() dto: UpdateReceivingBankDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.paymentService.adminUpdateReceivingBank(adminId, dto, msg);
   }
 }

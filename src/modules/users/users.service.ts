@@ -7,23 +7,25 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../email/email.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateBankDto } from './dto/update-bank.dto';
 import { Messages } from '../../i18n';
-import { ROLE, AUDIT_ACTION, AUDIT_TARGET_TYPE, USER_SCOPE } from '../../common/constants';
+import { ROLE, AUDIT_ACTION, AUDIT_TARGET_TYPE, USER_SCOPE, BANK_STATUS, BANK_ADMIN_FILTERS } from '../../common/constants';
 import * as bcrypt from 'bcryptjs';
 
 const NOTIFICATION_TYPE_SYSTEM = 2;
 
-// Fields non-admin users can update on their own profile
-// (bank* để OWNER tự cấu hình thông tin nhận tiền chuyển khoản từ khách)
+// Fields non-admin users can update on their own profile.
+// LƯU Ý: bank* KHÔNG nằm ở đây — thông tin nhận tiền phải qua luồng duyệt
+// PUT /users/me/bank → ADMIN approve (xem submitBankChange / adminApproveBank).
 const SELF_EDITABLE_FIELDS = [
-  'name', 'phone', 'email', 'gender', 'dateOfBirth',
-  'bankBin', 'bankName', 'bankAccountNumber', 'bankAccountName',
+  'name', 'phone', 'email', 'gender', 'dateOfBirth', 'avatar',
 ];
 
 @Injectable()
@@ -184,6 +186,15 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) throw new ConflictException(msg.users.emailDuplicate);
 
+    // Phone unique — pre-check để trả 409 rõ ràng thay vì P2002 → 500.
+    if (dto.phone) {
+      const phoneTaken = await this.prisma.user.findFirst({
+        where: { phone: dto.phone },
+        select: { id: true },
+      });
+      if (phoneTaken) throw new ConflictException(msg.users.phoneDuplicate);
+    }
+
     // scope chỉ có nghĩa với SALE — các role khác buộc về 'owner' (default) để không lưu rác.
     let scope = USER_SCOPE.OWNER as string;
     if (dto.role === ROLE.SALE) {
@@ -204,13 +215,24 @@ export class UsersService {
 
     const { scope: _ignore, ...rest } = dto;
 
-    const user = await this.prisma.user.create({
-      data: { ...rest, password: hashedPassword, scope },
-      select: {
-        id: true, name: true, phone: true, email: true, role: true, ownerId: true, scope: true,
-        gender: true, dateOfBirth: true, createdAt: true,
-      },
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: { ...rest, password: hashedPassword, scope },
+        select: {
+          id: true, name: true, phone: true, email: true, role: true, ownerId: true, scope: true,
+          gender: true, dateOfBirth: true, createdAt: true,
+        },
+      });
+    } catch (err) {
+      // Lưới an toàn cho race condition / unique field khác → 409 thay vì 500.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const target = (err.meta?.target as string[] | undefined) ?? [];
+        if (target.includes('phone')) throw new ConflictException(msg.users.phoneDuplicate);
+        throw new ConflictException(msg.users.emailDuplicate);
+      }
+      throw err;
+    }
 
     return { message: msg.users.createSuccess, data: user };
   }
@@ -256,13 +278,246 @@ export class UsersService {
       where: { id },
       data,
       select: {
-        id: true, name: true, phone: true, email: true, role: true, ownerId: true,
+        id: true, name: true, phone: true, email: true, avatar: true, role: true, ownerId: true,
         isActive: true, gender: true, dateOfBirth: true, updatedAt: true,
         bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true,
       },
     });
 
     return { message: msg.users.updateSuccess, data: updated };
+  }
+
+  // ─── Bank account (payout) moderation ──────────────────────────────────────
+
+  private static readonly BANK_STATE_SELECT = {
+    bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true,
+    bankStatus: true, bankSubmittedAt: true, bankReviewedAt: true, bankRejectReason: true,
+    pendingBankBin: true, pendingBankName: true, pendingBankAccountNumber: true, pendingBankAccountName: true,
+  } as const;
+
+  private shapeBankState(u: {
+    bankBin: string | null; bankName: string | null;
+    bankAccountNumber: string | null; bankAccountName: string | null;
+    bankStatus: string; bankSubmittedAt: Date | null; bankReviewedAt: Date | null;
+    bankRejectReason: string | null;
+    pendingBankBin: string | null; pendingBankName: string | null;
+    pendingBankAccountNumber: string | null; pendingBankAccountName: string | null;
+  }) {
+    return {
+      status: u.bankStatus,
+      current: {
+        bankBin: u.bankBin,
+        bankName: u.bankName,
+        bankAccountNumber: u.bankAccountNumber,
+        bankAccountName: u.bankAccountName,
+      },
+      pending:
+        u.bankStatus === BANK_STATUS.PENDING
+          ? {
+              bankBin: u.pendingBankBin,
+              bankName: u.pendingBankName,
+              bankAccountNumber: u.pendingBankAccountNumber,
+              bankAccountName: u.pendingBankAccountName,
+            }
+          : null,
+      rejectReason: u.bankStatus === BANK_STATUS.REJECTED ? u.bankRejectReason : null,
+      submittedAt: u.bankSubmittedAt,
+      reviewedAt: u.bankReviewedAt,
+    };
+  }
+
+  /** OWNER xem trạng thái tài khoản nhận tiền (live đã duyệt + pending + lý do từ chối). */
+  async getMyBank(userId: string, msg: Messages) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: UsersService.BANK_STATE_SELECT,
+    });
+    if (!user) throw new NotFoundException(msg.users.notFound);
+    return { message: msg.users.bankGetSuccess, data: this.shapeBankState(user) };
+  }
+
+  /** OWNER gửi thông tin nhận tiền (tạo/sửa) → pending, chờ ADMIN duyệt. KHÔNG áp vào bank* live. */
+  async submitBankChange(userId: string, dto: UpdateBankDto, msg: Messages) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, role: true, name: true },
+    });
+    if (!user) throw new NotFoundException(msg.users.notFound);
+    if (user.role !== ROLE.OWNER) throw new ForbiddenException(msg.users.bankOnlyOwner);
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        pendingBankBin: dto.bankBin,
+        pendingBankName: dto.bankName ?? null,
+        pendingBankAccountNumber: dto.bankAccountNumber,
+        pendingBankAccountName: dto.bankAccountName,
+        bankStatus: BANK_STATUS.PENDING,
+        bankSubmittedAt: new Date(),
+        bankRejectReason: null,
+      },
+      select: UsersService.BANK_STATE_SELECT,
+    });
+
+    void this.notifications
+      .notifyAdmins(
+        msg.users.bankSubmitNotifTitle,
+        msg.users.bankSubmitNotifSubtitle(user.name),
+        NOTIFICATION_TYPE_SYSTEM,
+        userId,
+        AUDIT_TARGET_TYPE.USER,
+        { pushType: 'bank_submitted', deepLink: '/admin/bank-accounts' },
+      )
+      .catch((err) => this.logger.warn(`notifyAdmins bank_submitted failed: ${(err as Error).message}`));
+
+    return { message: msg.users.bankSubmitSuccess, data: this.shapeBankState(updated) };
+  }
+
+  /** ADMIN queue — list yêu cầu duyệt bank. status: pending|approved|rejected|all (default pending). */
+  async adminListBankAccounts(msg: Messages, status?: string, page?: number, limit?: number) {
+    const filter = (BANK_ADMIN_FILTERS as readonly string[]).includes(status ?? '')
+      ? (status as string)
+      : BANK_STATUS.PENDING;
+
+    const where: any = { role: ROLE.OWNER, deletedAt: null };
+    if (filter === 'all') where.bankStatus = { not: BANK_STATUS.NONE };
+    else where.bankStatus = filter;
+
+    const take = Math.min(Math.max(1, Number(limit) || 20), 100);
+    const currentPage = Math.max(1, Number(page) || 1);
+    const skip = (currentPage - 1) * take;
+
+    const [items, total, pendingCount] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true, name: true, email: true, phone: true, avatar: true,
+          ...UsersService.BANK_STATE_SELECT,
+        },
+        orderBy: [{ bankSubmittedAt: { sort: 'desc', nulls: 'last' } }, { updatedAt: 'desc' }],
+        take,
+        skip,
+      }),
+      this.prisma.user.count({ where }),
+      this.prisma.user.count({
+        where: { role: ROLE.OWNER, deletedAt: null, bankStatus: BANK_STATUS.PENDING },
+      }),
+    ]);
+
+    const shaped = items.map((u) => ({
+      id: u.id, name: u.name, email: u.email, phone: u.phone, avatar: u.avatar,
+      ...this.shapeBankState(u),
+    }));
+
+    return {
+      message: msg.users.bankListSuccess,
+      data: { filter, pendingCount, total, page: currentPage, limit: take, items: shaped },
+    };
+  }
+
+  /** ADMIN duyệt: copy pending* → bank* live, clear pending. */
+  async adminApproveBank(adminId: string, userId: string, msg: Messages) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: {
+        id: true, email: true, bankStatus: true,
+        pendingBankBin: true, pendingBankName: true,
+        pendingBankAccountNumber: true, pendingBankAccountName: true,
+      },
+    });
+    if (!user) throw new NotFoundException(msg.users.notFound);
+    if (user.bankStatus !== BANK_STATUS.PENDING) {
+      throw new BadRequestException(msg.users.bankNoPending);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        bankBin: user.pendingBankBin,
+        bankName: user.pendingBankName,
+        bankAccountNumber: user.pendingBankAccountNumber,
+        bankAccountName: user.pendingBankAccountName,
+        bankStatus: BANK_STATUS.APPROVED,
+        bankReviewedAt: new Date(),
+        bankReviewedBy: adminId,
+        bankRejectReason: null,
+        pendingBankBin: null, pendingBankName: null,
+        pendingBankAccountNumber: null, pendingBankAccountName: null,
+      },
+      select: UsersService.BANK_STATE_SELECT,
+    });
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.USER_BANK_APPROVE,
+      targetType: AUDIT_TARGET_TYPE.USER,
+      targetId: userId,
+      targetLabel: user.email,
+    });
+
+    void this.notifications
+      .notifyUser(
+        userId,
+        msg.users.bankApprovedNotifTitle,
+        msg.users.bankApprovedNotifSubtitle,
+        NOTIFICATION_TYPE_SYSTEM,
+        userId,
+        AUDIT_TARGET_TYPE.USER,
+        { pushType: 'bank_approved', deepLink: '/host/settings/bank' },
+      )
+      .catch((err) => this.logger.warn(`notifyUser bank_approved failed: ${(err as Error).message}`));
+
+    return { message: msg.users.bankApproveSuccess, data: this.shapeBankState(updated) };
+  }
+
+  /** ADMIN từ chối: giữ bank* live cũ, clear pending, lưu lý do. */
+  async adminRejectBank(adminId: string, userId: string, reason: string, msg: Messages) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true, email: true, bankStatus: true },
+    });
+    if (!user) throw new NotFoundException(msg.users.notFound);
+    if (user.bankStatus !== BANK_STATUS.PENDING) {
+      throw new BadRequestException(msg.users.bankNoPending);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        bankStatus: BANK_STATUS.REJECTED,
+        bankRejectReason: reason,
+        bankReviewedAt: new Date(),
+        bankReviewedBy: adminId,
+        pendingBankBin: null, pendingBankName: null,
+        pendingBankAccountNumber: null, pendingBankAccountName: null,
+      },
+      select: UsersService.BANK_STATE_SELECT,
+    });
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.USER_BANK_REJECT,
+      targetType: AUDIT_TARGET_TYPE.USER,
+      targetId: userId,
+      targetLabel: user.email,
+      metadata: { reason },
+    });
+
+    void this.notifications
+      .notifyUser(
+        userId,
+        msg.users.bankRejectedNotifTitle,
+        msg.users.bankRejectedNotifSubtitle(reason),
+        NOTIFICATION_TYPE_SYSTEM,
+        userId,
+        AUDIT_TARGET_TYPE.USER,
+        { pushType: 'bank_rejected', deepLink: '/host/settings/bank' },
+      )
+      .catch((err) => this.logger.warn(`notifyUser bank_rejected failed: ${(err as Error).message}`));
+
+    return { message: msg.users.bankRejectSuccess, data: this.shapeBankState(updated) };
   }
 
   async remove(id: string, currentUserId: string, msg: Messages) {

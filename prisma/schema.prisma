@@ -33,10 +33,22 @@ model User {
 
   // Thông tin nhận tiền của OWNER — khách chuyển khoản cọc sau khi owner confirm booking.
   // BE tự sinh VietQR động (buildVietQrPayload) từ bankBin + bankAccountNumber; không lưu ảnh QR.
-  bankBin           String? // NAPAS BIN 6 số, vd "970436" (Vietcombank)
+  bankBin           String? // NAPAS BIN 6 số, vd "970436" (Vietcombank) — GIÁ TRỊ ĐÃ DUYỆT (live, dùng sinh VietQR)
   bankName          String? // Tên hiển thị ngân hàng, vd "Vietcombank"
   bankAccountNumber String? // Số tài khoản nhận tiền
   bankAccountName   String? // Tên chủ tài khoản (in trên QR/hiển thị)
+
+  // Duyệt thông tin nhận tiền — OWNER submit tạo/sửa bank qua PUT /users/me/bank → ADMIN duyệt
+  // mới copy pending* → bank* live. Chỉ giá trị đã duyệt (bank*) mới được dùng sinh VietQR.
+  bankStatus               String    @default("none") // none | pending | approved | rejected
+  bankSubmittedAt          DateTime? // lúc OWNER gửi yêu cầu gần nhất
+  bankReviewedAt           DateTime? // lúc ADMIN duyệt/từ chối
+  bankReviewedBy           String?   // adminId đã xử lý
+  bankRejectReason         String?   // lý do từ chối (chỉ có khi bankStatus=rejected)
+  pendingBankBin           String?   // giá trị chờ duyệt
+  pendingBankName          String?
+  pendingBankAccountNumber String?
+  pendingBankAccountName   String?
 
   // Admin moderation
   bannedAt     DateTime?
@@ -95,6 +107,7 @@ model User {
   // Account deletion grace (NĐ 13)
   deletionScheduledAt DateTime? // != null → user đang trong grace 30 ngày, login → auto-cancel
 
+  @@index([bankStatus])
   @@map("users")
 }
 
@@ -279,6 +292,7 @@ model PropertyImage {
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
+  @@index([propertyId])
   @@map("property_images")
 }
 
@@ -329,6 +343,7 @@ model CalendarLock {
 
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
+  @@index([propertyId, date])
   @@map("calendar_locks")
 }
 
@@ -556,6 +571,23 @@ model PaymentSession {
   @@index([submissionId])
   @@index([status, expiresAt])
   @@map("payment_sessions")
+}
+
+// ─── Platform receiving bank (STK nhận tiền MUA GÓI / subscription) ───────────
+// Singleton (id luôn = 'default'). ADMIN sửa qua GET/PUT /admin/payments/receiving-bank.
+// Chưa có row → PaymentService fallback về biến môi trường BANK_* (hành vi cũ).
+// Dùng để sinh VietQR + bankInfo cho PaymentSession khi OWNER mua/gia hạn gói.
+model PaymentBankAccount {
+  id                String   @id // singleton: 'default'
+  bankBin           String // NAPAS BIN 6 số, vd 970416 (ACB)
+  bankName          String? // tên hiển thị ngân hàng (optional)
+  bankAccountNumber String // số tài khoản nhận tiền
+  bankAccountName   String // tên chủ tài khoản (in trên QR)
+  updatedById       String? // admin id sửa gần nhất
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("payment_bank_account")
 }
 
 // ─── Uploads (generic file upload tracking) ──────────────────────────────────

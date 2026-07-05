@@ -105,7 +105,7 @@ export class BookingsService {
       if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
         holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
       }
-      return { ...booking, holdRemainingSeconds, ...this.enrichBookingExtras(booking) };
+      return this.toBookingResponse(booking, holdRemainingSeconds);
     });
 
     return {
@@ -218,6 +218,33 @@ export class BookingsService {
     };
   }
 
+  /** Strip field bank của owner khỏi property — bank chỉ được lộ hợp lệ qua paymentInfo. */
+  private stripOwnerBankFields(property: any): any {
+    const owner = property?.owner;
+    if (!owner) return property;
+    const { bankBin, bankName, bankAccountNumber, bankAccountName, ...safeOwner } = owner;
+    return { ...property, owner: safeOwner };
+  }
+
+  /**
+   * Shape 1 booking cho response: enrich extras + gắn holdRemainingSeconds, đồng thời
+   * loại field bank của owner khỏi property.owner. Bank (bankBin/số TK/…) CHỈ được lộ
+   * qua paymentInfo khi status=CONFIRMED và chưa trả — không nằm raw trên mọi row.
+   * enrichBookingExtras đọc bank từ booking GỐC nên paymentInfo vẫn dựng đúng.
+   */
+  private toBookingResponse(booking: any, holdRemainingSeconds: number): any {
+    const extras = this.enrichBookingExtras(booking);
+    const property = booking?.property
+      ? this.stripOwnerBankFields(booking.property)
+      : undefined;
+    return {
+      ...booking,
+      ...(property !== undefined ? { property } : {}),
+      holdRemainingSeconds,
+      ...extras,
+    };
+  }
+
   async findOne(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
@@ -243,11 +270,7 @@ export class BookingsService {
 
     return {
       message: msg.bookings.getSuccess,
-      data: {
-        ...booking,
-        holdRemainingSeconds,
-        ...this.enrichBookingExtras(booking),
-      },
+      data: this.toBookingResponse(booking, holdRemainingSeconds),
     };
   }
 
@@ -756,7 +779,7 @@ export class BookingsService {
       if (booking.status === BOOKING_STATUS.HOLD && booking.holdExpireAt) {
         holdRemainingSeconds = Math.max(0, Math.floor((booking.holdExpireAt.getTime() - Date.now()) / 1000));
       }
-      return { ...booking, holdRemainingSeconds, ...this.enrichBookingExtras(booking) };
+      return this.toBookingResponse(booking, holdRemainingSeconds);
     });
 
     return {

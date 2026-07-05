@@ -3,6 +3,7 @@ import { BadRequestException, Logger, ValidationError, ValidationPipe } from '@n
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
+import compression from 'compression';
 import { AppModule } from './app.module';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { AuditContextInterceptor } from './common/interceptors/audit-context.interceptor';
@@ -16,6 +17,11 @@ async function bootstrap() {
 
   // Graceful shutdown — Prisma/Redis OnModuleDestroy chạy đúng khi nhận SIGTERM
   app.enableShutdownHooks();
+
+  // Nén response (gzip/deflate) — giảm TTFB & băng thông cho payload JSON list lớn.
+  // threshold 1KB: bỏ qua response nhỏ (nén tốn CPU hơn lợi). nginx phía trước có thể
+  // đã nén; middleware này đảm bảo nén ngay cả khi gọi trực tiếp app.
+  app.use(compression({ threshold: 1024 }));
 
   // Giới hạn body để tránh OOM / event-loop block
   app.use(json({ limit: '1mb' }));

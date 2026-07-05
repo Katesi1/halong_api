@@ -7,6 +7,7 @@ import { UserListResponse, UserResponse, MessageResponse } from '../../common/dt
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateBankDto } from './dto/update-bank.dto';
 import { AddStaffDto } from './dto/add-staff.dto';
 import { ToggleKycBypassDto } from './dto/toggle-kyc-bypass.dto';
 import { SelfDeleteDto } from './dto/self-delete.dto';
@@ -114,6 +115,34 @@ export class UsersController {
   ) {
     await this.usersService.cancelDeletion(userId, 'user_cancel', msg);
     return { message: msg.users.deletionRestoreSuccess, data: null };
+  }
+
+  @Get('me/bank')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({
+    summary: 'Xem tài khoản nhận tiền của tôi (OWNER)',
+    description:
+      'Trả `{ status, current, pending, rejectReason, submittedAt, reviewedAt }`. `current` = giá trị đã duyệt (dùng sinh VietQR); `pending` != null khi đang chờ ADMIN duyệt.',
+  })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  getMyBank(@CurrentUser('id') userId: string, @Lang() msg: Messages) {
+    return this.usersService.getMyBank(userId, msg);
+  }
+
+  @Put('me/bank')
+  @Roles(ROLE.OWNER)
+  @ApiOperation({
+    summary: 'Gửi/sửa tài khoản nhận tiền — CHỜ ADMIN DUYỆT (OWNER)',
+    description:
+      'Ghi vào pending, KHÔNG áp vào tài khoản đang dùng cho tới khi ADMIN duyệt. Sau khi gửi, `bankStatus="pending"`. VietQR vẫn dùng giá trị đã duyệt trước đó (nếu có).',
+  })
+  @ApiResponse({ status: 200, type: MessageResponse })
+  submitBankChange(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateBankDto,
+    @Lang() msg: Messages,
+  ) {
+    return this.usersService.submitBankChange(userId, dto, msg);
   }
 
   @Get(':id')

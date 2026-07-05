@@ -173,6 +173,47 @@ export class NotificationsService {
     );
   }
 
+  /**
+   * Notify toàn bộ TEAM của property — owner + các SALE thuộc owner (scope owner),
+   * TRỪ người vừa thao tác (actorUserId). Dùng cho sự kiện sửa phòng / khoá lịch:
+   * cả team cần biết ai đổi gì, phòng nào. Tạo DB row đồng bộ + push FCM best-effort.
+   */
+  async notifyPropertyTeam(
+    propertyId: string,
+    actorUserId: string,
+    title: string,
+    subtitle: string,
+    type: number,
+    targetId?: string,
+    targetType?: string,
+    push: PushMeta = {},
+  ) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { ownerId: true },
+    });
+    if (!property) return;
+
+    const sales = await this.prisma.user.findMany({
+      where: { role: ROLE.SALE, ownerId: property.ownerId, isActive: true, deletedAt: null },
+      select: { id: true },
+    });
+
+    // owner + sales, khử trùng, bỏ actor (không tự báo cho chính mình).
+    const recipientIds = [...new Set([property.ownerId, ...sales.map((s) => s.id)])].filter(
+      (id) => id !== actorUserId,
+    );
+    if (recipientIds.length === 0) return;
+
+    await this.prisma.notification.createMany({
+      data: recipientIds.map((userId) => ({ userId, title, subtitle, type, targetId, targetType })),
+    });
+
+    void Promise.all(
+      recipientIds.map((id) => this.pushToUser(id, title, subtitle, push, targetId)),
+    ).catch((err) => this.logger.warn(`FCM team push failed: ${err?.message}`));
+  }
+
   /** Notify all admins — tạo DB row + push FCM (nếu push.pushType có) */
   async notifyAdmins(
     title: string,
@@ -187,11 +228,19 @@ export class NotificationsService {
       select: { id: true },
     });
 
-    await Promise.all(
-      admins.map(admin =>
-        this.create({ userId: admin.id, title, subtitle, type, targetId, targetType }),
-      ),
-    );
+    if (admins.length === 0) return;
+
+    // 1 INSERT batch thay vì N câu create() — tránh N+1 khi số admin tăng.
+    await this.prisma.notification.createMany({
+      data: admins.map((admin) => ({
+        userId: admin.id,
+        title,
+        subtitle,
+        type,
+        targetId,
+        targetType,
+      })),
+    });
 
     // Push FCM tách khỏi request (best-effort) — DB rows ở trên đã ghi đồng bộ.
     void Promise.all(

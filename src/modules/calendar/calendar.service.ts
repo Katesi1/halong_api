@@ -8,7 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { Messages } from '../../i18n';
 import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService, PushMeta } from '../notifications/notifications.service';
 
 interface GridProperty {
   id: string;
@@ -151,17 +151,23 @@ export class CalendarService {
 
   // ─── Lock / Unlock / Sold ──────────────────────────────────────────────────
 
+  /** PushMeta cho sự kiện lịch — deep link tới màn property (nơi có lịch). */
+  private calendarPush(pushType: string, propertyId: string): PushMeta {
+    return { pushType, deepLink: `/host/properties/${propertyId}` };
+  }
+
   async lockDate(
     propertyId: string,
     date: string,
     status: number | undefined,
     user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
+    opts?: { skipNotify?: boolean },
   ) {
     if (isSaleUnassigned(user)) {
       throw new BadRequestException(msg.users.saleNotAssigned);
     }
-    await this.getPropertyWithAccess(propertyId, user, msg);
+    const property = await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = this.toUTCDate(date);
 
     const existingLock = await this.prisma.calendarLock.findFirst({
@@ -193,14 +199,18 @@ export class CalendarService {
       },
     });
 
-    await this.notifications.notifyPropertyOwner(
-      propertyId,
-      'Ngày đã bị khóa',
-      `Ngày ${date} đã được khóa trên lịch`,
-      NOTIFICATION_TYPE.SYSTEM,
-      propertyId,
-      'property',
-    );
+    if (!opts?.skipNotify) {
+      await this.notifications.notifyPropertyTeam(
+        propertyId,
+        user.id,
+        'Ngày đã bị khóa',
+        `${property.name} (${property.code}): ngày ${date} đã được khóa`,
+        NOTIFICATION_TYPE.SYSTEM,
+        propertyId,
+        'property',
+        this.calendarPush('calendar_locked', propertyId),
+      );
+    }
 
     return { message: msg.calendar.lockSuccess, data: lock };
   }
@@ -210,11 +220,12 @@ export class CalendarService {
     date: string,
     user: { id: string; role: number; ownerId?: string | null },
     msg: Messages,
+    opts?: { skipNotify?: boolean },
   ) {
     if (isSaleUnassigned(user)) {
       throw new BadRequestException(msg.users.saleNotAssigned);
     }
-    await this.getPropertyWithAccess(propertyId, user, msg);
+    const property = await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = this.toUTCDate(date);
 
     const lock = await this.prisma.calendarLock.findFirst({
@@ -224,14 +235,18 @@ export class CalendarService {
 
     await this.prisma.calendarLock.delete({ where: { id: lock.id } });
 
-    await this.notifications.notifyPropertyOwner(
-      propertyId,
-      'Ngày đã mở khóa',
-      `Ngày ${date} đã được mở khóa trên lịch`,
-      NOTIFICATION_TYPE.SYSTEM,
-      propertyId,
-      'property',
-    );
+    if (!opts?.skipNotify) {
+      await this.notifications.notifyPropertyTeam(
+        propertyId,
+        user.id,
+        'Ngày đã mở khóa',
+        `${property.name} (${property.code}): ngày ${date} đã được mở khóa`,
+        NOTIFICATION_TYPE.SYSTEM,
+        propertyId,
+        'property',
+        this.calendarPush('calendar_unlocked', propertyId),
+      );
+    }
 
     return { message: msg.calendar.unlockSuccess, data: null };
   }
@@ -245,7 +260,7 @@ export class CalendarService {
     if (isSaleUnassigned(user)) {
       throw new BadRequestException(msg.users.saleNotAssigned);
     }
-    await this.getPropertyWithAccess(propertyId, user, msg);
+    const property = await this.getPropertyWithAccess(propertyId, user, msg);
     const lockDate = this.toUTCDate(date);
 
     const existingLock = await this.prisma.calendarLock.findFirst({
@@ -257,13 +272,15 @@ export class CalendarService {
         where: { id: existingLock.id },
         data: { status: CALENDAR_LOCK_STATUS.BOOKED },
       });
-      await this.notifications.notifyPropertyOwner(
+      await this.notifications.notifyPropertyTeam(
         propertyId,
+        user.id,
         'Ngày đánh dấu đã bán',
-        `Ngày ${date} được đánh dấu đã bán`,
+        `${property.name} (${property.code}): ngày ${date} được đánh dấu đã bán`,
         NOTIFICATION_TYPE.BOOKING,
         propertyId,
         'property',
+        this.calendarPush('calendar_sold', propertyId),
       );
       return { message: msg.calendar.soldSuccess, data: updated };
     }
@@ -276,13 +293,15 @@ export class CalendarService {
       },
     });
 
-    await this.notifications.notifyPropertyOwner(
+    await this.notifications.notifyPropertyTeam(
       propertyId,
+      user.id,
       'Ngày đánh dấu đã bán',
-      `Ngày ${date} được đánh dấu đã bán`,
+      `${property.name} (${property.code}): ngày ${date} được đánh dấu đã bán`,
       NOTIFICATION_TYPE.BOOKING,
       propertyId,
       'property',
+      this.calendarPush('calendar_sold', propertyId),
     );
 
     return { message: msg.calendar.soldSuccess, data: lock };
@@ -312,13 +331,14 @@ export class CalendarService {
     }
 
     // Xử lý song song thay vì tuần tự — mỗi item độc lập, giữ nguyên thứ tự kết quả.
+    // skipNotify: bỏ notify per-item, tránh 100 DB row + 100 push khi bulk. Gộp 1 lần ở dưới.
     const results = await Promise.all(
       items.map(async (item) => {
         try {
           if (mode === 'lock') {
-            await this.lockDate(item.propertyId, item.date, undefined, user, msg);
+            await this.lockDate(item.propertyId, item.date, undefined, user, msg, { skipNotify: true });
           } else {
-            await this.unlockDate(item.propertyId, item.date, user, msg);
+            await this.unlockDate(item.propertyId, item.date, user, msg, { skipNotify: true });
           }
           return { propertyId: item.propertyId, date: item.date, ok: true } as const;
         } catch (err: any) {
@@ -329,6 +349,41 @@ export class CalendarService {
             error: err?.message ?? 'failed',
           } as const;
         }
+      }),
+    );
+
+    // Gộp thông báo theo property → 1 notification/push cho cả team mỗi phòng (dù bulk cả trăm ngày).
+    const countByProperty = new Map<string, number>();
+    for (const r of results) {
+      if (r.ok) countByProperty.set(r.propertyId, (countByProperty.get(r.propertyId) ?? 0) + 1);
+    }
+    const verb = mode === 'lock' ? 'khoá' : 'mở khoá';
+    const pushType = mode === 'lock' ? 'calendar_bulk_locked' : 'calendar_bulk_unlocked';
+
+    // Lấy tên/mã phòng 1 lần cho các property có thay đổi → message nói rõ phòng nào.
+    const propIds = Array.from(countByProperty.keys());
+    const props = propIds.length
+      ? await this.prisma.property.findMany({
+          where: { id: { in: propIds } },
+          select: { id: true, name: true, code: true },
+        })
+      : [];
+    const propMap = new Map(props.map((p) => [p.id, p]));
+
+    await Promise.all(
+      Array.from(countByProperty.entries()).map(([propertyId, count]) => {
+        const p = propMap.get(propertyId);
+        const label = p ? `${p.name} (${p.code})` : 'Phòng';
+        return this.notifications.notifyPropertyTeam(
+          propertyId,
+          user.id,
+          'Cập nhật lịch hàng loạt',
+          `${label}: ${count} ngày đã được ${verb}`,
+          NOTIFICATION_TYPE.SYSTEM,
+          propertyId,
+          'property',
+          this.calendarPush(pushType, propertyId),
+        );
       }),
     );
 
@@ -513,7 +568,7 @@ export class CalendarService {
   ) {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
-      select: { id: true, ownerId: true, isActive: true },
+      select: { id: true, ownerId: true, isActive: true, name: true, code: true },
     });
     if (!property || !property.isActive) throw new NotFoundException(msg.calendar.propertyNotFound);
 

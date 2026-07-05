@@ -49,6 +49,16 @@ export class UpdateUserDto {
   @IsDateString({}, { message: 'Ngày sinh không đúng định dạng (YYYY-MM-DD)' })
   dateOfBirth?: string;
 
+  @ApiPropertyOptional({
+    example: 'https://res.cloudinary.com/demo/image/upload/v1/avatars/abc.jpg',
+    description: 'URL ảnh đại diện (upload trước qua POST /uploads rồi gửi URL https trả về)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000, { message: 'URL ảnh đại diện tối đa 1000 ký tự' })
+  @Matches(/^https:\/\/.+/, { message: 'Ảnh đại diện phải là URL https hợp lệ' })
+  avatar?: string;
+
   // ─── Thông tin nhận tiền (OWNER) — dùng để sinh VietQR cho khách chuyển cọc ───
   @ApiPropertyOptional({ example: '970436', description: 'Mã BIN ngân hàng (NAPAS, 6 số). VD 970436 = Vietcombank' })
   @IsOptional()

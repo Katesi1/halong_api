@@ -19,7 +19,11 @@ import {
   KYC_STATUS,
   SUBSCRIPTION_STATUS,
   NOTIFICATION_TYPE,
+  AUDIT_ACTION,
+  AUDIT_TARGET_TYPE,
+  ROLE,
 } from '../../common/constants';
+import { UpdateReceivingBankDto } from './dto/update-receiving-bank.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import type { Messages } from '../../i18n';
@@ -62,7 +66,11 @@ export class PaymentService {
     private auditLog: AuditLogService,
   ) {}
 
-  private getBankConfig() {
+  // Singleton row id cho STK nhận tiền mua gói (payment_bank_account).
+  private static readonly RECEIVING_BANK_ID = 'default';
+
+  /** STK nhận tiền mua gói lấy từ ENV (fallback khi ADMIN chưa cấu hình DB). */
+  private getBankConfigEnv() {
     return {
       bankName: this.configService.get<string>('BANK_NAME', 'Vietcombank'),
       accountNumber: this.configService.get<string>(
@@ -74,6 +82,99 @@ export class PaymentService {
         'CONG TY HALONG24H',
       ),
       bankBin: this.configService.get<string>('BANK_BIN', '970436'),
+    };
+  }
+
+  /**
+   * STK nhận tiền mua gói (subscription) — nguồn chân lý = DB (bảng payment_bank_account).
+   * ADMIN chưa cấu hình → fallback về ENV BANK_* (giữ nguyên hành vi cũ).
+   * `source` cho biết đang dùng giá trị DB hay ENV (FE admin hiển thị badge).
+   */
+  private async getReceivingBank(): Promise<{
+    bankBin: string;
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+    source: 'db' | 'env';
+    updatedAt: Date | null;
+  }> {
+    const row = await this.prisma.paymentBankAccount.findUnique({
+      where: { id: PaymentService.RECEIVING_BANK_ID },
+    });
+    if (row) {
+      return {
+        bankBin: row.bankBin,
+        bankName: row.bankName ?? '',
+        accountNumber: row.bankAccountNumber,
+        accountName: row.bankAccountName,
+        source: 'db',
+        updatedAt: row.updatedAt,
+      };
+    }
+    const env = this.getBankConfigEnv();
+    return { ...env, source: 'env', updatedAt: null };
+  }
+
+  /** ADMIN xem STK nhận tiền mua gói hiện hành (DB nếu có, ngược lại ENV). */
+  async adminGetReceivingBank(msg: Messages) {
+    const bank = await this.getReceivingBank();
+    return {
+      message: msg.payment.receivingBankGetSuccess,
+      data: {
+        bankBin: bank.bankBin,
+        bankName: bank.bankName || null,
+        bankAccountNumber: bank.accountNumber,
+        bankAccountName: bank.accountName,
+        source: bank.source, // 'db' = admin đã cấu hình | 'env' = đang dùng fallback
+        updatedAt: bank.updatedAt,
+      },
+    };
+  }
+
+  /** ADMIN cập nhật STK nhận tiền mua gói → ghi bảng singleton + audit log. */
+  async adminUpdateReceivingBank(
+    adminId: string,
+    dto: UpdateReceivingBankDto,
+    msg: Messages,
+  ) {
+    const data = {
+      bankBin: dto.bankBin,
+      bankName: dto.bankName?.trim() || null,
+      bankAccountNumber: dto.bankAccountNumber,
+      bankAccountName: dto.bankAccountName.trim(),
+      updatedById: adminId,
+    };
+    const row = await this.prisma.paymentBankAccount.upsert({
+      where: { id: PaymentService.RECEIVING_BANK_ID },
+      create: { id: PaymentService.RECEIVING_BANK_ID, ...data },
+      update: data,
+    });
+
+    void this.auditLog.log({
+      actorId: adminId,
+      actorRole: ROLE.ADMIN,
+      action: AUDIT_ACTION.PAYMENT_RECEIVING_BANK_UPDATE,
+      targetType: AUDIT_TARGET_TYPE.SUBSCRIPTION,
+      targetId: PaymentService.RECEIVING_BANK_ID,
+      targetLabel: `${row.bankBin}/${row.bankAccountNumber}`,
+      metadata: {
+        bankBin: row.bankBin,
+        bankName: row.bankName,
+        bankAccountNumber: row.bankAccountNumber,
+        bankAccountName: row.bankAccountName,
+      },
+    });
+
+    return {
+      message: msg.payment.receivingBankUpdateSuccess,
+      data: {
+        bankBin: row.bankBin,
+        bankName: row.bankName,
+        bankAccountNumber: row.bankAccountNumber,
+        bankAccountName: row.bankAccountName,
+        source: 'db' as const,
+        updatedAt: row.updatedAt,
+      },
     };
   }
 
@@ -247,27 +348,27 @@ export class PaymentService {
 
   // ─── Build session payment artefacts (bankInfo + VietQR) ─────────────────
   // Hiện chỉ hỗ trợ Bank Transfer + VietQR. Các method khác đã bị loại khỏi v2.
-  private buildSessionArtefacts(
+  private async buildSessionArtefacts(
     sessionId: string,
     method: string,
     totalAmount: number,
     _orderInfo: string,
     _ipAddr: string,
-  ): {
+  ): Promise<{
     qrCode: string | null;
     bankInfo: any;
     redirectUrl: string | null;
     payUrl: string | null;
     expiresAt: Date;
     qrExpiresAt: Date;
-  } {
+  }> {
     if (method !== PAYMENT_METHOD.BANK_TRANSFER) {
       throw new BadRequestException(
         `Phương thức thanh toán không được hỗ trợ: ${method}`,
       );
     }
 
-    const bank = this.getBankConfig();
+    const bank = await this.getReceivingBank();
     const content = sanitizeTransferContent(`HALONG24H ${sessionId}`);
     const vietQrPayload = buildVietQrPayload({
       bankBin: bank.bankBin,
@@ -514,7 +615,7 @@ export class PaymentService {
     const planLabel = this.formatPlanLabel(plan.name, dto.cycle);
     const sessionId = crypto.randomUUID();
     const orderInfo = `Thanh toan ${plan.name} ${dto.cycle === 'yearly' ? 'nam' : 'thang'}`;
-    const artefacts = this.buildSessionArtefacts(
+    const artefacts = await this.buildSessionArtefacts(
       sessionId,
       dto.method,
       breakdown.total,
@@ -656,7 +757,7 @@ export class PaymentService {
     const planLabel = this.formatPlanLabel(plan.name, cycle);
     const sessionId = crypto.randomUUID();
     const orderInfo = `${orderVerb} ${plan.name} ${cycle === 'yearly' ? 'nam' : 'thang'}`;
-    const artefacts = this.buildSessionArtefacts(
+    const artefacts = await this.buildSessionArtefacts(
       sessionId,
       method,
       breakdown.total,

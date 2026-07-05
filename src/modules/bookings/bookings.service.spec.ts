@@ -251,6 +251,24 @@ describe('BookingsService', () => {
       const res = await service.findOne('booking-1', admin, msg);
       expect(res.data.paymentInfo).toBeNull();
     });
+
+    it('KHÔNG lộ field bank của owner trong property.owner (chỉ id/name/phone)', async () => {
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue(baseConfirmed);
+      const res = await service.findOne('booking-1', admin, msg);
+      const owner = (res.data as any).property.owner;
+      expect(owner).toEqual({ id: 'owner-1', name: 'Owner', phone: '0900000000' });
+      expect(owner.bankBin).toBeUndefined();
+      expect(owner.bankAccountNumber).toBeUndefined();
+      expect(owner.bankName).toBeUndefined();
+      expect(owner.bankAccountName).toBeUndefined();
+    });
+
+    it('vẫn dựng paymentInfo đúng dù đã strip bank khỏi property.owner', async () => {
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue(baseConfirmed);
+      const res = await service.findOne('booking-1', admin, msg);
+      // Bank lộ qua paymentInfo (hợp lệ) nhưng KHÔNG lộ raw trong owner (đã strip ở test trên).
+      expect(res.data.paymentInfo!.bank.accountNumber).toBe('0123456789');
+    });
   });
 
   describe('markPaid email', () => {

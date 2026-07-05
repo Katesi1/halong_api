@@ -144,6 +144,109 @@ describe('UsersService', () => {
         }),
       );
     });
+
+    it('should strip bank fields via PUT /users/:id — bank now needs admin approval', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue({ ...mockUser, role: ROLE.OWNER });
+      (prisma.user.update as jest.Mock).mockResolvedValue({ ...mockUser });
+
+      await service.update(
+        'user-1',
+        { name: 'X', bankBin: '970436', bankAccountNumber: '0123456789' } as any,
+        { id: 'user-1', role: ROLE.OWNER },
+        msg,
+      );
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.not.objectContaining({ bankBin: '970436', bankAccountNumber: '0123456789' }),
+        }),
+      );
+    });
+  });
+
+  describe('bank moderation', () => {
+    it('submitBankChange sets pending (not live) + status=pending for OWNER', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue({ id: 'owner-1', role: ROLE.OWNER, name: 'Owner' });
+      (prisma.user.update as jest.Mock).mockImplementation(({ data }) => {
+        // ghi pending, KHÔNG đụng bank* live
+        expect(data.bankStatus).toBe('pending');
+        expect(data.pendingBankAccountNumber).toBe('0123456789');
+        expect(data.bankBin).toBeUndefined();
+        expect(data.bankAccountNumber).toBeUndefined();
+        return Promise.resolve({
+          bankBin: null, bankName: null, bankAccountNumber: null, bankAccountName: null,
+          bankStatus: 'pending', bankSubmittedAt: new Date(), bankReviewedAt: null, bankRejectReason: null,
+          pendingBankBin: '970436', pendingBankName: 'VCB',
+          pendingBankAccountNumber: '0123456789', pendingBankAccountName: 'NGUYEN VAN A',
+        });
+      });
+
+      const res = await service.submitBankChange(
+        'owner-1',
+        { bankBin: '970436', bankName: 'VCB', bankAccountNumber: '0123456789', bankAccountName: 'NGUYEN VAN A' },
+        msg,
+      );
+      expect(res.data.status).toBe('pending');
+      expect(res.data.pending?.bankAccountNumber).toBe('0123456789');
+      expect(res.data.current.bankAccountNumber).toBeNull();
+    });
+
+    it('submitBankChange rejects non-OWNER with 403', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue({ id: 'c-1', role: ROLE.CUSTOMER, name: 'Cust' });
+      await expect(
+        service.submitBankChange(
+          'c-1',
+          { bankBin: '970436', bankAccountNumber: '0123456789', bankAccountName: 'X' },
+          msg,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('adminApproveBank copies pending → live and clears pending', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue({
+        id: 'owner-1', email: 'o@x.com', bankStatus: 'pending',
+        pendingBankBin: '970436', pendingBankName: 'VCB',
+        pendingBankAccountNumber: '0123456789', pendingBankAccountName: 'NGUYEN VAN A',
+      });
+      (prisma.user.update as jest.Mock).mockImplementation(({ data }) => {
+        expect(data.bankBin).toBe('970436');
+        expect(data.bankAccountNumber).toBe('0123456789');
+        expect(data.bankStatus).toBe('approved');
+        expect(data.pendingBankBin).toBeNull();
+        return Promise.resolve({
+          bankBin: '970436', bankName: 'VCB', bankAccountNumber: '0123456789', bankAccountName: 'NGUYEN VAN A',
+          bankStatus: 'approved', bankSubmittedAt: new Date(), bankReviewedAt: new Date(), bankRejectReason: null,
+          pendingBankBin: null, pendingBankName: null, pendingBankAccountNumber: null, pendingBankAccountName: null,
+        });
+      });
+      const res = await service.adminApproveBank('admin-1', 'owner-1', msg);
+      expect(res.data.status).toBe('approved');
+      expect(res.data.current.bankAccountNumber).toBe('0123456789');
+    });
+
+    it('adminApproveBank throws 400 when no pending request', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue({ id: 'owner-1', email: 'o@x.com', bankStatus: 'approved' });
+      await expect(service.adminApproveBank('admin-1', 'owner-1', msg)).rejects.toThrow(BadRequestException);
+    });
+
+    it('adminRejectBank keeps live bank, stores reason, status=rejected', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue({ id: 'owner-1', email: 'o@x.com', bankStatus: 'pending' });
+      (prisma.user.update as jest.Mock).mockImplementation(({ data }) => {
+        expect(data.bankStatus).toBe('rejected');
+        expect(data.bankRejectReason).toBe('Sai thong tin');
+        expect(data.pendingBankBin).toBeNull();
+        expect(data.bankBin).toBeUndefined(); // live không bị đụng
+        return Promise.resolve({
+          bankBin: '970436', bankName: 'VCB', bankAccountNumber: '0123456789', bankAccountName: 'NGUYEN VAN A',
+          bankStatus: 'rejected', bankSubmittedAt: new Date(), bankReviewedAt: new Date(), bankRejectReason: 'Sai thong tin',
+          pendingBankBin: null, pendingBankName: null, pendingBankAccountNumber: null, pendingBankAccountName: null,
+        });
+      });
+      const res = await service.adminRejectBank('admin-1', 'owner-1', 'Sai thong tin', msg);
+      expect(res.data.status).toBe('rejected');
+      expect(res.data.rejectReason).toBe('Sai thong tin');
+      expect(res.data.current.bankAccountNumber).toBe('0123456789');
+    });
   });
 
   describe('remove', () => {

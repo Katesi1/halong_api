@@ -542,12 +542,12 @@ export class AuthService {
   }
 
   /**
-   * Update user's own profile. Whitelist: fullName (→ name), email, phone.
+   * Update user's own profile. Whitelist: fullName (→ name), email, phone, avatar.
    * Phone uniqueness checked; email duplicate caught via Prisma unique constraint below.
    */
   async updateProfile(
     userId: string,
-    dto: { fullName?: string; email?: string; phone?: string },
+    dto: { fullName?: string; email?: string; phone?: string; avatar?: string },
     msg: Messages,
   ) {
     const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
@@ -566,10 +566,11 @@ export class AuthService {
       }
     }
 
-    const data: { name?: string; email?: string; phone?: string } = {};
+    const data: { name?: string; email?: string; phone?: string; avatar?: string } = {};
     if (dto.fullName !== undefined) data.name = dto.fullName;
     if (dto.email !== undefined) data.email = dto.email;
     if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.avatar !== undefined) data.avatar = dto.avatar;
 
     await this.prisma.user.update({ where: { id: userId }, data });
     return this.getProfile(userId, msg);
@@ -583,6 +584,7 @@ export class AuthService {
         role: true, ownerId: true, scope: true, isActive: true, gender: true, dateOfBirth: true,
         emailVerified: true, createdAt: true, updatedAt: true,
         bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true,
+        bankStatus: true, bankRejectReason: true,
         kycBypass: true, kycStatus: true, subscriptionStatus: true, subscriptionPlanId: true,
         subscriptionCycle: true, subscriptionProvider: true, subscriptionPriceOverride: true,
         subscriptionFrozenAt: true, subscriptionFrozenReason: true,

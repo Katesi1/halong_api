@@ -89,6 +89,20 @@ export const vi = {
     passwordTooShort: 'Mật khẩu mới phải có ít nhất 8 ký tự',
     passwordWeak: 'Mật khẩu phải chứa ít nhất 1 chữ cái và 1 số',
     invalidRole: 'Role không hợp lệ (chỉ 0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)',
+    // ─── Duyệt tài khoản nhận tiền (bank) ───
+    bankGetSuccess: 'Lấy thông tin tài khoản nhận tiền thành công',
+    bankSubmitSuccess: 'Đã gửi thông tin tài khoản nhận tiền — chờ quản trị viên duyệt',
+    bankOnlyOwner: 'Chỉ chủ nhà (OWNER) mới được cấu hình tài khoản nhận tiền',
+    bankListSuccess: 'Lấy danh sách yêu cầu duyệt tài khoản nhận tiền thành công',
+    bankNoPending: 'Người dùng không có yêu cầu duyệt tài khoản nhận tiền đang chờ',
+    bankApproveSuccess: 'Đã duyệt tài khoản nhận tiền',
+    bankRejectSuccess: 'Đã từ chối tài khoản nhận tiền',
+    bankSubmitNotifTitle: 'Yêu cầu duyệt tài khoản nhận tiền',
+    bankSubmitNotifSubtitle: (name: string) => `${name} đã gửi thông tin ngân hàng chờ duyệt`,
+    bankApprovedNotifTitle: 'Tài khoản nhận tiền đã được duyệt',
+    bankApprovedNotifSubtitle: 'Thông tin ngân hàng của bạn đã được duyệt và có hiệu lực.',
+    bankRejectedNotifTitle: 'Tài khoản nhận tiền bị từ chối',
+    bankRejectedNotifSubtitle: (reason: string) => `Thông tin ngân hàng bị từ chối: ${reason}`,
   },
 
   // ─── Properties ──────────────────────────────────────────────────────────────
@@ -312,6 +326,8 @@ export const vi = {
       'Cần hoàn tất xác minh KYC và được admin duyệt trước khi mua gói',
     paymentPending:
       'Bạn đang có phiên thanh toán chờ duyệt. Vui lòng hoàn tất hoặc hủy phiên hiện tại trước khi tạo mới.',
+    receivingBankGetSuccess: 'Lấy thông tin tài khoản nhận tiền thành công',
+    receivingBankUpdateSuccess: 'Cập nhật tài khoản nhận tiền thành công',
   },
 
   // ─── Permissions ───────────────────────────────────────────────────────────
