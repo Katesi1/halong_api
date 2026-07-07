@@ -303,6 +303,9 @@ model Booking {
   customerId    String?
   customerName  String?
   customerPhone String?
+  customerEmail String? // email liên hệ khách (luồng customer-hold web)
+  adults        Int?    // số người lớn (tách từ guestCount cho luồng khách)
+  children      Int?    // số trẻ em 6–11 tuổi
   checkinDate   DateTime
   checkoutDate  DateTime
   status        Int       @default(0) // 0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW

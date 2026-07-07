@@ -411,7 +411,7 @@ export class AuthService {
           { email: dto.identifier },
         ],
       },
-      select: { id: true, email: true, phone: true, isActive: true, deletedAt: true },
+      select: { id: true, email: true, phone: true, role: true, isActive: true, deletedAt: true },
     });
 
     // Trả success ngay cả khi user không tồn tại để tránh enumeration.
@@ -431,8 +431,16 @@ export class AuthService {
     this.logger.log(`Password reset issued for user=${user.id}`);
 
     if (user.email && this.emailService.isEnabled()) {
-      const base = (this.configService.get<string>('FRONTEND_BASE_URL') || 'https://halong24h.com').replace(/\/+$/, '');
-      const resetLink = `${base}/auth/reset-password?token=${encodeURIComponent(resetToken)}`;
+      // Chủ nhà / SALE / ADMIN → web quản lý (manager.halong24h.com/reset-password).
+      // Khách (CUSTOMER) → web khách (FRONTEND_BASE_URL/reset-password).
+      const isManagerUser =
+        user.role === ROLE.OWNER ||
+        user.role === ROLE.SALE ||
+        user.role === ROLE.ADMIN;
+      const base = isManagerUser
+        ? (this.configService.get<string>('MANAGER_BASE_URL') || 'https://manager.halong24h.com').replace(/\/+$/, '')
+        : (this.configService.get<string>('FRONTEND_BASE_URL') || 'https://halong24h.com').replace(/\/+$/, '');
+      const resetLink = `${base}/reset-password?token=${encodeURIComponent(resetToken)}`;
       try {
         await this.emailService.sendPasswordReset({
           to: user.email,
@@ -451,6 +459,11 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto, msg: Messages) {
+    // Mật khẩu mới + xác nhận phải khớp.
+    if (dto.newPassword !== dto.confirmPassword) {
+      throw new BadRequestException(msg.auth.passwordMismatch);
+    }
+
     let payload: { sub: string; purpose?: string };
     try {
       payload = this.jwtService.verify(dto.token, { secret: this.getResetSecret() });

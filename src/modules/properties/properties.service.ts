@@ -371,14 +371,17 @@ export class PropertiesService {
       async (candidate) =>
         !!(await this.prisma.property.findUnique({ where: { slug: candidate }, select: { id: true } })),
     );
-    // OWNER đã KYC + subscription (đã assert ở trên) → approved + active ngay.
-    // ADMIN/SALE tạo thay mặt owner cũng approved. Owner tự bật/tắt isActive sau đó.
+    // Luồng duyệt: OWNER/SALE đăng phòng → 'pending', chờ ADMIN duyệt (không auto-approve).
+    // ADMIN tạo trực tiếp → 'approved' luôn (admin chính là người duyệt).
+    // isActive=true để owner coi là "đã bật", nhưng public chỉ hiện khi moderationStatus='approved'.
+    const isAdminCreator = user.role === ROLE.ADMIN;
+    const moderationStatus = isAdminCreator ? 'approved' : 'pending';
     const property = await this.prisma.property.create({
       data: {
         ...createData,
         slug,
         ownerId,
-        moderationStatus: 'approved',
+        moderationStatus,
         isActive: true,
       },
       include: {
@@ -386,15 +389,24 @@ export class PropertiesService {
       },
     });
 
-    await this.notifications.notifyAdmins(
-      'Phòng mới được đăng',
-      `${property.name} (${property.code}) vừa được tạo bởi ${property.owner.name}`,
-      NOTIFICATION_TYPE.SYSTEM,
-      property.id,
-      'property',
-    );
+    // Chỉ ping ADMIN khi phòng đang chờ duyệt (cần họ vào xử lý).
+    if (moderationStatus === 'pending') {
+      await this.notifications.notifyAdmins(
+        'Phòng mới chờ duyệt',
+        `${property.name} (${property.code}) do ${property.owner.name} đăng — cần duyệt`,
+        NOTIFICATION_TYPE.SYSTEM,
+        property.id,
+        'property',
+        { pushType: 'property_pending_review', deepLink: `/admin/properties/${property.id}` },
+      );
+    }
 
-    return { message: msg.properties.createSuccess, data: property };
+    return {
+      message: moderationStatus === 'pending'
+        ? msg.properties.createPendingSuccess
+        : msg.properties.createSuccess,
+      data: property,
+    };
   }
 
   /** PushMeta cho sự kiện sửa phòng — deep link tới màn property. */
@@ -432,9 +444,9 @@ export class PropertiesService {
     }
 
     const data: any = { ...dto };
-    // Property bị admin reject → OWNER sửa lại được auto-approved; tự bật isActive nếu muốn public.
+    // Property bị admin reject → OWNER sửa lại thì gửi duyệt lại (về 'pending'), KHÔNG auto-approve.
     if (user.role === ROLE.OWNER && property.moderationStatus === 'rejected') {
-      data.moderationStatus = 'approved';
+      data.moderationStatus = 'pending';
       data.moderationRejectedReason = null;
       data.moderationReviewedAt = null;
       data.moderationReviewedBy = null;

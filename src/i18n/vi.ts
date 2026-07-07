@@ -3,6 +3,10 @@ export const vi = {
   common: {
     serverError: 'Lỗi server',
     forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    duplicateEntry: 'Dữ liệu đã tồn tại (bị trùng)',
+    notFound: 'Không tìm thấy dữ liệu',
+    invalidReference: 'Dữ liệu tham chiếu không hợp lệ',
+    invalidData: 'Dữ liệu không hợp lệ',
   },
 
   // ─── Auth ───────────────────────────────────────────────────────────────────
@@ -33,6 +37,7 @@ export const vi = {
     forgotPasswordSuccess: 'Đã gửi hướng dẫn đặt lại mật khẩu (nếu tài khoản tồn tại)',
     resetPasswordSuccess: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.',
     resetTokenInvalid: 'Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn',
+    passwordMismatch: 'Mật khẩu xác nhận không khớp với mật khẩu mới',
     refreshSuccess: 'Làm mới token thành công',
     logoutSuccess: 'Đăng xuất thành công',
     profileSuccess: 'Lấy thông tin tài khoản thành công',
@@ -119,6 +124,7 @@ export const vi = {
     publicListSuccess: 'Lấy danh sách cơ sở công khai thành công',
     getSuccess: 'Lấy thông tin cơ sở thành công',
     createSuccess: 'Tạo cơ sở thành công',
+    createPendingSuccess: 'Đã gửi cơ sở, vui lòng chờ quản trị viên duyệt',
     updateSuccess: 'Cập nhật cơ sở thành công',
     deleteSuccess: 'Xoá cơ sở thành công',
     deleteImageSuccess: 'Xoá ảnh thành công',
@@ -165,6 +171,7 @@ export const vi = {
     notYourBooking: 'Booking này không thuộc về bạn',
     onlyCancelHold: 'Chỉ có thể huỷ booking đang ở trạng thái HOLD',
     propertyNotAvailable: 'Cơ sở đã được đặt trong khoảng thời gian này',
+    guestExceedsMax: 'Số khách vượt quá sức chứa tối đa của phòng',
     dateLocked: 'Một số ngày trong khoảng này đã bị khoá, giữ chỗ hoặc đã bán',
     confirmSuccess: 'Xác nhận booking thành công',
     cancelSuccess: 'Huỷ booking thành công',

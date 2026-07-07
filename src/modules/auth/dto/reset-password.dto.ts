@@ -12,4 +12,10 @@ export class ResetPasswordDto {
   @IsNotEmpty({ message: 'Vui lòng nhập mật khẩu mới' })
   @MinLength(6, { message: 'Mật khẩu mới tối thiểu 6 ký tự' })
   newPassword: string;
+
+  @ApiProperty({ example: 'MatKhauMoi123', description: 'Nhập lại mật khẩu mới — phải khớp newPassword' })
+  @IsString({ message: 'Xác nhận mật khẩu không hợp lệ' })
+  @IsNotEmpty({ message: 'Vui lòng nhập lại mật khẩu mới' })
+  @MinLength(6, { message: 'Xác nhận mật khẩu tối thiểu 6 ký tự' })
+  confirmPassword: string;
 }

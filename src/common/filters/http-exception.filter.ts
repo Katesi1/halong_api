@@ -6,8 +6,9 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Request, Response } from 'express';
-import { getMessages } from '../../i18n';
+import { getMessages, Messages } from '../../i18n';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -58,6 +59,25 @@ export class AllExceptionsFilter implements ExceptionFilter {
           if (!reservedKeys.has(key)) extras[key] = value;
         }
       }
+    } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      // Lưới an toàn: dịch lỗi Prisma phổ biến thành HTTP status hợp lý +
+      // message i18n thay vì 500 thô. Endpoint muốn message nghiệp vụ cụ thể
+      // vẫn nên tự pre-check + throw HttpException riêng (ưu tiên nhánh trên).
+      const mapped = this.mapPrismaError(exception, msg);
+      status = mapped.status;
+      message = mapped.message;
+      code = mapped.code;
+      extras = mapped.extras;
+      this.logger.warn(
+        `Prisma ${exception.code} → ${status} on ${request.method} ${request.url}`,
+      );
+    } else if (exception instanceof Prisma.PrismaClientValidationError) {
+      status = HttpStatus.BAD_REQUEST;
+      message = msg.common.invalidData;
+      code = 'PRISMA_VALIDATION';
+      this.logger.warn(
+        `Prisma validation error → 400 on ${request.method} ${request.url}`,
+      );
     } else {
       this.logger.error('Unhandled exception', exception);
     }
@@ -72,5 +92,61 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  /** Dịch PrismaClientKnownRequestError → HTTP status + message + code + extras. */
+  private mapPrismaError(
+    err: Prisma.PrismaClientKnownRequestError,
+    msg: Messages,
+  ): {
+    status: number;
+    message: string;
+    code: string | null;
+    extras: Record<string, unknown>;
+  } {
+    const target = Array.isArray(err.meta?.target)
+      ? (err.meta?.target as string[])
+      : typeof err.meta?.target === 'string'
+        ? [err.meta.target as string]
+        : [];
+    switch (err.code) {
+      case 'P2002': // Unique constraint failed
+        return {
+          status: HttpStatus.CONFLICT,
+          message: msg.common.duplicateEntry,
+          code: 'DUPLICATE_ENTRY',
+          extras: target.length ? { conflictFields: target } : {},
+        };
+      case 'P2025': // Record to update/delete not found
+        return {
+          status: HttpStatus.NOT_FOUND,
+          message: msg.common.notFound,
+          code: 'NOT_FOUND',
+          extras: {},
+        };
+      case 'P2003': // Foreign key constraint failed
+        return {
+          status: HttpStatus.BAD_REQUEST,
+          message: msg.common.invalidReference,
+          code: 'INVALID_REFERENCE',
+          extras: {},
+        };
+      case 'P2000': // Value too long for column
+      case 'P2005':
+      case 'P2006': // Invalid value for field
+        return {
+          status: HttpStatus.BAD_REQUEST,
+          message: msg.common.invalidData,
+          code: 'INVALID_DATA',
+          extras: {},
+        };
+      default:
+        return {
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+          message: msg.common.serverError,
+          code: null,
+          extras: {},
+        };
+    }
   }
 }

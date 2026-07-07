@@ -87,7 +87,9 @@ export class CalendarService {
     const end = this.toUTCDate(endDate);
     this.assertRangeWithinLimit(start, end);
 
-    const where: any = { isActive: true, deletedAt: null };
+    // Public grid (web khách / share Zalo) chỉ hiện phòng đang hoạt động ĐÃ ĐƯỢC DUYỆT —
+    // đồng bộ với visibility rule của web khách hàng (§4.1).
+    const where: any = { isActive: true, deletedAt: null, moderationStatus: 'approved' };
     // Hỗ trợ cả single (propertyId) và multi (propertyIds CSV); multi ưu tiên hơn.
     if (propertyIds && propertyIds.length > 0) {
       where.id = { in: propertyIds };

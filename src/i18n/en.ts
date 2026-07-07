@@ -3,6 +3,10 @@ export const en = {
   common: {
     serverError: 'Internal server error',
     forbidden: 'You do not have permission to perform this action',
+    duplicateEntry: 'This data already exists (duplicate)',
+    notFound: 'Data not found',
+    invalidReference: 'Invalid referenced data',
+    invalidData: 'Invalid data',
   },
 
   // ─── Auth ───────────────────────────────────────────────────────────────────
@@ -33,6 +37,7 @@ export const en = {
     forgotPasswordSuccess: 'Password reset instructions sent (if the account exists)',
     resetPasswordSuccess: 'Password reset successful. Please log in again.',
     resetTokenInvalid: 'Reset token is invalid or expired',
+    passwordMismatch: 'Confirm password does not match the new password',
     refreshSuccess: 'Token refreshed successfully',
     logoutSuccess: 'Logout successful',
     profileSuccess: 'Profile retrieved successfully',
@@ -119,6 +124,7 @@ export const en = {
     publicListSuccess: 'Public property list retrieved successfully',
     getSuccess: 'Property retrieved successfully',
     createSuccess: 'Property created successfully',
+    createPendingSuccess: 'Property submitted, awaiting admin approval',
     updateSuccess: 'Property updated successfully',
     deleteSuccess: 'Property deleted successfully',
     deleteImageSuccess: 'Image deleted successfully',
@@ -165,6 +171,7 @@ export const en = {
     notYourBooking: 'This booking does not belong to you',
     onlyCancelHold: 'Only bookings with HOLD status can be cancelled',
     propertyNotAvailable: 'Property is not available for the selected dates',
+    guestExceedsMax: 'Guest count exceeds the room maximum capacity',
     dateLocked: 'Some dates in this range are locked, held, or already sold',
     confirmSuccess: 'Booking confirmed successfully',
     cancelSuccess: 'Booking cancelled successfully',

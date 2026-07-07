@@ -674,6 +674,14 @@ export class BookingsService {
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
+    // Số khách: ưu tiên tách adults + children; fallback guestCount (legacy) hoặc 2.
+    const children = dto.children ?? 0;
+    const totalGuests =
+      dto.adults != null ? dto.adults + children : (dto.guestCount ?? 2);
+    if (property.maxGuests && totalGuests > property.maxGuests) {
+      throw new BadRequestException(msg.bookings.guestExceedsMax);
+    }
+
     const holdExpireAt = new Date(Date.now() + CUSTOMER_HOLD_DURATION_SECONDS * 1000);
 
     const booking = await this.prisma.$transaction(async (tx) => {
@@ -700,11 +708,16 @@ export class BookingsService {
         data: {
           propertyId,
           customerId: user.id,
+          customerName: dto.customerName.trim(),
+          customerPhone: dto.customerPhone.trim(),
+          customerEmail: dto.customerEmail?.trim() || null,
+          adults: dto.adults ?? null,
+          children: dto.adults != null ? children : null,
           checkinDate: checkin,
           checkoutDate: checkout,
           status: BOOKING_STATUS.HOLD,
           holdExpireAt,
-          guestCount: dto.guestCount || 2,
+          guestCount: totalGuests,
           notes: dto.notes,
         },
         include: {
@@ -716,11 +729,10 @@ export class BookingsService {
     // Fire-and-forget side effects
     void (async () => {
       try {
-        const customer = await this.prisma.user.findUnique({ where: { id: user.id }, select: { name: true } });
         void this.notifications.notifyPropertyOwner(
           propertyId,
           'Khách đặt phòng mới',
-          `${booking.property.name} (${booking.property.code}) — khách ${customer?.name || 'Ẩn danh'} giữ chỗ`,
+          `${booking.property.name} (${booking.property.code}) — khách ${booking.customerName || 'Ẩn danh'} (${booking.customerPhone || 'chưa có SĐT'}) giữ chỗ`,
           NOTIFICATION_TYPE.BOOKING,
           booking.id,
           'booking',

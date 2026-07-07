@@ -262,6 +262,17 @@ export class UsersService {
       }
     }
 
+    if (filteredDto.email) {
+      filteredDto.email = filteredDto.email.toLowerCase().trim();
+      if (filteredDto.email !== user.email) {
+        const emailTaken = await this.prisma.user.findUnique({
+          where: { email: filteredDto.email },
+          select: { id: true },
+        });
+        if (emailTaken) throw new ConflictException(msg.users.emailDuplicate);
+      }
+    }
+
     if (filteredDto.phone && filteredDto.phone !== user.phone) {
       const existing = await this.prisma.user.findUnique({ where: { phone: filteredDto.phone } });
       if (existing) throw new ConflictException(msg.users.phoneDuplicate);
