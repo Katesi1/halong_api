@@ -178,6 +178,10 @@ export const en = {
     updateSuccess: 'Booking updated successfully',
     markPaidSuccess: 'Booking payment recorded',
     paidAmountRequired: 'Paid amount must be > 0 (pass amount or booking must have totalAmount/depositAmount set)',
+    depositProofSuccess: 'Deposit transfer proof submitted, awaiting host confirmation',
+    depositProofInvalidState: 'Transfer proof can only be submitted when the booking is confirmed and payment not yet recorded',
+    checkinSuccess: 'Guest check-in confirmed and booking completed',
+    onlyCheckinConfirmed: 'Check-in can only be confirmed for a booking in CONFIRMED status',
   },
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
@@ -248,6 +252,7 @@ export const en = {
     propertyNotFound: 'Property not found',
     notYourBooking: 'This booking does not belong to you',
     bookingNotCompleted: 'Booking is not completed, cannot review',
+    reviewNotYetAllowed: 'You can only review after 12:00 PM on the checkout date',
     alreadyReviewed: 'This booking has already been reviewed',
     invalidScore: 'Score must be an integer between 1 and 5',
     forbidden: 'You do not have permission to perform this action',

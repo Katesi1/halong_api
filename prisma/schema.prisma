@@ -217,8 +217,9 @@ model Property {
   // Specs
   bedrooms       Int  @default(1)
   bathrooms      Int  @default(1)
-  standardGuests Int  @default(2)
-  maxGuests      Int  @default(2)
+  standardGuests   Int  @default(2) // số người lớn tiêu chuẩn (đã bao trong giá)
+  standardChildren Int  @default(0) // sức chứa trẻ em tiêu chuẩn (đã bao trong giá)
+  maxGuests        Int  @default(2) // tối đa cả căn (không chia người lớn/trẻ em)
   floorArea      Int? // m² — optional, FE hiển thị null nếu owner chưa điền
 
   // Aggregated review stats (denormalized — updated by reviews.service)
@@ -315,7 +316,9 @@ model Booking {
   cancelledByRole    Int?     // ROLE enum; null = system/cron
   cancelledReason    String?  // optional, pass-through cho email; không enforce
   noShowMarkedAt     DateTime?
-  completedAt        DateTime? // set khi cron auto-complete sau 12h trưa ngày trả phòng
+  completedAt        DateTime? // set khi cron auto-complete sau 12h trưa ngày trả phòng, hoặc owner check-in
+  checkedInAt        DateTime? // owner xác nhận khách đã check-in (PATCH /bookings/:id/checkin)
+  depositProofUrl    String?   // ảnh bill chuyển khoản cọc do khách gửi (POST /bookings/:id/deposit-proof)
   depositAmount Int? // VND — luôn dùng Int, tránh sai số float64
   totalAmount   Int? // VND — tổng giá trị booking (lưu lại khi tạo để tránh re-compute)
   paidAmount    Int? // VND — số tiền thực thu (cập nhật qua mark-paid)

@@ -53,7 +53,7 @@ export class PartnerService {
     const bookings = await this.prisma.booking.findMany({
       where: {
         propertyId,
-        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
         checkinDate: { lte: endDate },
         checkoutDate: { gte: startDate },
       },
@@ -80,7 +80,7 @@ export class PartnerService {
     const conflict = await this.prisma.booking.findFirst({
       where: {
         propertyId: data.propertyId,
-        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
         checkinDate: { lt: checkout },
         checkoutDate: { gt: checkin },
       },

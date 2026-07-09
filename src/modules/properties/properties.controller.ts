@@ -50,7 +50,9 @@ export class PropertiesController {
   })
   @ApiQuery({ name: 'checkinDate', required: false, description: 'YYYY-MM-DD' })
   @ApiQuery({ name: 'checkoutDate', required: false, description: 'YYYY-MM-DD' })
-  @ApiQuery({ name: 'guests', required: false, type: Number })
+  @ApiQuery({ name: 'guests', required: false, type: Number, description: 'Số khách tối thiểu (so với maxGuests cả căn)' })
+  @ApiQuery({ name: 'adults', required: false, type: Number, description: 'Số người lớn tối thiểu (so với standardGuests)' })
+  @ApiQuery({ name: 'children', required: false, type: Number, description: 'Số trẻ em tối thiểu (so với standardChildren)' })
   @ApiQuery({ name: 'minPrice', required: false, type: Number })
   @ApiQuery({ name: 'maxPrice', required: false, type: Number })
   @ApiQuery({ name: 'type', required: false, type: Number, description: '0=VILLA, 1=HOMESTAY, 2=HOTEL' })
@@ -64,6 +66,8 @@ export class PropertiesController {
     @Query('maxPrice') maxPrice: string,
     @Query('type') type: string,
     @Query('view') view: string,
+    @Query('adults') adults: string,
+    @Query('children') children: string,
     @CurrentUser() user: { id: string } | null,
     @Lang() msg: Messages,
   ) {
@@ -77,6 +81,8 @@ export class PropertiesController {
       type !== undefined && type !== '' ? parseInt(type) : undefined,
       view || undefined,
       user?.id ?? null,
+      adults ? parseInt(adults) : undefined,
+      children !== undefined && children !== '' ? parseInt(children) : undefined,
     );
   }
 

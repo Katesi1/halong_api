@@ -184,7 +184,7 @@ export class CalendarService {
     const existingBooking = await this.prisma.booking.findFirst({
       where: {
         propertyId,
-        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
         checkinDate: { lt: nextDay },
         checkoutDate: { gt: lockDate },
       },
@@ -460,7 +460,7 @@ export class CalendarService {
       this.prisma.booking.findMany({
         where: {
           propertyId: { in: propertyIds },
-          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
           checkinDate: { lte: end },
           checkoutDate: { gte: start },
         },
@@ -539,7 +539,7 @@ export class CalendarService {
           for (const booking of propBookings) {
             // Compare date strings: checkin <= date < checkout (checkout excluded)
             if (dateStr >= booking.checkinStr && dateStr < booking.checkoutStr) {
-              status = booking.status === BOOKING_STATUS.CONFIRMED ? 'booked' : 'hold';
+              status = booking.status === BOOKING_STATUS.HOLD ? 'hold' : 'booked';
               if (includeNote) note = booking.customerName || undefined;
               break;
             }

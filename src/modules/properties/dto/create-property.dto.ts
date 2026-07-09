@@ -74,14 +74,21 @@ export class CreatePropertyDto {
   @Type(() => Number)
   bathrooms?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Số người lớn tiêu chuẩn (đã bao trong giá)' })
   @IsOptional()
   @IsInt()
   @Min(1)
   @Type(() => Number)
   standardGuests?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ description: 'Sức chứa trẻ em tiêu chuẩn (đã bao trong giá)' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  standardChildren?: number;
+
+  @ApiPropertyOptional({ description: 'Tối đa cả căn (không chia người lớn/trẻ em)' })
   @IsOptional()
   @IsInt()
   @Min(1)

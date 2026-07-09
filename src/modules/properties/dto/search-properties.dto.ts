@@ -42,12 +42,26 @@ export class SearchPropertiesDto {
   @IsString()
   checkoutDate?: string;
 
-  @ApiPropertyOptional({ description: 'Số khách tối thiểu', example: 2 })
+  @ApiPropertyOptional({ description: 'Số khách tối thiểu (so với maxGuests cả căn)', example: 2 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   guests?: number;
+
+  @ApiPropertyOptional({ description: 'Số người lớn tối thiểu (so với standardGuests)', example: 2 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  adults?: number;
+
+  @ApiPropertyOptional({ description: 'Số trẻ em tối thiểu (so với standardChildren)', example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  children?: number;
 
   @ApiPropertyOptional({ description: 'Số phòng ngủ tối thiểu', example: 2 })
   @IsOptional()

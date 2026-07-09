@@ -83,11 +83,16 @@ export class DashboardService {
       this.prisma.property.count({ where: { isActive: true, deletedAt: null } }),
     ]);
 
+    // "Đang có khách" = booking còn trong kỳ lưu trú (checkin <= now < checkout).
+    // Gồm cả COMPLETED vì owner check-in (v1.31) đưa booking sang COMPLETED ngay khi khách
+    // nhận phòng dù vẫn đang lưu trú. Window `checkoutDate > now` loại đúng booking đã trả
+    // phòng / auto-complete (checkoutDate <= now).
+    const OCCUPIED_STATUSES = [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED];
     const [occupiedBookings, globalOccupiedBookings, checkoutTodayBookings] = await Promise.all([
       this.prisma.booking.findMany({
         where: {
           ...bookingWhere,
-          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          status: { in: OCCUPIED_STATUSES },
           checkinDate: { lte: now },
           checkoutDate: { gt: now },
         },
@@ -95,7 +100,7 @@ export class DashboardService {
       }),
       this.prisma.booking.findMany({
         where: {
-          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          status: { in: OCCUPIED_STATUSES },
           checkinDate: { lte: now },
           checkoutDate: { gt: now },
         },
@@ -104,7 +109,7 @@ export class DashboardService {
       this.prisma.booking.count({
         where: {
           ...bookingWhere,
-          status: BOOKING_STATUS.CONFIRMED,
+          status: { in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
           checkoutDate: { gte: todayStart, lt: todayEnd },
         },
       }),
@@ -132,7 +137,7 @@ export class DashboardService {
           status: { in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
           createdAt: { gte: monthStart, lt: monthEnd },
         },
-        _sum: { depositAmount: true },
+        _sum: { paidAmount: true },
       }),
       this.prisma.booking.aggregate({
         where: {
@@ -140,7 +145,7 @@ export class DashboardService {
           status: { in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
           createdAt: { gte: todayStart, lt: todayEnd },
         },
-        _sum: { depositAmount: true },
+        _sum: { paidAmount: true },
       }),
     ]);
 
@@ -154,8 +159,8 @@ export class DashboardService {
       checkoutToday: checkoutTodayBookings,
       totalBookings,
       thisMonthBookings,
-      monthlyRevenue: monthlyRevenueResult._sum.depositAmount || 0,
-      todayRevenue: todayRevenueResult._sum.depositAmount || 0,
+      monthlyRevenue: monthlyRevenueResult._sum.paidAmount || 0,
+      todayRevenue: todayRevenueResult._sum.paidAmount || 0,
     };
 
     return { message: msg.dashboard.statsSuccess, data };
@@ -310,7 +315,7 @@ export class DashboardService {
         status: { in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
         createdAt: { gte: rangeFrom, lt: rangeTo },
       },
-      _sum: { depositAmount: true },
+      _sum: { paidAmount: true },
     });
 
     // Occupancy rate
@@ -324,7 +329,7 @@ export class DashboardService {
         checkinDate: { lt: rangeTo },
         checkoutDate: { gt: rangeFrom },
       },
-      select: { checkinDate: true, checkoutDate: true, depositAmount: true, propertyId: true },
+      select: { checkinDate: true, checkoutDate: true, paidAmount: true, propertyId: true },
     });
 
     let occupiedDays = 0;
@@ -336,7 +341,7 @@ export class DashboardService {
       const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
       const clampedDays = Math.max(0, days);
       occupiedDays += clampedDays;
-      totalRevenue += b.depositAmount || 0;
+      totalRevenue += b.paidAmount || 0;
       totalRoomNights += Math.max(0, Math.ceil(
         (b.checkoutDate.getTime() - b.checkinDate.getTime()) / (1000 * 60 * 60 * 24),
       ));
@@ -394,7 +399,7 @@ export class DashboardService {
       confirmedCount: statusMap[BOOKING_STATUS.CONFIRMED] || 0,
       cancelledCount: statusMap[BOOKING_STATUS.CANCELLED] || 0,
       completedCount: statusMap[BOOKING_STATUS.COMPLETED] || 0,
-      totalDeposit: depositResult._sum.depositAmount || 0,
+      totalDeposit: depositResult._sum.paidAmount || 0,
       occupancyRate,
       roomsWithCover,
       roomsWithPrice,
@@ -428,7 +433,7 @@ export class DashboardService {
         checkinDate: { lt: to },
         checkoutDate: { gt: from },
       },
-      select: { checkinDate: true, checkoutDate: true, depositAmount: true, id: true },
+      select: { checkinDate: true, checkoutDate: true, paidAmount: true, id: true },
     });
 
     const days: { date: string; revenue: number; bookings: number; occupancy: number }[] = [];
@@ -446,7 +451,7 @@ export class DashboardService {
           const nights = Math.max(1, Math.ceil(
             (b.checkoutDate.getTime() - b.checkinDate.getTime()) / (1000 * 60 * 60 * 24),
           ));
-          dayRevenue += Math.round((b.depositAmount || 0) / nights);
+          dayRevenue += Math.round((b.paidAmount || 0) / nights);
         }
       }
 
@@ -485,7 +490,7 @@ export class DashboardService {
             checkinDate: { lt: to },
             checkoutDate: { gt: from },
           },
-          select: { depositAmount: true, checkinDate: true, checkoutDate: true },
+          select: { paidAmount: true, checkinDate: true, checkoutDate: true },
         },
       },
     });
@@ -494,7 +499,7 @@ export class DashboardService {
       let revenue = 0;
       let totalNights = 0;
       for (const b of p.bookings) {
-        revenue += b.depositAmount || 0;
+        revenue += b.paidAmount || 0;
         const start = b.checkinDate > from ? b.checkinDate : from;
         const end = b.checkoutDate < to ? b.checkoutDate : to;
         totalNights += Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
@@ -533,7 +538,7 @@ export class DashboardService {
         checkinDate: { lt: prevTo },
         checkoutDate: { gt: prevFrom },
       },
-      select: { depositAmount: true, checkinDate: true, checkoutDate: true },
+      select: { paidAmount: true, checkinDate: true, checkoutDate: true },
     });
 
     let prevRevenue = 0;
@@ -541,7 +546,7 @@ export class DashboardService {
     let prevRoomNights = 0;
 
     for (const b of prevBookings) {
-      prevRevenue += b.depositAmount || 0;
+      prevRevenue += b.paidAmount || 0;
       const start = b.checkinDate > prevFrom ? b.checkinDate : prevFrom;
       const end = b.checkoutDate < prevTo ? b.checkoutDate : prevTo;
       prevOccupiedDays += Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));

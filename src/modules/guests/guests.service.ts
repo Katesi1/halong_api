@@ -176,26 +176,40 @@ export class GuestsService {
     });
     if (!user) throw new NotFoundException(msg.guests.notFound);
 
-    const bookings = await this.prisma.booking.findMany({
-      where: { customerId: id },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      select: {
-        id: true,
-        propertyId: true,
-        checkinDate: true,
-        checkoutDate: true,
-        status: true,
-        totalAmount: true,
-        paidAmount: true,
-        createdAt: true,
-        property: { select: { id: true, name: true, code: true } },
-      },
-    });
+    // recentBookings giới hạn 50 (mới nhất); stats phải tính trên TOÀN BỘ booking
+    // để khớp với list `GET /guests` (đồng bộ, không under-report khi khách > 50 booking).
+    const [bookings, statusAgg] = await Promise.all([
+      this.prisma.booking.findMany({
+        where: { customerId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          propertyId: true,
+          checkinDate: true,
+          checkoutDate: true,
+          status: true,
+          totalAmount: true,
+          paidAmount: true,
+          createdAt: true,
+          property: { select: { id: true, name: true, code: true } },
+        },
+      }),
+      this.prisma.booking.groupBy({
+        by: ['status'],
+        where: { customerId: id },
+        _count: { _all: true },
+      }),
+    ]);
 
-    const totalBookings = bookings.length;
-    const completedBookings = bookings.filter((b) => b.status === BOOKING_STATUS.COMPLETED).length;
-    const cancelledBookings = bookings.filter((b) => b.status === BOOKING_STATUS.CANCELLED).length;
+    let totalBookings = 0;
+    let completedBookings = 0;
+    let cancelledBookings = 0;
+    for (const row of statusAgg) {
+      totalBookings += row._count._all;
+      if (row.status === BOOKING_STATUS.COMPLETED) completedBookings += row._count._all;
+      if (row.status === BOOKING_STATUS.CANCELLED) cancelledBookings += row._count._all;
+    }
     const label = deriveLabel({ bannedAt: user.bannedAt, completedCount: completedBookings });
 
     return {

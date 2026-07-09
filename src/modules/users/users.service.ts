@@ -65,13 +65,11 @@ export class UsersService {
       createdAt: true, updatedAt: true,
     };
     if (withStats) {
-      // Khi withStats=true: include _count cho property, saleBookings, customerBookings
-      // FE map sang propertyCount + bookingCount theo role
+      // Khi withStats=true: include _count cho property (số phòng sở hữu).
+      // bookingCount tính riêng bên dưới (booking mà user liên quan: chủ phòng / sale / khách).
       select._count = {
         select: {
           properties: { where: { deletedAt: null } },
-          saleBookings: true,
-          customerBookings: true,
         },
       };
     }
@@ -101,6 +99,7 @@ export class UsersService {
     // Map _count thành field phẳng cho FE + bổ sung disputeCount + lastActiveAt
     let disputeCountMap = new Map<string, number>();
     let lastActiveMap = new Map<string, Date>();
+    const bookingCountMap = new Map<string, number>();
     if (withStats && users.length) {
       const userIds = users.map((u: any) => u.id);
       const [disputeAgg, deviceAgg] = await Promise.all([
@@ -135,6 +134,34 @@ export class UsersService {
       for (const row of deviceAgg) {
         if (row._max.lastActiveAt) lastActiveMap.set(row.userId, row._max.lastActiveAt);
       }
+
+      // bookingCount = số booking user liên quan: là chủ phòng (property.ownerId),
+      // hoặc người tạo hold (saleId), hoặc khách đặt (customerId). Dedup per booking
+      // để không đếm đúp khi 1 user vừa là chủ vừa là sale của cùng booking.
+      const involvedBookings = await this.prisma.booking.findMany({
+        where: {
+          OR: [
+            { property: { ownerId: { in: userIds } } },
+            { saleId: { in: userIds } },
+            { customerId: { in: userIds } },
+          ],
+        },
+        select: {
+          saleId: true,
+          customerId: true,
+          property: { select: { ownerId: true } },
+        },
+      });
+      const idSet = new Set(userIds);
+      for (const b of involvedBookings) {
+        const involved = new Set<string>();
+        if (b.property?.ownerId && idSet.has(b.property.ownerId)) involved.add(b.property.ownerId);
+        if (b.saleId && idSet.has(b.saleId)) involved.add(b.saleId);
+        if (b.customerId && idSet.has(b.customerId)) involved.add(b.customerId);
+        for (const uid of involved) {
+          bookingCountMap.set(uid, (bookingCountMap.get(uid) ?? 0) + 1);
+        }
+      }
     }
 
     const data = withStats
@@ -142,7 +169,7 @@ export class UsersService {
           ...u,
           stats: {
             propertyCount: u._count?.properties ?? 0,
-            bookingCount: (u._count?.saleBookings ?? 0) + (u._count?.customerBookings ?? 0),
+            bookingCount: bookingCountMap.get(u.id) ?? 0,
             disputeCount: disputeCountMap.get(u.id) ?? 0,
           },
           lastActiveAt: lastActiveMap.get(u.id) ?? null,

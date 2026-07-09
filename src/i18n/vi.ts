@@ -178,6 +178,10 @@ export const vi = {
     updateSuccess: 'Cập nhật booking thành công',
     markPaidSuccess: 'Đã ghi nhận thanh toán booking',
     paidAmountRequired: 'Số tiền thanh toán phải > 0 (truyền amount hoặc booking cần có totalAmount/depositAmount)',
+    depositProofSuccess: 'Đã gửi ảnh chuyển khoản cọc, chờ chủ nhà xác nhận',
+    depositProofInvalidState: 'Chỉ gửi được ảnh chuyển khoản khi booking đã xác nhận và chưa ghi nhận thanh toán',
+    checkinSuccess: 'Đã xác nhận khách nhận phòng và hoàn tất booking',
+    onlyCheckinConfirmed: 'Chỉ xác nhận nhận phòng cho booking đang ở trạng thái đã xác nhận (CONFIRMED)',
   },
 
   // ─── Partner ─────────────────────────────────────────────────────────────────
@@ -248,6 +252,7 @@ export const vi = {
     propertyNotFound: 'Cơ sở không tồn tại',
     notYourBooking: 'Booking này không thuộc về bạn',
     bookingNotCompleted: 'Booking chưa hoàn thành, không thể đánh giá',
+    reviewNotYetAllowed: 'Chỉ có thể đánh giá sau 12h trưa ngày trả phòng',
     alreadyReviewed: 'Booking này đã được đánh giá rồi',
     invalidScore: 'Điểm đánh giá phải là số nguyên từ 1 đến 5',
     forbidden: 'Bạn không có quyền thực hiện thao tác này',

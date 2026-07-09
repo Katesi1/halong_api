@@ -3,7 +3,7 @@
 > Tài liệu chính thức cho team FE Web (Next.js admin/host) và App Mobile (Android/iOS).
 > Bao gồm tất cả endpoint, schema response, business rule, WebSocket guide và integration checklist.
 >
-> **Cập nhật**: 2026-07-01 (v1.20 — chat retention 180 → 365 ngày (1 năm); message cũ hơn 1 năm bị xoá bởi cron 3AM, conversation có dispute vẫn giữ) · **BE base**: NestJS 11 · **DB**: PostgreSQL + Prisma · **Auth**: JWT · **Real-time**: Socket.IO
+> **Cập nhật**: 2026-07-09 (v1.33 — Đánh giá chỉ mở sau 12h trưa ngày trả phòng: BookingDto thêm `canReview` + `reviewUnlockAt`; review 400 `reviewNotYetAllowed` nếu chưa tới mốc. Xem §7, §5.3, changelog §21) · **BE base**: NestJS 11 · **DB**: PostgreSQL + Prisma · **Auth**: JWT · **Real-time**: Socket.IO
 
 ---
 
@@ -902,7 +902,7 @@ Một số action chỉ hợp lệ ở state nhất định:
 |---|---|---|
 | `PATCH /bookings/:id/confirm` | Booking đang HOLD | 400 `onlyConfirmHold` |
 | `PATCH /bookings/:id/customer-cancel` | Booking đang HOLD và thuộc customer | 400 `onlyCancelHold` hoặc `notYourBooking` |
-| `POST /properties/:id/reviews` | Có booking COMPLETED tương ứng và chưa review | 400 `bookingNotCompleted` hoặc 409 `alreadyReviewed` |
+| `POST /properties/:id/reviews` | Booking COMPLETED, đã qua 12h trưa ngày checkout, chưa review | 400 `bookingNotCompleted` / `reviewNotYetAllowed` hoặc 409 `alreadyReviewed` |
 | `POST /admin/disputes/:id/resolve` | Dispute đang pending/investigating | 400 `alreadyClosed` |
 | `POST /admin/subscriptions/.../mark-paid` | Trong 10 giây vừa rồi chưa có mark-paid khác | 409 `markPaidDuplicate` (chống double-click) |
 | `POST /admin/users/:id/trial` | User KHÔNG đang ACTIVE và KHÔNG đang FROZEN | 409 `alreadyActive` hoặc `cannotGrantTrialFrozen` |
@@ -1115,7 +1115,7 @@ Base path: `/properties`.
 
 | Method | Path | Query |
 |---|---|---|
-| `GET` | `/properties/public` | `checkinDate?, checkoutDate?, guests?, minPrice?, maxPrice?, type?, view?` — **array phẳng PropertyCardDto[]** (legacy, dùng cho mobile) |
+| `GET` | `/properties/public` | `checkinDate?, checkoutDate?, guests?, adults?, children?, minPrice?, maxPrice?, type?, view?` — **array phẳng PropertyCardDto[]** (legacy, dùng cho mobile). `adults` lọc theo `standardGuests`, `children` lọc theo `standardChildren` |
 | `GET` | `/properties/search` | Full filter + pagination + sort — **dùng cho customer web list/search** (xem §4.7) |
 | `GET` | `/properties/public/:slug` | **Chi tiết phòng cho customer web** (kèm giá + host) — xem §4.11 |
 | `GET` | `/properties/public/:slug/similar?limit=8` | **Cơ sở tương tự** (carousel cuối trang detail) — xem §4.12 |
@@ -1213,7 +1213,7 @@ Base path: `/properties`.
   "ratingAvg": 4.92,
   "reviewCount": 37,
   "bedrooms": 3, "bathrooms": 2,
-  "standardGuests": 6, "maxGuests": 8,
+  "standardGuests": 6, "standardChildren": 2, "maxGuests": 8,
   "floorArea": 120,
   "weekdayPrice": 2000000, "weekendPrice": 3000000, "holidayPrice": 4500000,
   "adultSurcharge": 200000, "childSurcharge": 100000,
@@ -1240,7 +1240,7 @@ Shape rút gọn cho card khách hàng. Tính sẵn `minPrice`, `rating`, `revie
   "address": "Bãi Cháy, Hạ Long",
   "latitude": 20.95, "longitude": 107.05,
   "bedrooms": 3, "bathrooms": 2,
-  "standardGuests": 6, "maxGuests": 8,
+  "standardGuests": 6, "standardChildren": 2, "maxGuests": 8,
   "floorArea": 120,
   "amenities": ["wifi", "pool", "seaview"],
   "weekdayPrice": 2000000, "weekendPrice": 3000000, "holidayPrice": 4500000,
@@ -1274,7 +1274,9 @@ Paginated + filter + sort, **toàn bộ ở server-side**. Lý do: FE chỉ th�
 | Param | Kiểu | Ghi chú |
 |---|---|---|
 | `checkinDate`, `checkoutDate` | `YYYY-MM-DD` | Loại property bị HOLD/CONFIRMED đè ngày trùng |
-| `guests` | int ≥1 | `maxGuests >= guests` |
+| `guests` | int ≥1 | `maxGuests >= guests` (tổng khách cả căn) |
+| `adults` | int ≥1 | `standardGuests >= adults` (sức chứa người lớn tiêu chuẩn) |
+| `children` | int ≥0 | `standardChildren >= children` (sức chứa trẻ em tiêu chuẩn) |
 | `bedrooms` | int ≥0 | `bedrooms >= bedrooms` (min) |
 | `minPrice`, `maxPrice` | float | So với `weekdayPrice` |
 | `type` | 0\|1\|2 | VILLA/HOMESTAY/HOTEL |
@@ -1398,6 +1400,7 @@ Endpoint **chi tiết phòng cho FE web khách hàng** (`webhalong24h.com/proper
     "bedrooms": 0,
     "bathrooms": 1,
     "standardGuests": 2,
+    "standardChildren": 1,
     "maxGuests": 2,
     "floorArea": null,
     "weekdayPrice": 1100000,
@@ -1537,6 +1540,7 @@ Visibility: tuân theo rule §4.1 (property `isActive=true, deletedAt=null, mode
     "bedrooms": 2,
     "bathrooms": 1,
     "standardGuests": 2,
+    "standardChildren": 2,
     "maxGuests": 4,
     "floorArea": 45,
     "adultSurcharge": 200000,
@@ -1590,7 +1594,9 @@ Base path: `/bookings`. Auth required.
 | `POST` | `/bookings/hold` | ADMIN/OWNER/SALE (CUSTOMER bị chặn) | Hold 30 phút |
 | `POST` | `/bookings/customer-hold` | CUSTOMER (+all) | Hold 24h |
 | `PATCH` | `/bookings/:id/confirm` | ADMIN/OWNER/SALE | HOLD → CONFIRMED |
-| `PATCH` | `/bookings/:id/paid` | ADMIN/OWNER/SALE | `{ amount? }` Ghi nhận thu tiền |
+| `PATCH` | `/bookings/:id/paid` | ADMIN/OWNER/SALE | `{ amount? }` Ghi nhận thu tiền (cọc). Xem §5.4 |
+| `PATCH` | `/bookings/:id/checkin` | ADMIN/OWNER/SALE | `{ amount? }` **(v1.31)** Xác nhận khách nhận phòng + thu nốt tiền → COMPLETED. Xem §5.5 |
+| `POST` | `/bookings/:id/deposit-proof` | Any auth (khách của booking) | `{ proofUrl }` **(v1.31)** Khách gửi ảnh bill CK cọc. Xem §5.6 |
 | `PATCH` | `/bookings/:id/cancel` | ADMIN/OWNER/SALE | Body optional `{ reason?: string }` (10–500 ký tự nếu gửi). Reason KHÔNG lưu DB; được forward vào email gửi khách + subtitle push notification. |
 | `PATCH` | `/bookings/:id/customer-cancel` | Any auth | Customer huỷ HOLD của mình |
 | `PUT` | `/bookings/:id` | ADMIN/OWNER/SALE | Update customerName/Phone/guests/notes/deposit |
@@ -1663,8 +1669,22 @@ Khách (CUSTOMER) đặt giữ chỗ 24h. Từ v1.26 **bắt buộc gửi thông
   "holdRemainingSeconds": 1700,
   "depositAmount": 500000,
   "totalAmount": 4000000,
-  "paidAmount": null,
+  "paidAmount": 0,
+  "remainingAmount": 4000000,
   "paidAt": null,
+  "priceBreakdown": {
+    "nights": 2,
+    "lineItems": [
+      { "date": "2026-06-15", "type": "weekday", "amount": 2000000 },
+      { "date": "2026-06-16", "type": "weekday", "amount": 2000000 }
+    ],
+    "extraAdults": 0,
+    "extraChildren": 0,
+    "surchargePerNight": 0,
+    "surchargeTotal": 0,
+    "roomTotal": 4000000,
+    "total": 4000000
+  },
   "guestCount": 4,
   "notes": "...",
   "propertyName": "Villa Bãi Cháy",
@@ -1675,11 +1695,20 @@ Khách (CUSTOMER) đặt giữ chỗ 24h. Từ v1.26 **bắt buộc gửi thông
   "host": { "name": "Nguyễn Văn A", "phone": null },
   "cancellationPolicy": 1,
   "hasReview": false,
-  "depositDeadlineAt": "2026-06-04T11:00:00.000Z"
+  "canReview": false,
+  "reviewUnlockAt": "2026-06-17T05:00:00.000Z",
+  "depositDeadlineAt": "2026-06-04T11:00:00.000Z",
+  "depositProofUrl": null,
+  "checkedInAt": null,
+  "completedAt": null
 }
 ```
 
 Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
+
+**Field check-in / bill cọc (v1.31 · 2026-07-09):**
+- `depositProofUrl: string | null` — URL ảnh bill chuyển khoản cọc khách gửi (§5.6). Owner xem để đối chiếu trước khi ghi nhận cọc.
+- `checkedInAt: ISO | null` — thời điểm owner xác nhận khách nhận phòng (§5.5).
 
 **Field mở rộng cho customer web (v1.16, áp dụng cho `findOne`, `getMyBookings`, `findAll`):**
 
@@ -1690,7 +1719,9 @@ Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
 | `coverImageUrl` | `string \| null` | Ảnh cover (fallback ảnh đầu danh sách) |
 | `host` | `{ name, phone } \| null` | Chủ nhà. **`phone` CHỈ trả khi `status >= CONFIRMED` (= 1, 3, 4)** — tránh leak số trước khi cọc. HOLD/CANCELLED → `phone = null` |
 | `cancellationPolicy` | `0 \| 1 \| 2 \| null` | Chính sách huỷ của property: 0=FLEXIBLE, 1=MODERATE, 2=STRICT. Xem [§19 Enums](#19-enums-reference) |
-| `hasReview` | `boolean` | True nếu customer đã review booking này → FE disable nút "Đánh giá" |
+| `hasReview` | `boolean` | True nếu customer đã review booking này. |
+| `canReview` (v1.33) | `boolean` | True **chỉ khi**: `status=COMPLETED` **và** chưa review **và** đã qua **12h trưa ngày trả phòng**. FE dùng cờ này để enable nút "Đánh giá" (KHÔNG chỉ dựa `status=COMPLETED` — vì check-in có thể đưa booking sang COMPLETED sớm khi khách chưa trả phòng). |
+| `reviewUnlockAt` (v1.33) | `ISO \| null` | Mốc mở đánh giá = `checkoutDate + 12h trưa VN`. FE hiển thị "Đánh giá sau {ngày}" khi chưa tới mốc. `null` nếu thiếu checkoutDate. |
 | `depositDeadlineAt` | `ISO \| null` | Hạn cọc: HOLD = `holdExpireAt` (countdown khách phải cọc trong cửa sổ này); CONFIRMED/CANCELLED/... = `null` (chưa có business rule riêng cho CONFIRMED) |
 | `paymentInfo` | `object \| null` | **Thông tin chuyển khoản + VietQR động** cho khách trả cọc. Xem shape bên dưới |
 
@@ -1733,12 +1764,45 @@ Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
 - `cancelledByRole: 0|1|2|3 | null` (0=ADMIN, 1=OWNER, 2=SALE, 3=CUSTOMER)
 - `cancelledReason: string | null` (pass-through từ body cancel, không enforce length)
 
-**Lưu ý nullability cho HOLD:**
-- `totalAmount` = **null** khi booking ở trạng thái HOLD (BE chưa tự tính từ bảng giá lúc tạo hold). Field này chỉ được set khi `markPaid` ghi vào.
-- `depositAmount` = null nếu FE không gửi field này lúc `POST /bookings/hold`.
-- `paidAmount`, `paidAt` = null cho tới khi `PATCH /bookings/:id/paid`.
-- FE web hiển thị: gặp `null` thì show "Chưa chốt giá" (không hardcode 0 ₫).
+**Tiền booking (v1.29 · 2026-07-09 — BE tự tính totalAmount, tách bạch cần thu vs đã thu):**
+
+| Field | Kiểu | Ý nghĩa |
+|---|---|---|
+| `totalAmount` | `int \| null` | **Tổng tiền phòng** BE tự tính từ bảng giá cơ sở, **set ở MỌI trạng thái** (hold/customer-hold, tính lại khi confirm + `PUT /bookings/:id`). `null` **chỉ khi** property chưa cấu hình giá (`weekdayPrice = null`) — FE hiện "Chưa chốt giá", KHÔNG hardcode 0 ₫. |
+| `depositAmount` | `int \| null` | Tiền cọc **CẦN thu** (staff nhập lúc `POST /bookings/hold`, hoặc `PUT`). Booking khách (`customer-hold`) mặc định `null`. **KHÔNG phải** tiền đã thu. |
+| `paidAmount` | `int` | Tiền **ĐÃ thu** — **mặc định `0`** (không còn null), set thực khi `PATCH /bookings/:id/paid`. |
+| `remainingAmount` | `int \| null` | `= max(0, totalAmount − paidAmount)`. `null` khi `totalAmount = null`. BE trả sẵn — FE không tự trừ. |
+| `paidAt` | `ISO \| null` | `null` cho tới khi mark-paid. |
+| `priceBreakdown` | `object \| null` | Chi tiết tính giá để hiển thị minh bạch (xem dưới). `null` khi chưa cấu hình giá. |
+
+**`priceBreakdown` shape:**
+```json
+{
+  "nights": 3,
+  "lineItems": [
+    { "date": "2026-07-15", "type": "weekday", "amount": 1000000 },
+    { "date": "2026-07-16", "type": "weekday", "amount": 1000000 },
+    { "date": "2026-07-17", "type": "weekend", "amount": 1500000 }
+  ],
+  "extraAdults": 2,
+  "extraChildren": 1,
+  "surchargePerNight": 500000,
+  "surchargeTotal": 1500000,
+  "roomTotal": 3500000,
+  "total": 5000000
+}
+```
+
+**Công thức `totalAmount`** (chốt 2026-07-09):
+- `nightly(d)` = `holidayPrice` nếu d là ngày lễ; `weekendPrice` (fallback `weekdayPrice` nếu null) nếu `dow(d) ∈ {0=CN, 5=T6, 6=T7}`; ngược lại `weekdayPrice`.
+- `extraAdults = max(0, adults − standardGuests)`; `extraChildren = max(0, children − standardChildren)`.
+- `surchargePerNight = extraAdults × adultSurcharge + extraChildren × childSurcharge` (field null → 0).
+- `totalAmount = Σ nightly(d) + surchargePerNight × nights`.
+- Staff hold chỉ có `guestCount` → coi toàn bộ là người lớn (children=0) cho phụ thu.
+- **Ngày lễ (v1.30)**: BE tự áp `holidayPrice` cho **lễ dương lịch cố định** (lặp hằng năm): **01/01** (Tết Dương lịch), **30/04**, **01/05**, **02/09**. Lễ **âm lịch** (Tết Nguyên đán, Giỗ Tổ 10/3 ÂL) đổi ngày dương mỗi năm → hiện **chưa** liệt kê; sẽ bổ sung theo từng năm khi cần (constant `LUNAR_HOLIDAY_DATES` trong `booking-pricing.ts`).
+
 - **Countdown HOLD**: dùng `holdRemainingSeconds` (server-computed, đã tính cả lệch giờ client), không tự tính `holdExpireAt - Date.now()`.
+- **mark-paid**: `PATCH /bookings/:id/paid { amount? }` ghi `paidAmount = amount`; nếu bỏ trống → fallback `depositAmount` (giữ hành vi cũ: ghi nhận cọc), rồi `totalAmount`. **KHÔNG** ghi đè `totalAmount`. "Tổng" và "Đã thu" là 2 số độc lập.
 
 ### 5.3.1 GET /bookings/:id — quyền truy cập + response giàu hơn list
 
@@ -1768,12 +1832,50 @@ Field flatten thêm so với list: tất cả field §5.3 mở rộng (`code`, `
 
 ### 5.4 PATCH /bookings/:id/paid
 
-Body optional: `{ amount? }`. Nếu bỏ trống → BE dùng `totalAmount` hoặc `depositAmount`. Nếu booking đang HOLD → tự chuyển sang CONFIRMED + clear `holdExpireAt`.
+Body optional: `{ amount? }`. Nếu bỏ trống → BE **ghi nhận tiền cọc** (fallback `depositAmount`, rồi `totalAmount`). Ghi `paidAmount = amount` + `paidAt`. Nếu booking đang HOLD → tự chuyển sang CONFIRMED + clear `holdExpireAt`. **KHÔNG** ghi đè `totalAmount`.
 
 > **Phân biệt luồng thanh toán** (FE đa nền tảng phải wire đúng):
-> - `PATCH /bookings/:id/paid` — **OWNER/SALE ghi nhận tiền cọc/tiền phòng của KHÁCH** (chuyển khoản tay, tiền mặt, thanh toán offline). Chỉ ảnh hưởng `Booking.paymentStatus`.
+> - `PATCH /bookings/:id/paid` — **OWNER/SALE ghi nhận tiền cọc/tiền phòng của KHÁCH** (chuyển khoản tay, tiền mặt, thanh toán offline). Chỉ ảnh hưởng `Booking.paidAmount/paidAt`.
 > - `POST /payments/initiate` (§10.2) — **OWNER mua/gia hạn gói subscription của hệ thống Halong24h** (VietQR). Tạo `PaymentSession`, không liên quan booking khách.
 > - 2 endpoint này không thay thế nhau. Dùng đúng theo use case.
+
+### 5.5 PATCH /bookings/:id/checkin — Xác nhận nhận phòng + thu nốt → hoàn tất (v1.31)
+
+Bước cuối luồng booking: đến ngày nhận phòng, owner xác nhận khách đã đến và thu nốt tiền phòng.
+
+- **Role**: ADMIN / OWNER / SALE (+ permission `bookings.canUpdate`).
+- **Yêu cầu**: booking đang `CONFIRMED (1)` → sai trạng thái 400 `bookings.onlyCheckinConfirmed`.
+- Body optional `{ amount? }`:
+  - `amount` gửi → **cộng dồn**: `paidAmount = paidAmount_cũ + amount`.
+  - `amount` bỏ trống → thu cho đủ: `paidAmount = totalAmount` (phần còn lại). Nếu property chưa có giá (`totalAmount=null`) → giữ nguyên `paidAmount`.
+- Side-effect: set `checkedInAt = now`, `paidAt` (nếu chưa có), chuyển `status = COMPLETED (3)` + `completedAt = now`.
+- Notify owner (`booking_completed`) + khách (`booking_completed`, "có thể đánh giá"). Gửi email hoàn tất cho khách (kèm tổng/cọc/đã thu/còn lại).
+- Sau COMPLETED → khách **đánh giá được** (review yêu cầu `status=COMPLETED`).
+
+> **"Done" của booking**: (1) owner chủ động qua `PATCH /checkin` (khuyến nghị — đúng luồng nghiệp vụ), HOẶC (2) **fallback** cron auto-complete lúc 12h trưa ngày trả phòng nếu owner không thao tác. Cả hai đều đưa về `COMPLETED`.
+
+**Nhắc check-in tự động**: cron mỗi ngày **15h (giờ VN)** push owner (`booking_checkin_reminder`) cho mọi booking `CONFIRMED` có `checkinDate = hôm nay` và chưa check-in (`checkedInAt=null`) → owner vào xác nhận nhận phòng + thu nốt.
+
+### 5.6 POST /bookings/:id/deposit-proof — Khách gửi ảnh bill CK cọc (v1.31)
+
+Sau khi owner xác nhận (CONFIRMED), khách chuyển khoản cọc rồi **gửi ảnh bill** để owner đối chiếu.
+
+- **Auth**: Bearer — chỉ **khách của booking** (`customerId === user.id`) hoặc ADMIN/owner-scope. Người khác → 403.
+- **Yêu cầu**: booking `CONFIRMED` **và** chưa ghi nhận thanh toán (`paidAt = null`) → sai → 400 `bookings.depositProofInvalidState`.
+- Body: `{ proofUrl }` — URL **https** (khách upload ảnh qua `POST /uploads` §23 trước, lấy URL gửi vào đây). 1 ảnh/booking (gửi lại → ghi đè).
+- Lưu `depositProofUrl`; push owner (`booking_deposit_proof`) để vào đối chiếu và bấm `PATCH /bookings/:id/paid` ghi nhận cọc.
+- Response: BookingDto (có `depositProofUrl`).
+
+**Luồng đầy đủ (khách web + owner app):**
+```
+Khách đặt (customer-hold, HOLD)
+  → Owner xác nhận (PATCH /confirm → CONFIRMED)
+  → Khách chuyển cọc + POST /deposit-proof {proofUrl}  ← khách gửi ảnh bill
+  → Owner đối chiếu ảnh, PATCH /paid {amount} ghi nhận cọc  → BE gửi email đơn+giá cho khách
+  → (Ngày nhận phòng 15h) cron nhắc owner
+  → Owner PATCH /checkin {amount?} xác nhận nhận phòng + thu nốt  → COMPLETED
+  → Khách đánh giá
+```
 
 ---
 
@@ -1852,6 +1954,8 @@ Status string: `available | hold | booked | locked`.
 |---|---|---|---|
 | `POST` | `/properties/:id/reviews` | CUSTOMER | `{ bookingId, cleanliness, location, amenities, service, value, accuracy (1-5), comment?, photos?[] }` |
 | `GET` | `/properties/:id/reviews?page&pageSize&sort&minRating` | Public | sort: `newest\|oldest\|highest\|lowest` |
+
+> **Điều kiện đánh giá (v1.33)**: booking phải `status=COMPLETED` **VÀ** đã qua **12h trưa (giờ VN) ngày trả phòng** (`checkoutDate + 5h`) **VÀ** chưa review. Chưa tới mốc → 400 `reviews.reviewNotYetAllowed` ("Chỉ có thể đánh giá sau 12h trưa ngày trả phòng"). Lý do: owner check-in (§5.5) đưa booking sang COMPLETED **sớm** khi khách vừa nhận phòng (chưa trả phòng) — nhưng đánh giá chỉ hợp lệ sau khi kết thúc kỳ lưu trú. FE dùng `booking.canReview` / `booking.reviewUnlockAt` (§5.3) để enable nút, không tự suy từ `status`.
 | `POST` | `/properties/:id/reviews/:reviewId/reply` | ADMIN/OWNER | `{ reply }` |
 
 ### 7.2 Admin moderation
@@ -2037,7 +2141,7 @@ Endpoints KPI cho Owner/Sale/Admin. Auth: Bearer. Roles: ADMIN, OWNER, SALE.
 - `occupancyRate` top-level + `previousPeriod.occupancy` = **0..100** (đã ×100, FE chỉ append `%`)
 - `revenueByDay[].occupancy` + `topRooms[].occupancy` + `dayOfWeekOccupancy.values[]` = **0..1** (FE ×100 khi plot)
 
-**Nguồn doanh thu**: aggregate `Booking.depositAmount` của booking `status ∈ {CONFIRMED, COMPLETED}` overlapping kỳ. Revenue mỗi ngày = chia đều `depositAmount / số đêm`.
+**Nguồn doanh thu (sửa v1.32)**: aggregate **`Booking.paidAmount`** (tiền THỰC thu) của booking `status ∈ {CONFIRMED, COMPLETED}` overlapping kỳ. Revenue mỗi ngày = chia đều `paidAmount / số đêm`. Trước v1.32 dùng `depositAmount` → booking khách (`customer-hold`, `depositAmount=null`) cho doanh thu = 0 dù đã thu đủ tiền; nay dùng `paidAmount` phản ánh đúng tiền đã nhận.
 
 ### 7A.5 GET /admin/reports/risk-kpis — Risk KPIs cho trang admin reports
 
@@ -2101,10 +2205,16 @@ Base path: `/notifications`. Auth required.
 
 | Method | Path | Mô tả |
 |---|---|---|
-| `GET` | `/notifications?type&isRead&page&limit` | List |
+| `GET` | `/notifications?type&isRead&page&limit` | List — **Shape B** (xem dưới) |
 | `GET` | `/notifications/unread-count` | `{ count }` |
 | `PATCH` | `/notifications/:id/read` | Mark 1 read |
 | `PATCH` | `/notifications/read-all` | Mark all read |
+
+> **Response shape `GET /notifications` (Shape B — đính chính 2026-07-09)**: `data` là **MẢNG** `NotificationDto[]`, phân trang ở `meta` top-level (sibling của `data`), KHÔNG bọc trong object `{ items }`:
+> ```jsonc
+> { "success": true, "message": "...", "data": [ /* NotificationDto */ ], "meta": { "total": 120, "page": 1, "limit": 50 } }
+> ```
+> App parse `response.data['data'] as List` → ĐÚNG. Đọc paging ở `response.data['meta']`. (Trước đây §22 C3 liệt kê nhầm endpoint này ở Shape A — đã sửa.)
 
 ### 8.2 NotificationDto
 
@@ -2174,7 +2284,9 @@ BE gửi **hybrid message** — kèm cả `notification` block (tray auto-displa
 - Foreground: đã có event `message:new` từ WebSocket → FE suppress notification tray thủ công.
 - Background/killed: OS tự hiện tray từ `apns.alert` / Android `notification` block. Tap → mở `data.deepLink`.
 
-`pushType` (nằm trong `data.type`): `booking_*`, `payment_*`, `subscription_*`, `chat_message`, `lead_new`, `dispute_opened`, `dispute_resolved`, `subscription_frozen`, `subscription_price_changed`, `kyc_*`, `staff_invite_accepted`, `property_approved | rejected | suspended`, `property_pending_review` (gửi ADMIN khi có phòng mới chờ duyệt, deepLink `/admin/properties/:id`), `property_updated | property_price_updated | property_images_updated`, `calendar_locked | calendar_unlocked | calendar_sold | calendar_bulk_locked | calendar_bulk_unlocked`, ...
+`pushType` (nằm trong `data.type`): `booking_*` (gồm `booking_created | booking_confirmed | booking_paid | booking_deposit_proof | booking_checkin_reminder | booking_completed`), `payment_*`, `subscription_*`, `chat_message`, `lead_new`, `dispute_opened`, `dispute_resolved`, `subscription_frozen`, `subscription_price_changed`, `kyc_*`, `staff_invite_accepted`, `property_approved | rejected | suspended`, `property_pending_review` (gửi ADMIN khi có phòng mới chờ duyệt, deepLink `/admin/properties/:id`), `property_updated | property_price_updated | property_images_updated`, `calendar_locked | calendar_unlocked | calendar_sold | calendar_bulk_locked | calendar_bulk_unlocked`, ...
+
+> **Booking push mới (v1.31)** — `booking_deposit_proof` (gửi OWNER khi khách gửi ảnh bill cọc → mở booking detail đối chiếu + ghi nhận cọc), `booking_checkin_reminder` (gửi OWNER 15h ngày nhận phòng → xác nhận check-in + thu nốt), `booking_completed` (gửi OWNER + khách khi booking hoàn tất). deepLink `/bookings/:id`.
 
 > **Đồng bộ cả TEAM khi sửa phòng / khoá lịch (NEW).** Khi **bất kỳ thành viên team** (owner hoặc SALE thuộc owner) **sửa phòng** (`property_updated` / `property_price_updated` / `property_images_updated`) hoặc **khoá/mở/đánh dấu-bán lịch** (`calendar_locked` / `calendar_unlocked` / `calendar_sold`) → BE tạo notification + push FCM tới **owner + tất cả SALE của owner đó**, **TRỪ người vừa thao tác** (không tự báo cho chính mình). Nhờ vậy mọi thành viên biết **phòng nào** bị lock/unlock, phòng nào sửa (message luôn kèm `Tên phòng (MÃ)`). Bulk lock/unlock (`POST /calendar/bulk`) gộp **1 push tổng mỗi property** (`calendar_bulk_locked/unlocked`) thay vì mỗi ngày. `deepLink = /host/properties/{propertyId}`, `targetType = 'property'`.
 
@@ -3362,6 +3474,91 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 
 ## 21. Changelog & Bug fixes
 
+### v1.33 — 2026-07-09 (Đánh giá chỉ mở sau 12h trưa ngày trả phòng)
+
+Làm rõ nghiệp vụ: check-in thu tiền full + đưa booking sang COMPLETED **ngay khi khách nhận phòng** (giữ nguyên), nhưng **đánh giá chỉ được sau khi trả phòng**.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `POST /properties/:id/reviews` | Ngoài `status=COMPLETED` + chưa review, thêm điều kiện **đã qua 12h trưa (VN) ngày trả phòng** (`checkoutDate + 5h`). Chưa tới → 400 `reviews.reviewNotYetAllowed`. Trước đây COMPLETED (do check-in sớm) là đánh giá được ngay — sai. |
+| BookingDto | Thêm `canReview: boolean` (đủ 3 điều kiện) + `reviewUnlockAt: ISO` (mốc mở đánh giá). FE enable nút "Đánh giá" theo `canReview`, hiển thị "Đánh giá sau {ngày}" khi chưa tới. |
+| i18n | `reviews.reviewNotYetAllowed` (vi/en). |
+
+**Breaking?** Không — chỉ siết điều kiện + thêm 2 field. FE nên chuyển nút đánh giá sang đọc `canReview` thay vì tự suy từ `status=COMPLETED`.
+
+### v1.32 — 2026-07-09 (Fix hệ quả v1.31: dashboard "đang có khách"=0, đặt trùng lịch, doanh thu=null)
+
+3 bug do quyết định v1.31 (`/checkin` đưa booking sang `COMPLETED` ngay khi khách nhận phòng dù vẫn đang lưu trú) + do doanh thu tính nhầm field.
+
+| Bug | Thay đổi |
+|---|---|
+| **Dashboard "đang có khách" = 0** | `GET /dashboard/stats` `occupiedRooms` cũ lọc `status ∈ {HOLD, CONFIRMED}` → loại COMPLETED-đang-lưu-trú → 0. Nay gồm `COMPLETED`; window `checkinDate <= now < checkoutDate` vẫn loại đúng booking đã trả phòng. `checkoutToday` cũng gồm COMPLETED. |
+| **⚠️ Rủi ro ĐẶT TRÙNG lịch** | Check trùng lịch (`POST /bookings/hold`, `/customer-hold`, `POST /partner/bookings`), filter phòng đã đặt trong `GET /properties/search` + `/public`, availability `GET /partner/properties/:id/availability`, và calendar grid/lock **cũ chỉ chặn `[HOLD, CONFIRMED]`** → booking check-in sớm (COMPLETED, còn trong kỳ) KHÔNG chặn đặt đè + hiện "trống". Nay dùng `[HOLD, CONFIRMED, COMPLETED]` (hằng số `BLOCKING_BOOKING_STATUSES`). Booking đã trả phòng (checkout đã qua) không overlap với đặt mới (checkin ≥ hôm nay) nên an toàn. Ô lịch của ngày COMPLETED-đang-ở giờ hiện `booked` (trước hiện `hold` sai). |
+| **Doanh thu = null dù đã thu đủ** | Dashboard + `GET /reports` tính doanh thu bằng `depositAmount` → booking khách (`customer-hold`, `depositAmount=null`) cho doanh thu = 0 dù đã thu full. Nay dùng **`paidAmount`** (tiền thực thu). Xem §7A.4. |
+
+**Breaking?** Không — chỉ sửa cách đếm/tính, shape response giữ nguyên. FE không cần đổi.
+
+### v1.31 — 2026-07-09 (Booking check-in flow: ảnh bill cọc + xác nhận nhận phòng + thu nốt → hoàn tất)
+
+Hoàn thiện luồng booking khách: khách gửi ảnh bill cọc, owner check-in + thu nốt, nhắc check-in 15h.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| Schema `Booking` | Thêm 2 cột nullable: `depositProofUrl`, `checkedInAt` (migration `20260709040000_add_booking_checkin_deposit_proof`, additive). |
+| `POST /bookings/:id/deposit-proof` (mới) | Khách gửi ảnh bill CK cọc `{ proofUrl }` (https, 1 ảnh). Yêu cầu CONFIRMED + chưa thu. Push owner `booking_deposit_proof`. Xem §5.6. |
+| `PATCH /bookings/:id/checkin` (mới) | Owner xác nhận khách nhận phòng + thu nốt `{ amount? }` → `checkedInAt` + cộng dồn `paidAmount` + `status=COMPLETED`. Push `booking_completed` + email hoàn tất. Xem §5.5. |
+| Cron nhắc check-in | 15h giờ VN mỗi ngày → push owner `booking_checkin_reminder` cho booking CONFIRMED nhận phòng hôm nay, chưa check-in. |
+| Email xác nhận (mark-paid) | `sendBookingConfirmed` giờ kèm `totalAmount` + `depositAmount` + `remainingAmount` (trước chỉ có số đã thu). |
+| `PATCH /bookings/:id/paid` | Bỏ trống amount → ghi nhận **cọc** (fallback `depositAmount`); **không** ghi đè `totalAmount`. |
+| BookingDto | Trả thêm `depositProofUrl`, `checkedInAt`, `completedAt`. |
+| pushType mới | `booking_deposit_proof`, `booking_checkin_reminder`, `booking_completed`. |
+
+**Ghi chú "Done"**: booking hoàn tất khi (1) owner `PATCH /checkin`, HOẶC (2) fallback cron auto-complete 12h trưa ngày trả phòng. Cả hai → COMPLETED → khách đánh giá được.
+
+**App owner cần wire (báo team App)**: hiển thị `depositProofUrl` (ảnh bill) ở booking detail; màn/nút "Xác nhận nhận phòng + thu nốt" gọi `PATCH /bookings/:id/checkin`; handle 3 push mới. Xem bảng gap §21 báo cáo.
+
+### v1.29 — 2026-07-09 (Booking: BE tự tính `totalAmount` + tách bạch cần thu/đã thu + priceBreakdown)
+
+Trước đây `totalAmount` luôn `null` (BE không tính) → FE phải ước lượng "tạm tính". Nay BE tính server-side.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `totalAmount` tự tính | BE tính từ bảng giá cơ sở (số đêm × weekday/weekend/holiday + phụ thu người lớn/trẻ vượt chuẩn), **set ở mọi trạng thái**: lúc `POST /bookings/hold` + `POST /bookings/customer-hold`, tính lại khi `PATCH /bookings/:id/confirm` và `PUT /bookings/:id`. `null` **chỉ khi** property chưa cấu hình giá. Helper: [booking-pricing.ts](src/modules/bookings/booking-pricing.ts). |
+| `paidAmount` default `0` | Không còn `null` → FE tính "Còn lại" không lệch. |
+| `remainingAmount` (mới) | `= max(0, totalAmount − paidAmount)`, BE trả sẵn. `null` khi `totalAmount=null`. |
+| `priceBreakdown` (mới) | `{ nights, lineItems[], extraAdults, extraChildren, surchargePerNight, surchargeTotal, roomTotal, total }` — FE hiển thị minh bạch, bỏ ước lượng. Xem §5.3. |
+| Công thức | Cuối tuần = `dow ∈ {0=CN,5=T6,6=T7}` (khớp FE). Phụ thu tính theo từng đêm × nights, tách người lớn (vs `standardGuests`) và trẻ (vs `standardChildren`). Staff hold chỉ có `guestCount` → coi là người lớn. |
+| `mark-paid` không đổi tổng | `PATCH /bookings/:id/paid { amount? }` chỉ ghi `paidAmount + paidAt`; **không** ghi đè `totalAmount`. Bỏ trống amount → fallback `depositAmount` (giữ hành vi cũ). |
+| Ngày lễ (v1.30 · 2026-07-09) | BE tự áp `holidayPrice` cho lễ dương cố định: 01/01, 30/04, 01/05, 02/09. Lễ âm lịch (Tết, Giỗ Tổ) chưa liệt kê — bổ sung theo năm khi cần. |
+
+**Breaking?** Không phá schema (dùng cột `totalAmount` sẵn có). FE: bỏ logic `estimateBookingTotal` ước lượng, đọc thẳng `totalAmount` / `remainingAmount` / `priceBreakdown`; ô "Khách đã chuyển" đọc `paidAmount` (KHÔNG phải `depositAmount`). Booking cũ chưa có `totalAmount` sẽ được tính lại khi confirm/PUT tiếp theo, hoặc breakdown tính live ở response.
+
+### v1.28 — 2026-07-08 (Fix `GET /users?withStats` — bookingCount của OWNER trả 0)
+
+Bug: OWNER có phòng + có lượt đặt nhưng `stats.bookingCount = 0`.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| `GET /users?withStats=true` | `bookingCount` cũ = `saleBookings + customerBookings` → chỉ đếm booking user đích thân tạo (sale) hoặc đặt (customer). Booking trên phòng OWNER do SALE tạo hoặc khách tự đặt **không** được đếm → OWNER ra 0. Nay `bookingCount` = số booking user liên quan (chủ phòng `property.ownerId` **hoặc** `saleId` **hoặc** `customerId`), dedup theo booking. `propertyCount` + `disputeCount` không đổi. |
+| `GET /guests/:id` | `stats.{totalBookings,completedBookings,cancelledBookings}` trước tính từ 50 booking gần nhất (`take:50`) → under-report nếu khách > 50 booking. Nay tính trên **toàn bộ** booking (groupBy status), khớp với list `GET /guests`. `recentBookings` vẫn giới hạn 50. |
+
+**Rà soát đồng bộ**: các endpoint count khác đã đúng — `GET /guests` (list, count theo `customerId`), `GET /properties` (`_count.bookings` per phòng), Dashboard `topHostCancel` (booking owner qua `property.ownerId`) — không cần sửa.
+
+**Breaking?** Không — chỉ đổi cách tính, shape response giữ nguyên. FE không cần sửa.
+
+### v1.27 — 2026-07-08 (Phòng: sức chứa trẻ em tiêu chuẩn + filter người lớn/trẻ em)
+
+Thêm sức chứa trẻ em cho phòng và filter tách người lớn/trẻ em ở các trang danh sách.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| Schema `Property` | Thêm cột `standardChildren INT NOT NULL DEFAULT 0` (migration `20260708030000_add_property_standard_children`, additive). `standardGuests` = số người lớn tiêu chuẩn, `standardChildren` = sức chứa trẻ em tiêu chuẩn, `maxGuests` = tối đa **cả căn** (KHÔNG chia người lớn/trẻ em). |
+| `POST /properties` + `PATCH /properties/:id` | Nhận thêm `standardChildren` (int ≥0, optional). |
+| Response phòng | `PropertyCardDto` (list/search), `GET /properties`, `GET /properties/public/:slug`, `GET /properties/share/:id` trả thêm `standardChildren`. |
+| Filter list/search | `GET /properties/search` + `GET /properties/public` nhận thêm `adults` (lọc `standardGuests >= adults`) và `children` (lọc `standardChildren >= children`). `guests` giữ nguyên (lọc `maxGuests`). Xem §4.7. |
+
+**Breaking?** Không — thêm cột default 0 + query optional. Phòng cũ giữ `standardChildren=0`. FE cũ không đổi gì.
+
 ### v1.26 — 2026-07-07 (Booking khách — thu đủ thông tin liên hệ + tách người lớn/trẻ em)
 
 Trước đây `POST /bookings/customer-hold` chỉ lưu `customerId` (suy tên từ account) → booking thiếu thông tin liên hệ độc lập. Nay thu đủ như form web.
@@ -3847,7 +4044,7 @@ Response shape:
 }
 ```
 
-`bookingCount` = `saleBookings` + `customerBookings` (tổng booking user là sale hoặc khách).
+`bookingCount` (v1.28) = số booking user **liên quan**: là chủ phòng (`property.ownerId = user`), hoặc người tạo hold (`saleId = user`), hoặc khách đặt (`customerId = user`) — dedup theo booking. Trước v1.28 chỉ tính `saleBookings + customerBookings` nên OWNER có phòng đầy booking (do SALE tạo / khách tự đặt) vẫn ra `0`; nay đếm cả booking trên phòng OWNER sở hữu.
 `lastActiveAt` chưa có (chưa track session time). Có thể derive từ `updatedAt` tạm thời.
 
 **Search keyword (v1.7.1):** `GET /users?q=<keyword>` — tìm theo `name` / `phone` / `email` (case-insensitive, max 100 ký tự). Có thể kết hợp với `role` và `withStats`. Ví dụ: `GET /users?role=1&q=0912&withStats=true`.
@@ -4009,10 +4206,11 @@ ThrottlerModule mặc định **không trả** `X-RateLimit-Remaining` / `Retry-
 **Listing endpoints đều trả 1 trong 2 shape**:
 
 **Shape A** — `{ items, total, page, limit, totalPages }`:
-- `/admin/subscriptions`, `/admin/disputes`, `/admin/audit-log`, `/admin/reviews`, `/conversations`, `/notifications`, `/bookings/my-bookings`, `/leads`
+- `/admin/subscriptions`, `/admin/disputes`, `/admin/audit-log`, `/admin/reviews`, `/conversations`, `/bookings/my-bookings`, `/leads`
 
-**Shape B** — array trực tiếp + `meta`:
+**Shape B** — `data` là array trực tiếp + `meta` ở top-level (sibling của `data`, KHÔNG bọc trong `data`):
 - `/bookings` → `data: BookingDto[], meta: { total, page, limit }`
+- **`/notifications`** → `data: NotificationDto[], meta: { total, page, limit }` — ⚠️ **đính chính 2026-07-09**: trước đây liệt kê nhầm ở Shape A. BE thực tế trả `data` là **MẢNG**; phân trang ở `response.data.meta` (KHÔNG có `items` bên trong `data`). App parse `response.data['data'] as List` là ĐÚNG với thực tế; đọc `response.data['meta']` cho total/page/limit.
 
 **Endpoint trả array plain (không paginate)**:
 - `/users`, `/users/my-staff`, `/users/available-staff`, `/staff`, `/staff/invites`, `/properties`, `/properties/public`, `/billing/plans`, `/notifications/unread-count` (object), `/calendar/properties`, `/devices`, `/admin/emails/templates`

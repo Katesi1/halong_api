@@ -10,6 +10,7 @@ import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { MarkBookingPaidDto } from './dto/mark-paid.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { DepositProofDto } from './dto/deposit-proof.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -141,6 +142,20 @@ export class BookingsController {
     return this.bookingsService.markPaid(id, dto.amount, user, msg);
   }
 
+  @Patch(':id/checkin')
+  @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
+  @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.UPDATE)
+  @ApiOperation({ summary: 'Xác nhận khách nhận phòng + thu nốt tiền → hoàn tất booking (Admin/Owner/Sale)' })
+  @ApiResponse({ status: 200, type: BookingResponse })
+  checkIn(
+    @Param('id') id: string,
+    @Body() dto: MarkBookingPaidDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.bookingsService.checkIn(id, dto.amount, user, msg);
+  }
+
   @Patch(':id/cancel')
   @Roles(ROLE.ADMIN, ROLE.OWNER, ROLE.SALE)
   @Permission(PERMISSION_MODULE.BOOKINGS, PERMISSION_ACTION.DELETE)
@@ -178,5 +193,17 @@ export class BookingsController {
   @ApiResponse({ status: 200, type: MessageResponse })
   customerCancel(@Param('id') id: string, @CurrentUser() user: any, @Lang() msg: Messages) {
     return this.bookingsService.customerCancel(id, user, msg);
+  }
+
+  @Post(':id/deposit-proof')
+  @ApiOperation({ summary: 'Customer gửi ảnh bill chuyển khoản cọc (booking CONFIRMED, chưa thu tiền)' })
+  @ApiResponse({ status: 200, type: BookingResponse })
+  submitDepositProof(
+    @Param('id') id: string,
+    @Body() dto: DepositProofDto,
+    @CurrentUser() user: any,
+    @Lang() msg: Messages,
+  ) {
+    return this.bookingsService.submitDepositProof(id, dto.proofUrl, user, msg);
   }
 }

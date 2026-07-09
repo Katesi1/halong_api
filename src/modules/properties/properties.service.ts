@@ -144,12 +144,16 @@ export class PropertiesService {
     type?: number,
     view?: string,
     userId?: string | null,
+    adults?: number,
+    children?: number,
   ) {
     const where: Prisma.PropertyWhereInput = { isActive: true, deletedAt: null, moderationStatus: 'approved', owner: ownerVisibleFilter() };
 
     if (type !== undefined) where.type = type;
     if (view) where.view = view;
     if (guests) where.maxGuests = { gte: guests };
+    if (adults) where.standardGuests = { gte: adults };
+    if (children !== undefined) where.standardChildren = { gte: children };
 
     if (minPrice !== undefined || maxPrice !== undefined) {
       where.weekdayPrice = {};
@@ -196,6 +200,8 @@ export class PropertiesService {
     if (dto.type !== undefined) where.type = dto.type;
     if (dto.view) where.view = dto.view;
     if (dto.guests) where.maxGuests = { gte: dto.guests };
+    if (dto.adults) where.standardGuests = { gte: dto.adults };
+    if (dto.children !== undefined) where.standardChildren = { gte: dto.children };
     if (dto.bedrooms !== undefined) where.bedrooms = { gte: dto.bedrooms };
     if (dto.minRating !== undefined) where.ratingAvg = { gte: dto.minRating };
     if (dto.amenities && dto.amenities.length > 0) where.amenities = { hasEvery: dto.amenities };
@@ -306,7 +312,9 @@ export class PropertiesService {
 
     const conflicting = await this.prisma.booking.findMany({
       where: {
-        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+        // Gồm COMPLETED: owner check-in (v1.31) đưa booking sang COMPLETED khi khách nhận phòng
+        // dù vẫn đang lưu trú → phải loại phòng đó khỏi kết quả search cho ngày trùng.
+        status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.COMPLETED] },
         checkinDate: { lt: checkout },
         checkoutDate: { gt: checkin },
       },
@@ -685,6 +693,7 @@ export class PropertiesService {
         bedrooms: true,
         bathrooms: true,
         standardGuests: true,
+        standardChildren: true,
         maxGuests: true,
         floorArea: true,
         weekdayPrice: true,
@@ -900,6 +909,7 @@ export class PropertiesService {
         bedrooms: true,
         bathrooms: true,
         standardGuests: true,
+        standardChildren: true,
         maxGuests: true,
         floorArea: true,
         adultSurcharge: true,

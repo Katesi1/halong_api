@@ -13,6 +13,10 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { ReplyReviewDto } from './dto/reply-review.dto';
 import { HideReviewDto } from './dto/hide-review.dto';
 
+// Đánh giá chỉ mở sau 12h trưa (giờ VN) ngày trả phòng — dù booking đã COMPLETED sớm do check-in.
+// checkoutDate lưu 00:00Z của ngày trả VN → mốc = checkoutDate + 12h - 7h = +5h.
+const REVIEW_UNLOCK_AFTER_CHECKOUT_MS = (12 - 7) * 60 * 60 * 1000; // 5h
+
 @Injectable()
 export class ReviewsService {
   constructor(private prisma: PrismaService, private auditLog: AuditLogService) {}
@@ -33,7 +37,7 @@ export class ReviewsService {
     // Check booking belongs to customer and is for this property
     const booking = await this.prisma.booking.findUnique({
       where: { id: dto.bookingId },
-      select: { id: true, customerId: true, propertyId: true, status: true },
+      select: { id: true, customerId: true, propertyId: true, status: true, checkoutDate: true },
     });
 
     if (!booking || booking.propertyId !== propertyId) {
@@ -44,6 +48,11 @@ export class ReviewsService {
     }
     if (booking.status !== BOOKING_STATUS.COMPLETED) {
       throw new BadRequestException(msg.reviews.bookingNotCompleted);
+    }
+    // COMPLETED có thể xảy ra sớm do owner check-in — chỉ cho đánh giá SAU 12h trưa ngày trả phòng.
+    const reviewUnlockAt = booking.checkoutDate.getTime() + REVIEW_UNLOCK_AFTER_CHECKOUT_MS;
+    if (Date.now() < reviewUnlockAt) {
+      throw new BadRequestException(msg.reviews.reviewNotYetAllowed);
     }
 
     // Check if already reviewed

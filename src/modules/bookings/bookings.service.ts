@@ -14,6 +14,7 @@ import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
 import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
 import { buildVietQrPayload, sanitizeTransferContent } from '../payment/helpers/vietqr.helper';
+import { computeBookingPricing, resolveGuestCounts, type PropertyPricing } from './booking-pricing';
 
 /** Mã hiển thị HL-XXXXXXXX cho khách đối chiếu khi liên hệ chủ nhà. */
 function deriveBookingCode(id: string): string {
@@ -32,6 +33,16 @@ import { EmailService } from '../email/email.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
 const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
+
+// Trạng thái "chiếm phòng" cho check trùng lịch + hiển thị calendar.
+// Gồm COMPLETED vì owner check-in (v1.31) đưa booking sang COMPLETED ngay khi khách nhận phòng
+// dù vẫn đang lưu trú — nếu bỏ, booking check-in sớm sẽ không chặn đặt trùng + hiện "trống" trên lịch.
+// Booking đã trả phòng (COMPLETED, checkout đã qua) không overlap với đặt mới (checkin >= hôm nay) → an toàn.
+const BLOCKING_BOOKING_STATUSES = [
+  BOOKING_STATUS.HOLD,
+  BOOKING_STATUS.CONFIRMED,
+  BOOKING_STATUS.COMPLETED,
+];
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 
@@ -86,6 +97,9 @@ export class BookingsService {
             select: {
               id: true, name: true, slug: true, code: true, type: true,
               cancellationPolicy: true,
+              weekdayPrice: true, weekendPrice: true, holidayPrice: true,
+              adultSurcharge: true, childSurcharge: true,
+              standardGuests: true, standardChildren: true,
               images: { where: { isCover: true }, take: 1, select: { id: true, imageUrl: true, isCover: true, order: true } },
               owner: { select: { id: true, name: true, phone: true, bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true } },
             },
@@ -140,6 +154,8 @@ export class BookingsService {
     host: { name: string | null; phone: string | null } | null;
     cancellationPolicy: number | null;
     hasReview: boolean;
+    canReview: boolean;
+    reviewUnlockAt: Date | null;
     depositDeadlineAt: Date | null;
     nights: number;
     paymentInfo: {
@@ -163,6 +179,16 @@ export class BookingsService {
     const depositDeadlineAt =
       booking.status === BOOKING_STATUS.HOLD ? booking.holdExpireAt ?? null : null;
     const code = deriveBookingCode(booking.id);
+    // Đánh giá chỉ mở sau 12h trưa ngày trả phòng (checkout + 5h), dù booking COMPLETED sớm do check-in.
+    const hasReview = Boolean(booking.review);
+    const reviewUnlockAt = booking.checkoutDate
+      ? new Date(booking.checkoutDate.getTime() + COMPLETE_AFTER_CHECKOUT_MS)
+      : null;
+    const canReview =
+      booking.status === BOOKING_STATUS.COMPLETED &&
+      !hasReview &&
+      reviewUnlockAt != null &&
+      Date.now() >= reviewUnlockAt.getTime();
     return {
       code,
       propertyName: property?.name ?? null,
@@ -173,7 +199,9 @@ export class BookingsService {
         typeof property?.cancellationPolicy === 'number'
           ? property.cancellationPolicy
           : null,
-      hasReview: Boolean(booking.review),
+      hasReview,
+      canReview,
+      reviewUnlockAt,
       depositDeadlineAt,
       nights: this.calcNights(booking.checkinDate, booking.checkoutDate),
       paymentInfo: this.buildPaymentInfo(booking, owner, code),
@@ -237,12 +265,77 @@ export class BookingsService {
     const property = booking?.property
       ? this.stripOwnerBankFields(booking.property)
       : undefined;
+
+    // priceBreakdown: tính lại từ giá phòng hiện tại (nếu select có field giá) để hiển thị
+    // minh bạch. totalAmount ưu tiên giá trị đã persist ở DB (set lúc hold/confirm/PUT);
+    // fallback breakdown.total nếu DB chưa có nhưng tính được.
+    const breakdown = this.computePricing(booking, booking?.property);
+    const totalAmount = booking?.totalAmount ?? breakdown?.total ?? null;
+    const paidAmount = booking?.paidAmount ?? 0;
+    const remainingAmount =
+      totalAmount != null ? Math.max(0, totalAmount - paidAmount) : null;
+
     return {
       ...booking,
       ...(property !== undefined ? { property } : {}),
       holdRemainingSeconds,
       ...extras,
+      totalAmount,
+      paidAmount,
+      remainingAmount,
+      priceBreakdown: breakdown,
     };
+  }
+
+  /** PropertyPricing từ 1 property object (null-normalize). */
+  private pricingFromProperty(property: any): PropertyPricing {
+    return {
+      weekdayPrice: property?.weekdayPrice ?? null,
+      weekendPrice: property?.weekendPrice ?? null,
+      holidayPrice: property?.holidayPrice ?? null,
+      adultSurcharge: property?.adultSurcharge ?? null,
+      childSurcharge: property?.childSurcharge ?? null,
+      standardGuests: property?.standardGuests ?? null,
+      standardChildren: property?.standardChildren ?? null,
+    };
+  }
+
+  /** Tính pricing cho 1 booking + property. Trả null nếu thiếu giá hoặc thiếu field giá trong select. */
+  private computePricing(booking: any, property: any) {
+    if (property?.weekdayPrice === undefined) return null; // select không có field giá → bỏ qua breakdown
+    const { adults, children } = resolveGuestCounts(booking);
+    const { breakdown } = computeBookingPricing({
+      checkin: new Date(booking.checkinDate),
+      checkout: new Date(booking.checkoutDate),
+      adults,
+      children,
+      pricing: this.pricingFromProperty(property),
+    });
+    return breakdown;
+  }
+
+  /** Field giá cần select khi cần tính totalAmount ở create/confirm/update. */
+  private static readonly PRICING_SELECT = {
+    weekdayPrice: true, weekendPrice: true, holidayPrice: true,
+    adultSurcharge: true, childSurcharge: true,
+    standardGuests: true, standardChildren: true,
+  } as const;
+
+  /** Tính totalAmount để persist. Trả null nếu property chưa cấu hình giá. */
+  private computeTotalToPersist(
+    property: any,
+    checkin: Date,
+    checkout: Date,
+    guests: { adults?: number | null; children?: number | null; guestCount?: number | null },
+  ): number | null {
+    const { adults, children } = resolveGuestCounts(guests);
+    return computeBookingPricing({
+      checkin,
+      checkout,
+      adults,
+      children,
+      pricing: this.pricingFromProperty(property),
+    }).totalAmount;
   }
 
   async findOne(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
@@ -308,6 +401,11 @@ export class BookingsService {
     const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
     if (!property || !property.isActive || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
 
+    // Staff hold chỉ có guestCount → coi là người lớn cho phụ thu (children=0).
+    const totalAmount = this.computeTotalToPersist(property, checkin, checkout, {
+      guestCount: dto.guestCount || 2,
+    });
+
     const holdExpireAt = new Date(Date.now() + STAFF_HOLD_DURATION_SECONDS * 1000);
 
     // Wrap conflict-check + holds-cancel + create trong 1 transaction Serializable
@@ -316,7 +414,7 @@ export class BookingsService {
       const conflict = await tx.booking.findFirst({
         where: {
           propertyId,
-          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          status: { in: BLOCKING_BOOKING_STATUSES },
           checkinDate: { lt: checkout },
           checkoutDate: { gt: checkin },
         },
@@ -373,6 +471,7 @@ export class BookingsService {
           customerName: dto.customerName,
           customerPhone: dto.customerPhone,
           depositAmount: dto.depositAmount,
+          totalAmount,
           guestCount: dto.guestCount || 2,
           notes: dto.notes,
         },
@@ -408,7 +507,7 @@ export class BookingsService {
   async confirmBooking(id: string, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { property: { select: { ownerId: true } } },
+      include: { property: { select: { ownerId: true, ...BookingsService.PRICING_SELECT } } },
     });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
 
@@ -418,9 +517,17 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.onlyConfirmHold);
     }
 
+    // Tính lại totalAmount theo giá phòng hiện tại (giá có thể đổi từ lúc hold).
+    const totalAmount = this.computeTotalToPersist(
+      booking.property,
+      booking.checkinDate,
+      booking.checkoutDate,
+      booking,
+    );
+
     const confirmed = await this.prisma.booking.update({
       where: { id },
-      data: { status: BOOKING_STATUS.CONFIRMED, holdExpireAt: null },
+      data: { status: BOOKING_STATUS.CONFIRMED, holdExpireAt: null, totalAmount },
       include: {
         property: { select: { id: true, name: true, code: true } },
       },
@@ -478,7 +585,9 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.alreadyCancelled);
     }
 
-    const paidAmount = amount ?? booking.totalAmount ?? booking.depositAmount ?? 0;
+    // Không truyền amount → mặc định ghi nhận tiền cọc (giữ hành vi cũ khi totalAmount còn null),
+    // fallback totalAmount rồi 0. FE nên truyền amount tường minh cho số tiền thực thu.
+    const paidAmount = amount ?? booking.depositAmount ?? booking.totalAmount ?? 0;
     if (paidAmount <= 0) {
       throw new BadRequestException(msg.bookings.paidAmountRequired);
     }
@@ -521,6 +630,7 @@ export class BookingsService {
 
     // Email xác nhận cho khách (nếu có account + email + SMTP cấu hình). Fire-and-forget.
     if (booking.customer?.email) {
+      const totalForEmail = booking.totalAmount ?? null;
       void this.email.sendBookingConfirmed({
         to: booking.customer.email,
         customerName: booking.customer.name ?? booking.customerName ?? 'Quý khách',
@@ -529,6 +639,9 @@ export class BookingsService {
         checkinDate: booking.checkinDate,
         checkoutDate: booking.checkoutDate,
         paidAmount,
+        totalAmount: totalForEmail,
+        depositAmount: booking.depositAmount ?? null,
+        remainingAmount: totalForEmail != null ? Math.max(0, totalForEmail - paidAmount) : null,
         bookingCode: deriveBookingCode(id),
         ownerName: booking.property.owner?.name ?? null,
         ownerPhone: booking.property.owner?.phone ?? null,
@@ -546,6 +659,152 @@ export class BookingsService {
     });
 
     return { message: msg.bookings.markPaidSuccess, data: updated };
+  }
+
+  /**
+   * Khách gửi ảnh bill chuyển khoản cọc (POST /bookings/:id/deposit-proof).
+   * Chỉ hợp lệ khi booking đã CONFIRMED và chưa ghi nhận thanh toán (paidAt null).
+   * Lưu URL vào depositProofUrl + push owner để vào đối chiếu và ghi nhận cọc.
+   */
+  async submitDepositProof(
+    id: string,
+    proofUrl: string,
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { property: { select: { id: true, name: true, code: true, ownerId: true } } },
+    });
+    if (!booking) throw new NotFoundException(msg.bookings.notFound);
+    this.checkBookingAccess(booking, user, msg);
+
+    if (booking.status !== BOOKING_STATUS.CONFIRMED || booking.paidAt) {
+      throw new BadRequestException(msg.bookings.depositProofInvalidState);
+    }
+
+    const updated = await this.prisma.booking.update({
+      where: { id },
+      data: { depositProofUrl: proofUrl },
+      include: { property: { select: { id: true, name: true, code: true } } },
+    });
+
+    void this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Khách đã gửi ảnh chuyển khoản',
+      `${updated.property.name} (${updated.property.code}) — khách gửi bill cọc, vào xác nhận thu tiền`,
+      NOTIFICATION_TYPE.PAYMENT,
+      id,
+      'booking',
+      { pushType: 'booking_deposit_proof', deepLink: `/bookings/${id}` },
+    ).catch(() => undefined);
+
+    return { message: msg.bookings.depositProofSuccess, data: updated };
+  }
+
+  /**
+   * Owner xác nhận khách nhận phòng + thu nốt tiền phòng → hoàn tất booking (PATCH /bookings/:id/checkin).
+   * - Yêu cầu status=CONFIRMED.
+   * - Ghi checkedInAt; cộng dồn thanh toán: paidAmount += (amount ?? phần còn lại) → set paidAt.
+   * - Chuyển status=COMPLETED + completedAt (đây là mốc "Done" chủ động của owner; cron 12h trưa
+   *   checkout vẫn là fallback cho booking owner không thao tác).
+   */
+  async checkIn(
+    id: string,
+    amount: number | undefined,
+    user: { id: string; role: number; ownerId?: string | null },
+    msg: Messages,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: {
+        property: {
+          select: {
+            id: true, name: true, code: true, ownerId: true,
+            owner: { select: { name: true, phone: true } },
+          },
+        },
+        customer: { select: { email: true, name: true } },
+      },
+    });
+    if (!booking) throw new NotFoundException(msg.bookings.notFound);
+    this.checkBookingAccess(booking, user, msg);
+
+    if (booking.status !== BOOKING_STATUS.CONFIRMED) {
+      throw new BadRequestException(msg.bookings.onlyCheckinConfirmed);
+    }
+
+    const prevPaid = booking.paidAmount ?? 0;
+    // Thu nốt: amount tường minh → cộng dồn; nếu bỏ trống → thu cho đủ totalAmount (nếu có giá).
+    const remaining =
+      booking.totalAmount != null ? Math.max(0, booking.totalAmount - prevPaid) : 0;
+    const collected = amount ?? remaining;
+    const newPaid = prevPaid + collected;
+    const now = new Date();
+
+    const updated = await this.prisma.booking.update({
+      where: { id },
+      data: {
+        checkedInAt: now,
+        paidAmount: newPaid,
+        paidAt: booking.paidAt ?? now,
+        status: BOOKING_STATUS.COMPLETED,
+        completedAt: now,
+      },
+      include: { property: { select: { id: true, name: true, code: true } } },
+    });
+
+    void this.notifications.notifyPropertyOwner(
+      booking.propertyId,
+      'Booking hoàn tất',
+      `${updated.property.name} (${updated.property.code}) — đã nhận phòng, tổng thu ${newPaid.toLocaleString('vi-VN')} đ`,
+      NOTIFICATION_TYPE.BOOKING,
+      id,
+      'booking',
+      { pushType: 'booking_completed', deepLink: `/bookings/${id}` },
+    ).catch(() => undefined);
+    if (booking.customerId) {
+      void this.notifications.notifyUser(
+        booking.customerId,
+        'Đơn đặt phòng đã hoàn tất',
+        `Cảm ơn bạn đã lưu trú tại ${updated.property.name}. Bạn có thể đánh giá căn phòng.`,
+        NOTIFICATION_TYPE.BOOKING,
+        id,
+        'booking',
+        { pushType: 'booking_completed', deepLink: '/my-bookings' },
+      ).catch(() => undefined);
+    }
+
+    // Email hoàn tất cho khách (fire-and-forget).
+    if (booking.customer?.email) {
+      void this.email.sendBookingConfirmed({
+        to: booking.customer.email,
+        customerName: booking.customer.name ?? booking.customerName ?? 'Quý khách',
+        propertyName: updated.property.name,
+        propertyCode: updated.property.code,
+        checkinDate: booking.checkinDate,
+        checkoutDate: booking.checkoutDate,
+        paidAmount: newPaid,
+        totalAmount: booking.totalAmount ?? null,
+        depositAmount: booking.depositAmount ?? null,
+        remainingAmount: booking.totalAmount != null ? Math.max(0, booking.totalAmount - newPaid) : null,
+        bookingCode: deriveBookingCode(id),
+        ownerName: booking.property.owner?.name ?? null,
+        ownerPhone: booking.property.owner?.phone ?? null,
+      }).catch(() => undefined);
+    }
+
+    void this.auditLog.log({
+      actorId: user.id,
+      actorRole: user.role,
+      action: AUDIT_ACTION.BOOKING_MARK_PAID,
+      targetType: AUDIT_TARGET_TYPE.BOOKING,
+      targetId: id,
+      targetLabel: `${updated.property.name} (${updated.property.code})`,
+      metadata: { checkin: true, collected, totalPaid: newPaid },
+    });
+
+    return { message: msg.bookings.checkinSuccess, data: updated };
   }
 
   async cancelBooking(
@@ -640,14 +899,23 @@ export class BookingsService {
   async update(id: string, dto: UpdateBookingDto, user: { id: string; role: number; ownerId?: string | null }, msg: Messages) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
-      include: { property: { select: { ownerId: true } } },
+      include: { property: { select: { ownerId: true, ...BookingsService.PRICING_SELECT } } },
     });
     if (!booking) throw new NotFoundException(msg.bookings.notFound);
     this.checkBookingAccess(booking, user, msg);
 
+    // Sửa số khách → đổi phụ thu → tính lại totalAmount. guestCount override chỉ áp cho
+    // booking không tách adults/children (staff); booking khách giữ nguyên adults/children.
+    const totalAmount = this.computeTotalToPersist(
+      booking.property,
+      booking.checkinDate,
+      booking.checkoutDate,
+      { adults: booking.adults, children: booking.children, guestCount: dto.guestCount ?? booking.guestCount },
+    );
+
     const updated = await this.prisma.booking.update({
       where: { id },
-      data: dto,
+      data: { ...dto, totalAmount },
       include: {
         property: { select: { id: true, name: true, code: true } },
       },
@@ -682,13 +950,19 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.guestExceedsMax);
     }
 
+    const totalAmount = this.computeTotalToPersist(property, checkin, checkout, {
+      adults: dto.adults ?? null,
+      children: dto.adults != null ? children : null,
+      guestCount: totalGuests,
+    });
+
     const holdExpireAt = new Date(Date.now() + CUSTOMER_HOLD_DURATION_SECONDS * 1000);
 
     const booking = await this.prisma.$transaction(async (tx) => {
       const conflict = await tx.booking.findFirst({
         where: {
           propertyId,
-          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          status: { in: BLOCKING_BOOKING_STATUSES },
           checkinDate: { lt: checkout },
           checkoutDate: { gt: checkin },
         },
@@ -717,6 +991,7 @@ export class BookingsService {
           checkoutDate: checkout,
           status: BOOKING_STATUS.HOLD,
           holdExpireAt,
+          totalAmount,
           guestCount: totalGuests,
           notes: dto.notes,
         },
@@ -773,6 +1048,9 @@ export class BookingsService {
             select: {
               id: true, name: true, slug: true, code: true, type: true,
               cancellationPolicy: true,
+              weekdayPrice: true, weekendPrice: true, holidayPrice: true,
+              adultSurcharge: true, childSurcharge: true,
+              standardGuests: true, standardChildren: true,
               images: { where: { isCover: true }, take: 1, select: { id: true, imageUrl: true, isCover: true, order: true } },
               owner: { select: { id: true, name: true, phone: true, bankBin: true, bankName: true, bankAccountNumber: true, bankAccountName: true } },
             },
@@ -877,7 +1155,7 @@ export class BookingsService {
       this.prisma.booking.findMany({
         where: {
           propertyId,
-          status: { in: [BOOKING_STATUS.HOLD, BOOKING_STATUS.CONFIRMED] },
+          status: { in: BLOCKING_BOOKING_STATUSES },
           checkinDate: { lt: end },
           checkoutDate: { gt: start },
         },
@@ -909,7 +1187,7 @@ export class BookingsService {
         (b) => b.checkinDate <= date && b.checkoutDate > date,
       );
       if (booking) {
-        status = booking.status === BOOKING_STATUS.CONFIRMED ? 'booked' : 'hold';
+        status = booking.status === BOOKING_STATUS.HOLD ? 'hold' : 'booked';
         bookingId = booking.id;
         note = booking.customer?.name || booking.customerName || null;
       }
@@ -1007,6 +1285,39 @@ export class BookingsService {
       },
     });
     return result.count;
+  }
+
+  /**
+   * Nhắc check-in: 15h (giờ VN) ngày nhận phòng → push owner để xác nhận khách nhận phòng + thu nốt tiền.
+   * Chạy mỗi giờ, chỉ thực thi khi giờ VN == 15. Chỉ nhắc booking CONFIRMED, chưa check-in.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async remindCheckinBookings() {
+    const vnHour = new Date(Date.now() + VN_OFFSET_MS).getUTCHours();
+    if (vnHour !== 15) return 0;
+
+    const todayVN = this.startOfTodayUtc();
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        status: BOOKING_STATUS.CONFIRMED,
+        checkinDate: todayVN,
+        checkedInAt: null,
+      },
+      include: { property: { select: { id: true, name: true, code: true } } },
+    });
+
+    for (const b of bookings) {
+      void this.notifications.notifyPropertyOwner(
+        b.propertyId,
+        'Khách nhận phòng hôm nay',
+        `${b.property.name} (${b.property.code}) — xác nhận khách nhận phòng và thu nốt tiền phòng`,
+        NOTIFICATION_TYPE.BOOKING,
+        b.id,
+        'booking',
+        { pushType: 'booking_checkin_reminder', deepLink: `/bookings/${b.id}` },
+      ).catch(() => undefined);
+    }
+    return bookings.length;
   }
 
   // ─── Private Helpers ──────────────────────────────────────────────────────

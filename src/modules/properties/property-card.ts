@@ -28,6 +28,7 @@ type PropertyRow = {
   bedrooms: number;
   bathrooms: number;
   standardGuests: number;
+  standardChildren: number;
   maxGuests: number;
   floorArea: number | null;
   amenities: string[];
@@ -55,6 +56,7 @@ export interface PropertyCardDto {
   bedrooms: number;
   bathrooms: number;
   standardGuests: number;
+  standardChildren: number;
   maxGuests: number;
   floorArea: number | null;
   amenities: string[];
@@ -105,6 +107,7 @@ export function toPropertyCard(
     bedrooms: row.bedrooms,
     bathrooms: row.bathrooms,
     standardGuests: row.standardGuests,
+    standardChildren: row.standardChildren,
     maxGuests: row.maxGuests,
     floorArea: row.floorArea,
     amenities: row.amenities ?? [],
@@ -139,6 +142,7 @@ export const PROPERTY_CARD_SELECT = {
   bedrooms: true,
   bathrooms: true,
   standardGuests: true,
+  standardChildren: true,
   maxGuests: true,
   floorArea: true,
   amenities: true,

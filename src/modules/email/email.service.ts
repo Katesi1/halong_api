@@ -37,6 +37,9 @@ export interface BookingConfirmedEmailData {
   checkinDate: Date;
   checkoutDate: Date;
   paidAmount: number;
+  totalAmount?: number | null;
+  depositAmount?: number | null;
+  remainingAmount?: number | null;
   bookingCode: string;
   ownerName?: string | null;
   ownerPhone?: string | null;
@@ -414,10 +417,17 @@ export function renderBookingConfirmedEmail(data: BookingConfirmedEmailData): {
   const checkin = fmt(data.checkinDate);
   const checkout = fmt(data.checkoutDate);
   const propLabel = data.propertyCode ? `${data.propertyName} (${data.propertyCode})` : data.propertyName;
-  const amount = `${data.paidAmount.toLocaleString('vi-VN')} đ`;
+  const vnd = (n: number) => `${n.toLocaleString('vi-VN')} đ`;
+  const amount = vnd(data.paidAmount);
   const contactLine = data.ownerName || data.ownerPhone
     ? `\n\nChủ nhà: ${data.ownerName ?? ''}${data.ownerPhone ? ` — ${data.ownerPhone}` : ''}.`
     : '';
+
+  // Dòng giá bổ sung (chỉ hiện khi BE truyền): tổng / cọc / còn lại.
+  const priceLinesText =
+    (data.totalAmount != null ? `\n  Tổng tiền: ${vnd(data.totalAmount)}` : '') +
+    (data.depositAmount != null ? `\n  Tiền cọc: ${vnd(data.depositAmount)}` : '') +
+    (data.remainingAmount != null ? `\n  Còn lại: ${vnd(data.remainingAmount)}` : '');
 
   const text = `Xin chào ${data.customerName},
 
@@ -426,7 +436,7 @@ export function renderBookingConfirmedEmail(data: BookingConfirmedEmailData): {
   Mã booking: ${data.bookingCode}
   Nhận phòng: ${checkin}
   Trả phòng:  ${checkout}
-  Đã thanh toán: ${amount}${contactLine}
+  Đã thanh toán: ${amount}${priceLinesText}${contactLine}
 
 Hẹn gặp bạn tại ${data.propertyName}!
 
@@ -444,7 +454,10 @@ Hẹn gặp bạn tại ${data.propertyName}!
     <tr><td style="padding:6px 12px 6px 0;color:#666">Mã booking</td><td style="padding:6px 0"><strong>${escapeHtmlStr(data.bookingCode)}</strong></td></tr>
     <tr><td style="padding:6px 12px 6px 0;color:#666">Nhận phòng</td><td style="padding:6px 0"><strong>${checkin}</strong></td></tr>
     <tr><td style="padding:6px 12px 6px 0;color:#666">Trả phòng</td><td style="padding:6px 0"><strong>${checkout}</strong></td></tr>
+    ${data.totalAmount != null ? `<tr><td style="padding:6px 12px 6px 0;color:#666">Tổng tiền</td><td style="padding:6px 0"><strong>${vnd(data.totalAmount)}</strong></td></tr>` : ''}
+    ${data.depositAmount != null ? `<tr><td style="padding:6px 12px 6px 0;color:#666">Tiền cọc</td><td style="padding:6px 0"><strong>${vnd(data.depositAmount)}</strong></td></tr>` : ''}
     <tr><td style="padding:6px 12px 6px 0;color:#666">Đã thanh toán</td><td style="padding:6px 0"><strong>${amount}</strong></td></tr>
+    ${data.remainingAmount != null ? `<tr><td style="padding:6px 12px 6px 0;color:#666">Còn lại</td><td style="padding:6px 0"><strong>${vnd(data.remainingAmount)}</strong></td></tr>` : ''}
   </table>
   ${contactHtml}
   <p style="margin-top:24px">Hẹn gặp bạn tại ${escapeHtmlStr(data.propertyName)}!</p>
