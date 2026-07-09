@@ -203,7 +203,7 @@ await this.prisma.xxx.delete({ where: { id } });
 ### 5.6 Booking Hold Logic
 ```
 - Staff hold: 30 phút → holdExpireAt = now + 30min, dùng Redis
-- Customer hold: 24 giờ → holdExpireAt = now + 24h
+- Customer hold: 30 phút → holdExpireAt = now + 30min (đổi từ 24h ở v1.35)
 - Cron job mỗi phút check và auto-cancel expired holds
 - holdRemainingSeconds = max(0, holdExpireAt - now) tính bằng giây
 ```

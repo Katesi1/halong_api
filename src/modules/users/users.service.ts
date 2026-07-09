@@ -261,6 +261,15 @@ export class UsersService {
       throw err;
     }
 
+    // Email chào mừng khi ADMIN tạo tài khoản (fire-and-forget).
+    if (user.email) {
+      if (user.role === ROLE.OWNER) {
+        void this.email.sendWelcomeOwner({ to: user.email, name: user.name }).catch(() => undefined);
+      } else if (user.role === ROLE.SALE) {
+        void this.email.sendWelcomeSale({ to: user.email, name: user.name }).catch(() => undefined);
+      }
+    }
+
     return { message: msg.users.createSuccess, data: user };
   }
 
@@ -611,10 +620,12 @@ export class UsersService {
         where: { id: userId },
         data: {
           deletionScheduledAt: scheduledAt,
-          // Logout mọi phiên ngay (cả app mobile + web)
+          // Logout mọi phiên ngay (cả app mobile + web) + vô hiệu access token (clear sid)
           refreshToken: null,
           refreshTokenMobile: null,
           refreshTokenWeb: null,
+          sessionIdMobile: null,
+          sessionIdWeb: null,
         },
       }),
       this.prisma.userDevice.deleteMany({ where: { userId } }),
@@ -789,6 +800,8 @@ export class UsersService {
               refreshToken: null,
               refreshTokenMobile: null,
               refreshTokenWeb: null,
+              sessionIdMobile: null,
+              sessionIdWeb: null,
               deletionScheduledAt: null,
               email: `deleted-${stamp}-${u.email}`,
               phone: u.phone ? `deleted-${stamp}-${u.phone}` : null,
@@ -971,6 +984,8 @@ export class UsersService {
         refreshToken: null,
         refreshTokenMobile: null,
         refreshTokenWeb: null,
+        sessionIdMobile: null,
+        sessionIdWeb: null,
       },
       select: { id: true, name: true, email: true, role: true, isActive: true, bannedAt: true, bannedReason: true },
     });
@@ -1030,8 +1045,8 @@ export class UsersService {
     if (!user) throw new NotFoundException(msg.users.notFound);
     await this.prisma.user.update({
       where: { id: userId },
-      // Revoke sessions → clear cả 3 cột (legacy + mobile + web)
-      data: { refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
+      // Revoke sessions → clear token + sid (vô hiệu cả refresh lẫn access token ngay)
+      data: { refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null, sessionIdMobile: null, sessionIdWeb: null },
     });
     // Also remove FCM device tokens so push notifications stop reaching former sessions.
     await this.prisma.userDevice.deleteMany({ where: { userId } });
@@ -1072,8 +1087,8 @@ export class UsersService {
     const hashed = await bcrypt.hash(generated, 10);
     await this.prisma.user.update({
       where: { id: userId },
-      // Admin reset password → force logout mọi phiên (mobile + web)
-      data: { password: hashed, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
+      // Admin reset password → force logout mọi phiên (mobile + web) + vô hiệu access token (clear sid)
+      data: { password: hashed, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null, sessionIdMobile: null, sessionIdWeb: null },
     });
     this.logger.log(`Password reset for user=${userId} by admin=${adminId}`);
     void this.auditLog.log({

@@ -125,6 +125,8 @@ export const vi = {
     getSuccess: 'Lấy thông tin cơ sở thành công',
     createSuccess: 'Tạo cơ sở thành công',
     createPendingSuccess: 'Đã gửi cơ sở, vui lòng chờ quản trị viên duyệt',
+    trialPropertyLimit: (max: number) =>
+      `Tài khoản của bạn hiện chỉ có thể đăng tối đa ${max} cơ sở. Vui lòng liên hệ hỗ trợ nếu cần đăng thêm.`,
     updateSuccess: 'Cập nhật cơ sở thành công',
     deleteSuccess: 'Xoá cơ sở thành công',
     deleteImageSuccess: 'Xoá ảnh thành công',

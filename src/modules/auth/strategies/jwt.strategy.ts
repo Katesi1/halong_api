@@ -26,19 +26,35 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     email: string;
     role: string;
     clientType?: 'mobile' | 'web';
+    sid?: string;
   }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
         id: true, name: true, phone: true, email: true, role: true, ownerId: true,
         scope: true, isActive: true, deletedAt: true,
+        sessionIdMobile: true, sessionIdWeb: true,
       },
     });
 
     if (!user || !user.isActive || user.deletedAt) {
       throw new UnauthorizedException('Tài khoản không tồn tại hoặc đã bị vô hiệu hóa');
     }
+
+    // Single active session / clientType: token có `sid` phải khớp phiên hiện tại trong DB.
+    // Đăng nhập ở thiết bị khác (cùng loại) đổi sid → access token cũ bị đá NGAY, không chờ hết hạn.
+    // Token phát trước bản này (không có sid) → bỏ qua, tự hết hạn ≤15 phút.
+    if (payload.sid) {
+      const currentSid =
+        payload.clientType === 'mobile' ? user.sessionIdMobile : user.sessionIdWeb;
+      if (payload.sid !== currentSid) {
+        throw new UnauthorizedException('Phiên đăng nhập đã kết thúc (đăng nhập ở thiết bị khác)');
+      }
+    }
+
+    // Không rò sessionId ra request.user.
+    const { sessionIdMobile, sessionIdWeb, ...safeUser } = user;
     // Đính clientType từ JWT payload — controller logout / audit dùng để nhận biết phiên hiện tại.
-    return { ...user, clientType: payload.clientType };
+    return { ...safeUser, clientType: payload.clientType };
   }
 }

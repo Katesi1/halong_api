@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../config/redis.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -32,7 +33,11 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { EmailService } from '../email/email.service';
 
 const STAFF_HOLD_DURATION_SECONDS = 1800; // 30 phút
-const CUSTOMER_HOLD_DURATION_SECONDS = 86400; // 24 giờ
+const CUSTOMER_HOLD_DURATION_SECONDS = 1800; // 30 phút (khách giữ chỗ tối đa 30 phút)
+
+// Tỉ lệ cọc mặc định khi owner ghi nhận cọc (mark-paid) mà không nhập số tiền
+// và booking chưa có depositAmount → tự động 50% totalAmount.
+const DEFAULT_DEPOSIT_RATE = 0.5;
 
 // Trạng thái "chiếm phòng" cho check trùng lịch + hiển thị calendar.
 // Gồm COMPLETED vì owner check-in (v1.31) đưa booking sang COMPLETED ngay khi khách nhận phòng
@@ -62,6 +67,7 @@ export class BookingsService {
     private notifications: NotificationsService,
     private auditLog: AuditLogService,
     private email: EmailService,
+    private config: ConfigService,
   ) {}
 
   // ─── Staff/Admin Methods ──────────────────────────────────────────────────
@@ -225,7 +231,13 @@ export class BookingsService {
   } | null {
     if (booking.status !== BOOKING_STATUS.CONFIRMED) return null;
     if (booking.paidAt) return null;
-    const amount = booking.depositAmount ?? 0;
+    // Số tiền cọc hiện lên QR: (1) depositAmount đã set (staff hold) → (2) fallback
+    // 50% totalAmount (khách tự đặt không có depositAmount) — đồng bộ với markPaid.
+    const amount =
+      booking.depositAmount ??
+      (booking.totalAmount != null
+        ? Math.round(booking.totalAmount * DEFAULT_DEPOSIT_RATE)
+        : 0);
     if (amount <= 0) return null;
     const bin = owner?.bankBin;
     const accountNumber = owner?.bankAccountNumber;
@@ -585,9 +597,13 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.alreadyCancelled);
     }
 
-    // Không truyền amount → mặc định ghi nhận tiền cọc (giữ hành vi cũ khi totalAmount còn null),
-    // fallback totalAmount rồi 0. FE nên truyền amount tường minh cho số tiền thực thu.
-    const paidAmount = amount ?? booking.depositAmount ?? booking.totalAmount ?? 0;
+    // Ghi nhận tiền cọc. Ưu tiên: (1) amount owner nhập → (2) depositAmount đã set lúc tạo
+    // → (3) tự động 50% totalAmount (khi có giá) → (4) 0 (báo lỗi thiếu giá).
+    const autoDeposit =
+      booking.totalAmount != null
+        ? Math.round(booking.totalAmount * DEFAULT_DEPOSIT_RATE)
+        : null;
+    const paidAmount = amount ?? booking.depositAmount ?? autoDeposit ?? 0;
     if (paidAmount <= 0) {
       throw new BadRequestException(msg.bookings.paidAmountRequired);
     }
@@ -628,12 +644,14 @@ export class BookingsService {
       ).catch(() => undefined);
     }
 
-    // Email xác nhận cho khách (nếu có account + email + SMTP cấu hình). Fire-and-forget.
-    if (booking.customer?.email) {
+    // Email xác nhận cho khách (email account HOẶC email liên hệ trên form + SMTP cấu hình).
+    // Fire-and-forget.
+    const toEmail = booking.customer?.email ?? booking.customerEmail;
+    if (toEmail) {
       const totalForEmail = booking.totalAmount ?? null;
       void this.email.sendBookingConfirmed({
-        to: booking.customer.email,
-        customerName: booking.customer.name ?? booking.customerName ?? 'Quý khách',
+        to: toEmail,
+        customerName: booking.customer?.name ?? booking.customerName ?? 'Quý khách',
         propertyName: updated.property.name,
         propertyCode: updated.property.code,
         checkinDate: booking.checkinDate,
@@ -775,11 +793,12 @@ export class BookingsService {
       ).catch(() => undefined);
     }
 
-    // Email hoàn tất cho khách (fire-and-forget).
-    if (booking.customer?.email) {
+    // Email hoàn tất cho khách (email account HOẶC email liên hệ trên form). Fire-and-forget.
+    const toEmail = booking.customer?.email ?? booking.customerEmail;
+    if (toEmail) {
       void this.email.sendBookingConfirmed({
-        to: booking.customer.email,
-        customerName: booking.customer.name ?? booking.customerName ?? 'Quý khách',
+        to: toEmail,
+        customerName: booking.customer?.name ?? booking.customerName ?? 'Quý khách',
         propertyName: updated.property.name,
         propertyCode: updated.property.code,
         checkinDate: booking.checkinDate,
@@ -1259,6 +1278,66 @@ export class BookingsService {
       },
     });
     return result.count;
+  }
+
+  /**
+   * Gửi email mời khách đánh giá — kích hoạt tại mốc 12h trưa (giờ VN) ngày trả phòng
+   * (checkoutDate + 5h = mốc review mở, xem COMPLETE_AFTER_CHECKOUT_MS).
+   * Điều kiện: booking COMPLETED, đã qua mốc review, chưa đánh giá, chưa gửi mail, có email khách.
+   * `reviewInviteSentAt` chống gửi trùng (cron chạy mỗi giờ). Fire-and-forget từng mail.
+   * Áp dụng cho cả booking auto-complete lẫn owner check-in (đều COMPLETED trước mốc trưa).
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async sendReviewInvitations() {
+    const threshold = new Date(Date.now() - COMPLETE_AFTER_CHECKOUT_MS);
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        status: BOOKING_STATUS.COMPLETED,
+        checkoutDate: { lte: threshold },
+        reviewInviteSentAt: null,
+        review: { is: null },
+        // Có email để gửi: hoặc email liên hệ trên form, hoặc có tài khoản khách (User.email luôn có).
+        OR: [
+          { customerEmail: { not: null } },
+          { customerId: { not: null } },
+        ],
+      },
+      select: {
+        id: true,
+        customerName: true,
+        customerEmail: true,
+        property: { select: { name: true } },
+        customer: { select: { email: true, name: true } },
+      },
+      take: 200,
+    });
+    if (bookings.length === 0) return 0;
+
+    const base = (
+      this.config.get<string>('FRONTEND_BASE_URL') || 'https://halong24h.com'
+    ).replace(/\/+$/, '');
+
+    let sent = 0;
+    for (const b of bookings) {
+      const toEmail = b.customer?.email ?? b.customerEmail;
+      if (!toEmail) continue;
+      // Đánh dấu trước để chống gửi trùng nếu mail chậm / cron chạy chồng.
+      await this.prisma.booking.update({
+        where: { id: b.id },
+        data: { reviewInviteSentAt: new Date() },
+      });
+      void this.email
+        .sendReviewInvitation({
+          to: toEmail,
+          customerName: b.customer?.name ?? b.customerName ?? 'Quý khách',
+          propertyName: b.property.name,
+          reviewUrl: `${base}/my/bookings/${b.id}`,
+          bookingCode: deriveBookingCode(b.id),
+        })
+        .catch(() => undefined);
+      sent++;
+    }
+    return sent;
   }
 
   /**

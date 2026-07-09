@@ -14,7 +14,8 @@ import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, AUDIT_ACTION, AUDI
 import { NotificationsService, PushMeta } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { kycRequired } from '../../common/errors/kyc.errors';
-import { assertOwnerEntitled } from '../../common/subscription';
+import { assertOwnerEntitled, isTrialPropertyCapped, TRIAL_MAX_PROPERTIES } from '../../common/subscription';
+import { propertyLimitReached } from '../../common/errors/subscription.errors';
 import { buildPropertySlug, ensureUniqueSlug } from '../../common/slug';
 import { PROPERTY_CARD_SELECT, toPropertyCard } from './property-card';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
@@ -370,6 +371,11 @@ export class PropertiesService {
       if (!owner) throw new NotFoundException(msg.properties.ownerNotFound);
     }
 
+    // Trial ngầm (chưa mua gói) chỉ được đăng tối đa 1 cơ sở. ADMIN tạo hộ bỏ qua.
+    if (user.role !== ROLE.ADMIN) {
+      await this.assertTrialPropertyQuota(ownerId, msg);
+    }
+
     const existing = await this.prisma.property.findUnique({ where: { code: dto.code } });
     if (existing) throw new ConflictException(msg.properties.codeDuplicate);
 
@@ -415,6 +421,26 @@ export class PropertiesService {
         : msg.properties.createSuccess,
       data: property,
     };
+  }
+
+  /**
+   * Chặn owner trial ngầm (chưa mua gói) đăng quá TRIAL_MAX_PROPERTIES cơ sở.
+   * Owner đã mua gói hoặc được ADMIN cấp kycBypass → không áp cap.
+   * Đếm cơ sở chưa soft-delete để so với trần. Copy trung tính cho iOS.
+   */
+  private async assertTrialPropertyQuota(ownerId: string, msg: Messages): Promise<void> {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { kycBypass: true, subscriptionStatus: true, subscriptionPlanId: true },
+    });
+    if (!owner || !isTrialPropertyCapped(owner)) return;
+
+    const count = await this.prisma.property.count({
+      where: { ownerId, deletedAt: null },
+    });
+    if (count >= TRIAL_MAX_PROPERTIES) {
+      throw propertyLimitReached(msg.properties.trialPropertyLimit(TRIAL_MAX_PROPERTIES));
+    }
   }
 
   /** PushMeta cho sự kiện sửa phòng — deep link tới màn property. */
@@ -725,62 +751,7 @@ export class PropertiesService {
 
     if (!property) throw new NotFoundException(msg.properties.notFound);
 
-    // Rating breakdown — query 1 lần, không N+1.
-    const reviews = await this.prisma.propertyReview.findMany({
-      where: { propertyId: property.id, isHidden: false },
-      select: {
-        cleanliness: true,
-        location: true,
-        amenities: true,
-        service: true,
-        value: true,
-        accuracy: true,
-        avgRating: true,
-      },
-    });
-
-    const totalReviews = reviews.length;
-    const ratingBreakdown =
-      totalReviews === 0
-        ? {
-            overall: 0,
-            cleanliness: 0,
-            location: 0,
-            amenities: 0,
-            service: 0,
-            value: 0,
-            accuracy: 0,
-            count: 0,
-          }
-        : (() => {
-            let sum = 0, c = 0, l = 0, a = 0, s = 0, v = 0, ac = 0;
-            for (const r of reviews) {
-              sum += r.avgRating;
-              c += r.cleanliness;
-              l += r.location;
-              a += r.amenities;
-              s += r.service;
-              v += r.value;
-              ac += r.accuracy;
-            }
-            const round = (n: number) => Math.round((n / totalReviews) * 100) / 100;
-            return {
-              overall: round(sum),
-              cleanliness: round(c),
-              location: round(l),
-              amenities: round(a),
-              service: round(s),
-              value: round(v),
-              accuracy: round(ac),
-              count: totalReviews,
-            };
-          })();
-
-    const memberSince = property.owner.createdAt
-      ? `${property.owner.createdAt.getUTCFullYear()}-${String(
-          property.owner.createdAt.getUTCMonth() + 1,
-        ).padStart(2, '0')}`
-      : null;
+    const ratingBreakdown = await this.buildRatingBreakdown(property.id);
 
     // Build payload (omit owner internal fields).
     const { owner, ...propertyFields } = property;
@@ -792,14 +763,7 @@ export class PropertiesService {
         rating: property.ratingAvg,
         reviewCount: property.reviewCount,
         ratingBreakdown,
-        host: {
-          name: owner.name,
-          avatarUrl: owner.avatar,
-          isKycVerified: owner.kycBypass || owner.kycStatus === 'approved',
-          memberSince,
-          totalProperties: owner._count.properties,
-          responseRate: null,
-        },
+        host: this.buildHostBlock(owner),
       },
     };
   }
@@ -928,6 +892,16 @@ export class PropertiesService {
           select: { id: true, imageUrl: true, isCover: true, order: true },
           orderBy: { order: 'asc' },
         },
+        owner: {
+          select: {
+            name: true,
+            avatar: true,
+            kycStatus: true,
+            kycBypass: true,
+            createdAt: true,
+            _count: { select: { properties: { where: { isActive: true, deletedAt: null } } } },
+          },
+        },
       },
     });
 
@@ -935,10 +909,103 @@ export class PropertiesService {
       throw new NotFoundException(msg.properties.notFound);
     }
 
-    return { message: msg.properties.shareSuccess, data: property };
+    const ratingBreakdown = await this.buildRatingBreakdown(property.id);
+
+    // Vẫn KHÔNG trả giá bán (weekday/weekend/holiday) — link preview công khai, giữ theo §4.14.
+    // Bổ sung host + ratingBreakdown + alias `rating` cho đồng bộ với public/:slug.
+    const { owner, ...propertyFields } = property;
+
+    return {
+      message: msg.properties.shareSuccess,
+      data: {
+        ...propertyFields,
+        rating: property.ratingAvg,
+        ratingBreakdown,
+        host: this.buildHostBlock(owner),
+      },
+    };
   }
 
   // ─── Private Helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Điểm đánh giá chi tiết 6 tiêu chí (visible reviews). 1 query, không N+1.
+   * Trả tất cả score = 0 khi chưa có review → FE tự ẩn section (count === 0).
+   */
+  private async buildRatingBreakdown(propertyId: string) {
+    const reviews = await this.prisma.propertyReview.findMany({
+      where: { propertyId, isHidden: false },
+      select: {
+        cleanliness: true,
+        location: true,
+        amenities: true,
+        service: true,
+        value: true,
+        accuracy: true,
+        avgRating: true,
+      },
+    });
+
+    const totalReviews = reviews.length;
+    if (totalReviews === 0) {
+      return {
+        overall: 0,
+        cleanliness: 0,
+        location: 0,
+        amenities: 0,
+        service: 0,
+        value: 0,
+        accuracy: 0,
+        count: 0,
+      };
+    }
+
+    let sum = 0, c = 0, l = 0, a = 0, s = 0, v = 0, ac = 0;
+    for (const r of reviews) {
+      sum += r.avgRating;
+      c += r.cleanliness;
+      l += r.location;
+      a += r.amenities;
+      s += r.service;
+      v += r.value;
+      ac += r.accuracy;
+    }
+    const round = (n: number) => Math.round((n / totalReviews) * 100) / 100;
+    return {
+      overall: round(sum),
+      cleanliness: round(c),
+      location: round(l),
+      amenities: round(a),
+      service: round(s),
+      value: round(v),
+      accuracy: round(ac),
+      count: totalReviews,
+    };
+  }
+
+  /** Build host block công khai (name/avatar/KYC/memberSince/totalProperties) — dùng cho public detail + share. */
+  private buildHostBlock(owner: {
+    name: string | null;
+    avatar: string | null;
+    kycStatus: string | null;
+    kycBypass: boolean;
+    createdAt: Date | null;
+    _count: { properties: number };
+  }) {
+    const memberSince = owner.createdAt
+      ? `${owner.createdAt.getUTCFullYear()}-${String(
+          owner.createdAt.getUTCMonth() + 1,
+        ).padStart(2, '0')}`
+      : null;
+    return {
+      name: owner.name,
+      avatarUrl: owner.avatar,
+      isKycVerified: owner.kycBypass || owner.kycStatus === 'approved',
+      memberSince,
+      totalProperties: owner._count.properties,
+      responseRate: null,
+    };
+  }
 
   private async getPropertyWithAccess(
     id: string,

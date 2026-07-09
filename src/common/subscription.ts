@@ -16,6 +16,30 @@ interface OwnerEntitlement {
 }
 
 /**
+ * Trial ngầm (chưa mua gói) chỉ được đăng tối đa 1 cơ sở (1 villa / 1 homestay /
+ * 1 khách sạn). Mua gói bất kỳ hoặc được ADMIN cấp kycBypass → gỡ cap này.
+ */
+export const TRIAL_MAX_PROPERTIES = 1;
+
+interface TrialQuotaOwner {
+  kycBypass: boolean;
+  subscriptionStatus: string;
+  subscriptionPlanId: string | null;
+}
+
+/**
+ * Owner có đang bị giới hạn số cơ sở theo trial ngầm không.
+ * - kycBypass (ADMIN grant) → không cap.
+ * - Đã có subscriptionPlanId (đã mua gói) → không cap.
+ * - Chỉ cap khi status = TRIAL và chưa gắn plan nào.
+ */
+export function isTrialPropertyCapped(owner: TrialQuotaOwner): boolean {
+  if (owner.kycBypass) return false;
+  if (owner.subscriptionPlanId) return false;
+  return owner.subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL;
+}
+
+/**
  * Owner được phép dùng tính năng quản lý khi:
  * - kycBypass = true (ADMIN cấp tay), HOẶC
  * - subscriptionStatus = ACTIVE, HOẶC

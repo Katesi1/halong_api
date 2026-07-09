@@ -24,6 +24,8 @@ model User {
   refreshToken     String?   // DEPRECATED — legacy 1-session-total. Giữ để tương thích dữ liệu cũ, có thể drop sau.
   refreshTokenMobile String? // Session app native (Android/iOS). Login mobile mới → đá device cũ.
   refreshTokenWeb    String? // Session web browser. Login web mới → đá browser cũ.
+  sessionIdMobile    String? // Session id phiên mobile hiện tại — nhúng vào JWT (sid). Login mới đổi id → access token thiết bị cũ bị đá NGAY.
+  sessionIdWeb       String? // Session id phiên web hiện tại — nhúng vào JWT (sid).
   googleSub        String?   @unique // Google's sub claim — stable user ID
   appleSub         String?   @unique // Apple's sub claim — stable user ID
   emailVerified    Boolean   @default(false)
@@ -319,6 +321,7 @@ model Booking {
   completedAt        DateTime? // set khi cron auto-complete sau 12h trưa ngày trả phòng, hoặc owner check-in
   checkedInAt        DateTime? // owner xác nhận khách đã check-in (PATCH /bookings/:id/checkin)
   depositProofUrl    String?   // ảnh bill chuyển khoản cọc do khách gửi (POST /bookings/:id/deposit-proof)
+  reviewInviteSentAt DateTime? // set khi cron gửi email mời đánh giá (12h trưa ngày checkout) — chống gửi trùng
   depositAmount Int? // VND — luôn dùng Int, tránh sai số float64
   totalAmount   Int? // VND — tổng giá trị booking (lưu lại khi tạo để tránh re-compute)
   paidAmount    Int? // VND — số tiền thực thu (cập nhật qua mark-paid)

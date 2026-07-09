@@ -6,6 +6,7 @@ import { RedisService } from '../../config/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { EmailService } from '../email/email.service';
+import { ConfigService } from '@nestjs/config';
 import { en } from '../../i18n';
 import { BOOKING_STATUS, ROLE } from '../../common/constants';
 
@@ -92,6 +93,12 @@ describe('BookingsService', () => {
           useValue: {
             sendBookingCancelled: jest.fn().mockResolvedValue(undefined),
             sendBookingConfirmed: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue(undefined),
           },
         },
       ],
@@ -229,6 +236,30 @@ describe('BookingsService', () => {
       expect(pi!.bank.accountNumber).toBe('0123456789');
       expect(typeof pi!.qrPayload).toBe('string');
       expect(pi!.qrPayload.length).toBeGreaterThan(20);
+    });
+
+    it('fallback cọc 50% totalAmount khi khách tự đặt (depositAmount null)', async () => {
+      // Booking khách tự đặt: chỉ có totalAmount, chưa từng set depositAmount.
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({
+        ...baseConfirmed,
+        depositAmount: null,
+        totalAmount: 1000000,
+      });
+      const res = await service.findOne('booking-1', admin, msg);
+      const pi = res.data.paymentInfo;
+      expect(pi).not.toBeNull();
+      expect(pi!.amount).toBe(500000); // 50% × 1.000.000
+      expect(pi!.bank.accountNumber).toBe('0123456789');
+    });
+
+    it('returns null paymentInfo khi vừa thiếu depositAmount vừa thiếu totalAmount', async () => {
+      (prisma.booking.findUnique as jest.Mock).mockResolvedValue({
+        ...baseConfirmed,
+        depositAmount: null,
+        totalAmount: null,
+      });
+      const res = await service.findOne('booking-1', admin, msg);
+      expect(res.data.paymentInfo).toBeNull();
     });
 
     it('returns null paymentInfo when already paid', async () => {

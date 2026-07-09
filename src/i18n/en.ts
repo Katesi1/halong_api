@@ -125,6 +125,8 @@ export const en = {
     getSuccess: 'Property retrieved successfully',
     createSuccess: 'Property created successfully',
     createPendingSuccess: 'Property submitted, awaiting admin approval',
+    trialPropertyLimit: (max: number) =>
+      `Your account can currently post at most ${max} property. Please contact support if you need to add more.`,
     updateSuccess: 'Property updated successfully',
     deleteSuccess: 'Property deleted successfully',
     deleteImageSuccess: 'Image deleted successfully',

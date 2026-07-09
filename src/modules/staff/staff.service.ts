@@ -331,6 +331,13 @@ export class StaffService {
       data: { status: 'accepted', acceptedAt: new Date(), acceptedUserId: newUser.id },
     });
 
+    // Email chào mừng nhân viên vừa tạo tài khoản (fire-and-forget).
+    if (newUser.email) {
+      void this.emailService
+        .sendWelcomeSale({ to: newUser.email, name: newUser.name })
+        .catch(() => undefined);
+    }
+
     // Default permissions for new SALE owner-scope: full CRUD on operational modules,
     // read-only on properties. OWNER can adjust later via PUT /permissions/:userId.
     // System SALE: KHÔNG cấp default — admin tự cấp tường minh qua /permissions/:userId

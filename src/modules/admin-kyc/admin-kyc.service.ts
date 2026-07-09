@@ -22,6 +22,7 @@ import {
 } from '../../common/constants';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { EmailService } from '../email/email.service';
 import { extendPeriod, type Cycle } from '../payment/helpers/billing.helper';
 import type { Messages } from '../../i18n';
 
@@ -33,6 +34,7 @@ export class AdminKycService {
     private prisma: PrismaService,
     private notifications: NotificationsService,
     private auditLog: AuditLogService,
+    private email: EmailService,
   ) {}
 
   /** Submissions admin can approve/reject. */
@@ -179,6 +181,7 @@ export class AdminKycService {
     const submission = await this.prisma.kycSubmission.findUnique({
       where: { id: submissionId },
       include: {
+        user: { select: { email: true, name: true } },
         payments: {
           where: { status: 'paid' },
           select: { planId: true, cycle: true },
@@ -276,6 +279,17 @@ export class AdminKycService {
       { pushType: 'kyc_approved', deepLink: '/dashboard' },
     );
 
+    // Email chủ nhà: KYC được duyệt (fire-and-forget).
+    if (submission.user?.email) {
+      void this.email
+        .sendKycApproved({
+          to: submission.user.email,
+          name: submission.user.name ?? 'Bạn',
+          canManageNow: !!payment,
+        })
+        .catch(() => undefined);
+    }
+
     void this.auditLog.log({
       actorId: adminId,
       actorRole: ROLE.ADMIN,
@@ -307,6 +321,7 @@ export class AdminKycService {
   ) {
     const submission = await this.prisma.kycSubmission.findUnique({
       where: { id: submissionId },
+      include: { user: { select: { email: true, name: true } } },
     });
 
     if (!submission) {
@@ -343,6 +358,18 @@ export class AdminKycService {
       'kyc',
       { pushType: 'kyc_rejected', deepLink: '/verify/rejected' },
     );
+
+    // Email chủ nhà: KYC bị từ chối + lý do/mục cần bổ sung (fire-and-forget).
+    if (submission.user?.email) {
+      void this.email
+        .sendKycRejected({
+          to: submission.user.email,
+          name: submission.user.name ?? 'Bạn',
+          reason,
+          rejectedItems: items,
+        })
+        .catch(() => undefined);
+    }
 
     void this.auditLog.log({
       actorId: adminId,

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -110,9 +111,12 @@ export class AuthService {
       },
     });
 
+    this.sendWelcomeEmail(user);
+
     const clientType = meta.clientType ?? 'web';
-    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
+    const sid = randomUUID();
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
 
     return {
       message: msg.auth.registerSuccess,
@@ -155,8 +159,9 @@ export class AuthService {
     }
 
     const clientType = meta.clientType ?? 'web';
-    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
+    const sid = randomUUID();
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -166,6 +171,18 @@ export class AuthService {
         refreshToken: tokens.refreshToken,
       },
     };
+  }
+
+  /**
+   * Gửi email chào mừng khi tài khoản vừa tạo (fire-and-forget).
+   * Chỉ OWNER nhận "welcome_owner" — CUSTOMER không có template chào mừng.
+   * SALE được tạo qua luồng staff invite / admin, không đi qua đây.
+   */
+  private sendWelcomeEmail(user: { email: string | null; name: string; role: number }): void {
+    if (!user.email || user.role !== ROLE.OWNER) return;
+    void this.emailService
+      .sendWelcomeOwner({ to: user.email, name: user.name })
+      .catch(() => undefined);
   }
 
   /** NĐ 13: login lại trong grace 30d → tự huỷ pending deletion + thông báo khôi phục */
@@ -264,11 +281,13 @@ export class AuthService {
           ...trial,
         },
       });
+      this.sendWelcomeEmail(user);
     }
 
     const clientType = meta.clientType ?? 'web';
-    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
+    const sid = randomUUID();
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -372,11 +391,13 @@ export class AuthService {
           ...trial,
         },
       });
+      this.sendWelcomeEmail(user);
     }
 
     const clientType = meta.clientType ?? 'mobile'; // Apple mặc định mobile (iOS)
-    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
+    const sid = randomUUID();
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -487,8 +508,8 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
     await this.prisma.user.update({
       where: { id: user.id },
-      // Reset password → logout mọi phiên (cả mobile lẫn web).
-      data: { password: hashedPassword, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null },
+      // Reset password → logout mọi phiên (cả mobile lẫn web) + vô hiệu access token ngay (clear sid).
+      data: { password: hashedPassword, refreshToken: null, refreshTokenMobile: null, refreshTokenWeb: null, sessionIdMobile: null, sessionIdWeb: null },
     });
 
     return { message: msg.auth.resetPasswordSuccess, data: null };
@@ -533,8 +554,12 @@ export class AuthService {
       throw new ForbiddenException(msg.auth.invalidRefreshToken);
     }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
+    // Giữ nguyên sessionId của phiên hiện tại khi refresh (không đá các tab cùng browser).
+    const sid =
+      (clientType === 'mobile' ? user.sessionIdMobile : user.sessionIdWeb) ??
+      randomUUID();
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
 
     return {
       message: msg.auth.refreshSuccess,
@@ -548,8 +573,8 @@ export class AuthService {
       where: { id: userId },
       data:
         clientType === 'mobile'
-          ? { refreshTokenMobile: null }
-          : { refreshTokenWeb: null },
+          ? { refreshTokenMobile: null, sessionIdMobile: null }
+          : { refreshTokenWeb: null, sessionIdWeb: null },
     });
     return { message: msg.auth.logoutSuccess, data: null };
   }
@@ -707,8 +732,9 @@ export class AuthService {
     user: { id: string; email: string; role: number },
     clientType: ClientType = 'web',
   ) {
-    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken);
+    const sid = randomUUID();
+    const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
     return tokens;
   }
 
@@ -717,8 +743,9 @@ export class AuthService {
     email: string,
     role: number,
     clientType: ClientType,
+    sid: string,
   ) {
-    const payload = { sub: userId, email, role, clientType };
+    const payload = { sub: userId, email, role, clientType, sid };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -738,16 +765,19 @@ export class AuthService {
     userId: string,
     clientType: ClientType,
     refreshToken: string,
+    sid: string,
   ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
     // Ghi vào đúng cột theo clientType. Không đụng cột kia → giữ session còn lại.
     // Đồng thời null cột legacy `refreshToken` để không bị fallback lộn ngược trong tương lai.
+    // sessionId nhúng trong access token (payload.sid) → JwtStrategy so khớp mỗi request;
+    // login mới đổi sid → access token thiết bị cũ bị vô hiệu NGAY (không chờ 15' hết hạn).
     await this.prisma.user.update({
       where: { id: userId },
       data:
         clientType === 'mobile'
-          ? { refreshTokenMobile: hashedRefreshToken, refreshToken: null }
-          : { refreshTokenWeb: hashedRefreshToken, refreshToken: null },
+          ? { refreshTokenMobile: hashedRefreshToken, refreshToken: null, sessionIdMobile: sid }
+          : { refreshTokenWeb: hashedRefreshToken, refreshToken: null, sessionIdWeb: sid },
     });
   }
 }

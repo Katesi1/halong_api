@@ -45,6 +45,33 @@ export interface BookingConfirmedEmailData {
   ownerPhone?: string | null;
 }
 
+export interface WelcomeEmailData {
+  to: string;
+  name: string;
+}
+
+export interface KycApprovedEmailData {
+  to: string;
+  name: string;
+  /** true = đã có gói → quản lý cơ sở ngay; false = cần mua gói dịch vụ */
+  canManageNow: boolean;
+}
+
+export interface KycRejectedEmailData {
+  to: string;
+  name: string;
+  reason?: string | null;
+  rejectedItems?: string[];
+}
+
+export interface ReviewInvitationEmailData {
+  to: string;
+  customerName: string;
+  propertyName: string;
+  reviewUrl: string;
+  bookingCode: string;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -253,6 +280,81 @@ Bạn có thể đặt lại phòng khác trên Halong24h bất cứ lúc nào.
     } catch (err) {
       this.logger.error(`Failed to send booking-confirmed to ${data.to}: ${(err as Error).message}`);
       throw err;
+    }
+  }
+
+  /** Chào mừng chủ nhà mới đăng ký (OWNER). Fire-and-forget từ auth/register. */
+  async sendWelcomeOwner(data: WelcomeEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping welcome-owner email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const { subject, text, html } = renderWelcomeOwnerEmail(data);
+    try {
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
+    } catch (err) {
+      this.logger.error(`Failed to send welcome-owner to ${data.to}: ${(err as Error).message}`);
+    }
+  }
+
+  /** Chào mừng nhân viên SALE khi tài khoản được tạo (accept invite / admin tạo). */
+  async sendWelcomeSale(data: WelcomeEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping welcome-sale email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const { subject, text, html } = renderWelcomeSaleEmail(data);
+    try {
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
+    } catch (err) {
+      this.logger.error(`Failed to send welcome-sale to ${data.to}: ${(err as Error).message}`);
+    }
+  }
+
+  /** KYC được duyệt — gửi chủ nhà. */
+  async sendKycApproved(data: KycApprovedEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping kyc-approved email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const { subject, text, html } = renderKycApprovedEmail(data);
+    try {
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
+    } catch (err) {
+      this.logger.error(`Failed to send kyc-approved to ${data.to}: ${(err as Error).message}`);
+    }
+  }
+
+  /** KYC bị từ chối — gửi chủ nhà kèm lý do + mục cần bổ sung. */
+  async sendKycRejected(data: KycRejectedEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping kyc-rejected email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const { subject, text, html } = renderKycRejectedEmail(data);
+    try {
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
+    } catch (err) {
+      this.logger.error(`Failed to send kyc-rejected to ${data.to}: ${(err as Error).message}`);
+    }
+  }
+
+  /** Mời khách đánh giá — gửi lúc 12h trưa ngày trả phòng (review đã mở). */
+  async sendReviewInvitation(data: ReviewInvitationEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping review-invitation email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const { subject, text, html } = renderReviewInvitationEmail(data);
+    try {
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
+    } catch (err) {
+      this.logger.error(`Failed to send review-invitation to ${data.to}: ${(err as Error).message}`);
     }
   }
 
@@ -468,41 +570,190 @@ Hẹn gặp bạn tại ${data.propertyName}!
   return { subject: 'Đặt phòng đã được xác nhận — Halong24h', text, html };
 }
 
+/** Render email chào mừng chủ nhà (welcome_owner). */
+export function renderWelcomeOwnerEmail(data: WelcomeEmailData): EmailSample {
+  const safeName = escapeHtmlStr(data.name || 'Bạn');
+  const text = `Xin chào ${data.name || 'bạn'},
+
+Chào mừng bạn đến với Halong24h! Tài khoản chủ nhà của bạn đã được tạo thành công.
+
+Để bắt đầu cho thuê cơ sở, vui lòng:
+  1. Hoàn tất xác minh danh tính (KYC).
+  2. Thêm cơ sở và bảng giá.
+  3. Quản lý lịch đặt phòng, khách hàng ngay trên app.
+
+Chúc bạn kinh doanh thuận lợi!
+
+— Halong24h Team`;
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px;color:#1a7f37">Chào mừng đến với Halong24h 🎉</h2>
+  <p>Xin chào <strong>${safeName}</strong>,</p>
+  <p>Tài khoản <strong>chủ nhà</strong> của bạn đã được tạo thành công. Để bắt đầu cho thuê cơ sở:</p>
+  <ol style="line-height:1.8">
+    <li>Hoàn tất xác minh danh tính (KYC).</li>
+    <li>Thêm cơ sở và bảng giá.</li>
+    <li>Quản lý lịch đặt phòng, khách hàng ngay trên app.</li>
+  </ol>
+  <p style="margin-top:24px">Chúc bạn kinh doanh thuận lợi!</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return { subject: 'Chào mừng bạn đến với Halong24h', text, html };
+}
+
+/** Render email chào mừng nhân viên SALE (welcome_sale). */
+export function renderWelcomeSaleEmail(data: WelcomeEmailData): EmailSample {
+  const safeName = escapeHtmlStr(data.name || 'Bạn');
+  const text = `Xin chào ${data.name || 'bạn'},
+
+Tài khoản nhân viên của bạn trên Halong24h đã sẵn sàng. Đăng nhập để bắt đầu hỗ trợ quản lý đặt phòng, lịch và khách hàng.
+
+Nếu bạn cần thêm quyền thao tác, hãy liên hệ chủ nhà quản lý đội của bạn.
+
+— Halong24h Team`;
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Tài khoản nhân viên đã sẵn sàng</h2>
+  <p>Xin chào <strong>${safeName}</strong>,</p>
+  <p>Tài khoản nhân viên của bạn trên Halong24h đã sẵn sàng. Đăng nhập để bắt đầu hỗ trợ quản lý đặt phòng, lịch và khách hàng.</p>
+  <p style="color:#666;font-size:14px">Nếu bạn cần thêm quyền thao tác, hãy liên hệ chủ nhà quản lý đội của bạn.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return { subject: 'Tài khoản nhân viên đã sẵn sàng — Halong24h', text, html };
+}
+
+/** Render email KYC được duyệt (kyc_approved). */
+export function renderKycApprovedEmail(data: KycApprovedEmailData): EmailSample {
+  const safeName = escapeHtmlStr(data.name || 'Bạn');
+  const nextLine = data.canManageNow
+    ? 'Bạn có thể bắt đầu quản lý cơ sở ngay bây giờ.'
+    : 'Bạn có thể mua gói dịch vụ để bắt đầu quản lý cơ sở.';
+
+  const text = `Xin chào ${data.name || 'bạn'},
+
+Hồ sơ xác minh danh tính (KYC) của bạn đã được duyệt. ${nextLine}
+
+— Halong24h Team`;
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px;color:#1a7f37">Hồ sơ KYC đã được duyệt ✅</h2>
+  <p>Xin chào <strong>${safeName}</strong>,</p>
+  <p style="background:#ecfdf5;border-left:4px solid #10b981;padding:12px 16px;margin:16px 0">
+    Hồ sơ xác minh danh tính (KYC) của bạn đã được duyệt. ${nextLine}
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return { subject: 'Hồ sơ KYC đã được duyệt — Halong24h', text, html };
+}
+
+/** Render email KYC bị từ chối (kyc_rejected). */
+export function renderKycRejectedEmail(data: KycRejectedEmailData): EmailSample {
+  const safeName = escapeHtmlStr(data.name || 'Bạn');
+  const reason = data.reason?.trim();
+  const items = (data.rejectedItems ?? []).filter(Boolean);
+  const ITEM_LABELS: Record<string, string> = {
+    cccdFront: 'CCCD mặt trước',
+    cccdBack: 'CCCD mặt sau',
+    selfie: 'Ảnh selfie',
+  };
+  const itemsLabelled = items.map((i) => ITEM_LABELS[i] ?? i);
+
+  const reasonText = reason ? `\n\nLý do: ${reason}` : '';
+  const itemsText = itemsLabelled.length ? `\n\nCần bổ sung: ${itemsLabelled.join(', ')}` : '';
+  const text = `Xin chào ${data.name || 'bạn'},
+
+Rất tiếc, hồ sơ xác minh danh tính (KYC) của bạn chưa được duyệt.${reasonText}${itemsText}
+
+Vui lòng kiểm tra và gửi lại hồ sơ trên app.
+
+— Halong24h Team`;
+
+  const reasonHtml = reason
+    ? `<div style="background:#fff8e1;border-left:4px solid #f0ad4e;padding:12px 16px;margin:16px 0;border-radius:4px"><strong>Lý do:</strong><br>${escapeHtmlStr(reason)}</div>`
+    : '';
+  const itemsHtml = itemsLabelled.length
+    ? `<p><strong>Cần bổ sung:</strong> ${escapeHtmlStr(itemsLabelled.join(', '))}</p>`
+    : '';
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Hồ sơ KYC chưa được duyệt</h2>
+  <p>Xin chào <strong>${safeName}</strong>,</p>
+  <p>Rất tiếc, hồ sơ xác minh danh tính (KYC) của bạn chưa được duyệt.</p>
+  ${reasonHtml}
+  ${itemsHtml}
+  <p style="margin-top:16px">Vui lòng kiểm tra và gửi lại hồ sơ trên app.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return { subject: 'Hồ sơ KYC cần bổ sung — Halong24h', text, html };
+}
+
+/** Render email mời đánh giá (review_invitation). */
+export function renderReviewInvitationEmail(data: ReviewInvitationEmailData): EmailSample {
+  const safeName = escapeHtmlStr(data.customerName || 'Quý khách');
+  const safeProp = escapeHtmlStr(data.propertyName || 'cơ sở');
+
+  const text = `Xin chào ${data.customerName || 'Quý khách'},
+
+Cảm ơn bạn đã lưu trú tại ${data.propertyName}. Kỳ nghỉ của bạn đã kết thúc — hãy dành chút thời gian chia sẻ trải nghiệm để giúp chủ nhà và những khách sau nhé!
+
+  Mã đặt phòng: ${data.bookingCode}
+
+Đánh giá ngay:
+  ${data.reviewUrl}
+
+Cảm ơn bạn,
+— Halong24h Team`;
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Bạn thấy kỳ nghỉ thế nào? ⭐</h2>
+  <p>Xin chào <strong>${safeName}</strong>,</p>
+  <p>Cảm ơn bạn đã lưu trú tại <strong>${safeProp}</strong>. Kỳ nghỉ của bạn đã kết thúc — hãy dành chút thời gian chia sẻ trải nghiệm để giúp chủ nhà và những khách sau nhé!</p>
+  <p style="color:#666;font-size:14px">Mã đặt phòng: <strong>${escapeHtmlStr(data.bookingCode)}</strong></p>
+  <p style="margin:24px 0">
+    <a href="${data.reviewUrl}"
+       style="background:#f0ad4e;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:bold">
+      Đánh giá ngay
+    </a>
+  </p>
+  <p style="color:#666;font-size:13px">Hoặc copy link sau vào trình duyệt:</p>
+  <p style="word-break:break-all;background:#f5f5f5;padding:10px;border-radius:4px;font-size:13px"><a href="${data.reviewUrl}">${data.reviewUrl}</a></p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return { subject: 'Chia sẻ đánh giá kỳ nghỉ của bạn — Halong24h', text, html };
+}
+
 /**
- * Known templates exposed to admin UI. When wiring a real template later,
- * replace the sample here with the production renderer.
+ * Templates exposed to admin UI cho nút "Gửi test".
+ * CHỈ liệt kê template thực sự được BE gửi tự động trong luồng nghiệp vụ —
+ * không phơi các template chưa wire (tránh admin test 1 mail mà khách không bao giờ nhận).
+ * Khi wire thêm template mới, thêm key vào đây + thêm sample bên dưới.
  */
 export const EMAIL_TEMPLATE_KEYS = [
-  'welcome_owner',
-  'welcome_sale',
-  'password_reset',
-  'booking_confirmed',
-  'booking_cancelled',
-  'booking_paid',
-  'kyc_approved',
-  'kyc_rejected',
-  'staff_invite',
-  'subscription_due',
-  'subscription_overdue',
-  'subscription_paid',
-  'dispute_opened',
-  'review_received',
-  'property_approved',
+  'welcome_owner', // register/google/apple OWNER + admin tạo OWNER
+  'welcome_sale', // accept staff invite + admin tạo SALE
+  'password_reset', // forgot-password
+  'booking_confirmed', // mark-paid (ghi nhận cọc) + check-in hoàn tất
+  'booking_cancelled', // huỷ booking
+  'kyc_approved', // admin duyệt KYC
+  'kyc_rejected', // admin từ chối KYC
+  'staff_invite', // OWNER/ADMIN mời SALE
+  'review_invitation', // cron 12h trưa ngày checkout → mời khách đánh giá
 ] as const;
 
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
 
 const EMAIL_TEMPLATE_SAMPLES: Record<string, EmailSample> = {
-  welcome_owner: {
-    subject: 'Chào mừng bạn đến với Halong24h',
-    text: 'Xin chào! Tài khoản chủ homestay của bạn đã được kích hoạt.',
-    html: '<p>Xin chào! Tài khoản chủ homestay của bạn đã được kích hoạt.</p>',
-  },
-  welcome_sale: {
-    subject: 'Tài khoản nhân viên đã sẵn sàng',
-    text: 'Bạn đã được thêm vào đội ngũ. Đăng nhập để bắt đầu.',
-    html: '<p>Bạn đã được thêm vào đội ngũ. Đăng nhập để bắt đầu.</p>',
-  },
+  welcome_owner: renderWelcomeOwnerEmail({ to: '', name: 'Nguyễn Văn A' }),
+  welcome_sale: renderWelcomeSaleEmail({ to: '', name: 'Trần Thị B' }),
   password_reset: {
     subject: 'Đặt lại mật khẩu — Halong24h',
     text: 'Bấm vào link để đặt mật khẩu mới. Link hết hạn sau 10 phút. Nếu không phải bạn, có thể bỏ qua email này.',
@@ -515,7 +766,10 @@ const EMAIL_TEMPLATE_SAMPLES: Record<string, EmailSample> = {
     propertyCode: 'HL-DEMO01',
     checkinDate: new Date('2026-07-10T00:00:00.000Z'),
     checkoutDate: new Date('2026-07-12T00:00:00.000Z'),
-    paidAmount: 500000,
+    paidAmount: 2000000,
+    totalAmount: 4000000,
+    depositAmount: 2000000,
+    remainingAmount: 2000000,
     bookingCode: 'HL-ABC12345',
     ownerName: 'Trần Thị B',
     ownerPhone: '0901234567',
@@ -525,54 +779,23 @@ const EMAIL_TEMPLATE_SAMPLES: Record<string, EmailSample> = {
     text: 'Booking #SAMPLE đã bị huỷ.',
     html: '<p>Booking <b>#SAMPLE</b> đã bị huỷ.</p>',
   },
-  booking_paid: {
-    subject: 'Đã nhận thanh toán',
-    text: 'Đã ghi nhận thanh toán cho booking #SAMPLE.',
-    html: '<p>Đã ghi nhận thanh toán cho booking <b>#SAMPLE</b>.</p>',
-  },
-  kyc_approved: {
-    subject: 'KYC được duyệt',
-    text: 'Hồ sơ KYC của bạn đã được duyệt.',
-    html: '<p>Hồ sơ KYC của bạn đã được duyệt.</p>',
-  },
-  kyc_rejected: {
-    subject: 'KYC bị từ chối',
-    text: 'Hồ sơ KYC của bạn bị từ chối. Vui lòng kiểm tra và gửi lại.',
-    html: '<p>Hồ sơ KYC của bạn bị từ chối. Vui lòng kiểm tra và gửi lại.</p>',
-  },
+  kyc_approved: renderKycApprovedEmail({ to: '', name: 'Nguyễn Văn A', canManageNow: true }),
+  kyc_rejected: renderKycRejectedEmail({
+    to: '',
+    name: 'Nguyễn Văn A',
+    reason: 'Ảnh CCCD mờ, vui lòng chụp lại rõ nét.',
+    rejectedItems: ['cccdFront', 'selfie'],
+  }),
   staff_invite: {
     subject: 'Bạn được mời làm nhân viên',
     text: 'Đây là mẫu lời mời nhân viên (test render).',
     html: '<p>Đây là mẫu lời mời nhân viên (test render).</p>',
   },
-  subscription_due: {
-    subject: 'Sắp đến hạn gia hạn gói',
-    text: 'Gói của bạn sắp hết hạn — vui lòng gia hạn.',
-    html: '<p>Gói của bạn sắp hết hạn — vui lòng gia hạn.</p>',
-  },
-  subscription_overdue: {
-    subject: 'Gói đã quá hạn',
-    text: 'Gói của bạn đã quá hạn — vui lòng thanh toán.',
-    html: '<p>Gói của bạn đã quá hạn — vui lòng thanh toán.</p>',
-  },
-  subscription_paid: {
-    subject: 'Cảm ơn đã thanh toán',
-    text: 'Gói của bạn đã được gia hạn.',
-    html: '<p>Gói của bạn đã được gia hạn.</p>',
-  },
-  dispute_opened: {
-    subject: 'Có khiếu nại mới',
-    text: 'Một khiếu nại liên quan đến cơ sở của bạn vừa được mở.',
-    html: '<p>Một khiếu nại liên quan đến cơ sở của bạn vừa được mở.</p>',
-  },
-  review_received: {
-    subject: 'Bạn có đánh giá mới',
-    text: 'Cơ sở của bạn vừa nhận được đánh giá mới.',
-    html: '<p>Cơ sở của bạn vừa nhận được đánh giá mới.</p>',
-  },
-  property_approved: {
-    subject: 'Cơ sở đã được duyệt',
-    text: 'Cơ sở của bạn đã được duyệt và hiển thị công khai.',
-    html: '<p>Cơ sở của bạn đã được duyệt và hiển thị công khai.</p>',
-  },
+  review_invitation: renderReviewInvitationEmail({
+    to: '',
+    customerName: 'Nguyễn Văn A',
+    propertyName: 'Villa Bãi Cháy 3 phòng ngủ',
+    reviewUrl: 'https://halong24h.com/my/bookings/HL-DEMO01',
+    bookingCode: 'HL-ABC12345',
+  }),
 };

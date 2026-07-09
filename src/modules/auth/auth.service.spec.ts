@@ -66,6 +66,8 @@ describe('AuthService', () => {
             sendBookingCancelled: jest.fn(),
             sendAccountDeletionScheduled: jest.fn(),
             sendAccountDeletionRestored: jest.fn(),
+            sendWelcomeOwner: jest.fn().mockResolvedValue(undefined),
+            sendWelcomeSale: jest.fn().mockResolvedValue(undefined),
           },
         },
         {

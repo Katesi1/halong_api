@@ -64,6 +64,8 @@ describe('UsersService', () => {
             sendPasswordReset: jest.fn().mockResolvedValue(undefined),
             sendAccountDeletionScheduled: jest.fn().mockResolvedValue(undefined),
             sendAccountDeletionRestored: jest.fn().mockResolvedValue(undefined),
+            sendWelcomeOwner: jest.fn().mockResolvedValue(undefined),
+            sendWelcomeSale: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
