@@ -16,6 +16,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { kycRequired } from '../../common/errors/kyc.errors';
 import { assertOwnerEntitled, isTrialPropertyCapped, TRIAL_MAX_PROPERTIES } from '../../common/subscription';
 import { propertyLimitReached } from '../../common/errors/subscription.errors';
+import { phoneRequired } from '../../common/errors/user.errors';
 import { buildPropertySlug, ensureUniqueSlug } from '../../common/slug';
 import { PROPERTY_CARD_SELECT, toPropertyCard } from './property-card';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
@@ -371,8 +372,11 @@ export class PropertiesService {
       if (!owner) throw new NotFoundException(msg.properties.ownerNotFound);
     }
 
+    // SĐT bắt buộc để đăng cơ sở (khách + SALE cần số liên hệ; đăng ký
+    // Google/Apple không lấy được phone). ADMIN tạo hộ bỏ qua.
     // Trial ngầm (chưa mua gói) chỉ được đăng tối đa 1 cơ sở. ADMIN tạo hộ bỏ qua.
     if (user.role !== ROLE.ADMIN) {
+      await this.assertOwnerHasPhone(ownerId, msg);
       await this.assertTrialPropertyQuota(ownerId, msg);
     }
 
@@ -424,6 +428,22 @@ export class PropertiesService {
   }
 
   /**
+   * Chặn khi owner chưa có số điện thoại trong hồ sơ. SĐT là bắt buộc để đăng
+   * cơ sở — khách trả cọc + SALE cần số liên hệ, và listing công khai
+   * (calendar public-grid, share by-owner) hiển thị `ownerPhone`. User đăng ký
+   * qua Google/Apple không có phone nên phải cập nhật hồ sơ trước.
+   */
+  private async assertOwnerHasPhone(ownerId: string, msg: Messages): Promise<void> {
+    const owner = await this.prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { phone: true },
+    });
+    if (!owner?.phone || owner.phone.trim() === '') {
+      throw phoneRequired(msg.properties.phoneRequired);
+    }
+  }
+
+  /**
    * Chặn owner trial ngầm (chưa mua gói) đăng quá TRIAL_MAX_PROPERTIES cơ sở.
    * Owner đã mua gói hoặc được ADMIN cấp kycBypass → không áp cap.
    * Đếm cơ sở chưa soft-delete để so với trần. Copy trung tính cho iOS.
@@ -463,6 +483,11 @@ export class PropertiesService {
     const property = await this.prisma.property.findUnique({ where: { id } });
     if (!property || property.deletedAt) throw new NotFoundException(msg.properties.notFound);
     this.checkOwnerAccess(property, user, msg);
+
+    // SĐT bắt buộc để quản lý cơ sở (đối xứng với luồng tạo). ADMIN bỏ qua.
+    if (user.role !== ROLE.ADMIN) {
+      await this.assertOwnerHasPhone(property.ownerId, msg);
+    }
 
     if (dto.code && dto.code !== property.code) {
       const existing = await this.prisma.property.findUnique({ where: { code: dto.code } });

@@ -32,6 +32,15 @@ export function isSystemSale(user: { role: number; scope?: string | null }): boo
 }
 
 /**
+ * ADMIN hoặc SALE hệ thống (scope=system). Dùng cho các thao tác cấp hệ thống mà
+ * MỌI SALE hệ thống đều được phép (vd tạo/sửa du thuyền, đọc mọi tin nhắn khách ↔ hệ thống),
+ * không cần cấp quyền lẻ qua UserPermission như module admin-scope thông thường.
+ */
+export function isAdminOrSystemSale(user: { role: number; scope?: string | null }): boolean {
+  return user.role === ROLE.ADMIN || isSystemSale(user);
+}
+
+/**
  * Get the effective ownerId for data scoping.
  * - ADMIN          → null (sees all)
  * - SYSTEM SALE    → null (sees all, hành xử như ADMIN ở data layer)
@@ -58,6 +67,30 @@ export const BOOKING_STATUS = {
   COMPLETED: 3,
   NO_SHOW: 4,
 } as const;
+
+/**
+ * Trạng thái đơn đặt du thuyền.
+ * PENDING   → khách gửi yêu cầu, chờ ADMIN/SALE hệ thống xác nhận
+ * CONFIRMED → đã xác nhận, chờ khách thanh toán FULL (sinh VietQR)
+ * PAID      → khách đã thanh toán đủ → gửi mã code + thông tin qua email
+ * COMPLETED → đã kết thúc hành trình
+ * CANCELLED → đã huỷ
+ */
+export const YACHT_BOOKING_STATUS = {
+  PENDING: 0,
+  CONFIRMED: 1,
+  PAID: 2,
+  COMPLETED: 3,
+  CANCELLED: 4,
+} as const;
+
+/** Trạng thái chiếm chỗ (dùng cho overlap conflict check + calendar). */
+export const BLOCKING_YACHT_STATUSES = [
+  YACHT_BOOKING_STATUS.PENDING,
+  YACHT_BOOKING_STATUS.CONFIRMED,
+  YACHT_BOOKING_STATUS.PAID,
+  YACHT_BOOKING_STATUS.COMPLETED,
+] as const;
 
 export const PROPERTY_TYPE = {
   VILLA: 0,
@@ -202,7 +235,14 @@ export const CONVERSATION_TYPE = {
   BOOKING: 'booking',
   SUPPORT: 'support',
   STAFF: 'staff',
+  YACHT: 'yacht', // khách ↔ hệ thống về 1 đơn du thuyền (bookingId = YachtBooking.id)
 } as const;
+
+/** Loại hội thoại mà SALE hệ thống được phép đọc/trả lời (ngoài ADMIN vốn xem mọi thứ). */
+export const SYSTEM_SALE_CONVERSATION_TYPES = [
+  CONVERSATION_TYPE.YACHT,
+  CONVERSATION_TYPE.SUPPORT,
+] as readonly string[];
 
 export const CONVERSATION_MEMBER_ROLE = {
   OWNER: 'owner',

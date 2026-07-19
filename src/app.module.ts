@@ -41,6 +41,7 @@ import { DataExportsModule } from './modules/data-exports/data-exports.module';
 import { ConsentsModule } from './modules/consents/consents.module';
 import { NotificationPreferencesModule } from './modules/notification-preferences/notification-preferences.module';
 import { GuestsModule } from './modules/guests/guests.module';
+import { YachtsModule } from './modules/yachts/yachts.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -89,6 +90,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
     ConsentsModule,
     NotificationPreferencesModule,
     GuestsModule,
+    YachtsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

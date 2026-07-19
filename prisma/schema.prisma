@@ -356,6 +356,180 @@ model CalendarLock {
   @@map("calendar_locks")
 }
 
+// ─── Yachts (Du thuyền) ────────────────────────────────────────────────────────
+// Du thuyền là thực thể của HỆ THỐNG (không thuộc OWNER). Chỉ ADMIN + SALE hệ thống
+// (scope=system) được tạo/sửa. Khách hàng xem công khai + đặt; sau khi đặt có thể
+// nhắn tin với hệ thống (Conversation type='yacht', bookingId = YachtBooking.id).
+// Giá tính theo booking-pricing.ts (weekday/weekend/holiday + phụ thu) — tái dùng
+// nguyên engine của Booking. createdById/customerId/saleId lưu dạng chuỗi lỏng
+// (không FK về User) theo tiền lệ Dispute/Lead → migration gọn, không đụng model User.
+
+model Yacht {
+  id          String  @id @default(uuid())
+  createdById String // ADMIN hoặc SALE hệ thống đã tạo
+  name        String
+  slug        String  @unique
+  code        String  @unique
+  isActive    Boolean @default(true)
+
+  // Thông tin du thuyền
+  description   String?
+  cabins        Int     @default(1) // số phòng/cabin
+  standardGuests   Int  @default(2) // số khách tiêu chuẩn (đã bao trong giá)
+  standardChildren Int  @default(0)
+  maxGuests     Int     @default(2) // sức chứa tối đa
+  lengthMeters  Float? // chiều dài thân tàu (m)
+  shipType      String? // "steel" | "wooden" | ...
+  departurePoint String? // bến xuất phát, vd "Cảng Tuần Châu"
+  durationText  String? // "2 ngày 1 đêm"
+
+  // Hành trình (itinerary) — mảng chặng: [{ order, title, time, description }]
+  itinerary Json?
+
+  // Nội dung
+  amenities          String[] @default([])
+  services           String[] @default([])
+  rules              String?
+  cancellationPolicy Int      @default(0) // 0=FLEXIBLE, 1=MODERATE, 2=STRICT
+
+  // Giờ nhận/trả
+  checkInTime  String? @default("12:00")
+  checkOutTime String? @default("11:00")
+
+  // Bảng giá — BÁN THEO ĐẦU NGƯỜI (per-person). Giá người lớn và trẻ em RIÊNG, theo ngày thường/cuối tuần/lễ.
+  // total = adults × adultRate(ngày) + children × childRate(ngày).
+  // weekday/weekend/holidayPrice = GIÁ NGƯỜI LỚN/khách. weekday/weekend/holidayChildPrice = GIÁ TRẺ EM/khách.
+  weekdayPrice      Float? // người lớn — ngày thường
+  weekendPrice      Float? // người lớn — cuối tuần (T6/T7/CN)
+  holidayPrice      Float? // người lớn — ngày lễ
+  weekdayChildPrice Float? // trẻ em — ngày thường (null → trẻ em miễn phí)
+  weekendChildPrice Float? // trẻ em — cuối tuần
+  holidayChildPrice Float? // trẻ em — ngày lễ
+  // DEPRECATED (giữ cột cho tương thích, KHÔNG dùng trong tính giá per-person nữa):
+  adultSurcharge Float?
+  childSurcharge Float?
+
+  // Aggregated ratings (để dành mở rộng review sau)
+  ratingAvg   Float @default(0)
+  reviewCount Int   @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  images        YachtImage[]
+  bookings      YachtBooking[]
+  calendarLocks YachtCalendarLock[]
+  reviews       YachtReview[]
+
+  @@index([isActive, deletedAt])
+  @@index([createdById])
+  @@map("yachts")
+}
+
+// Đánh giá du thuyền — khách đánh giá sau khi qua ngày kết thúc hành trình (đã thanh toán + đã đi).
+// 6 tiêu chí giống PropertyReview để FE tái dùng component. bookingId/customerId lưu chuỗi lỏng
+// (không FK về User/YachtBooking) theo tiền lệ YachtBooking; @@unique(bookingId) → 1 review/đơn.
+model YachtReview {
+  id         String @id @default(uuid())
+  yachtId    String
+  bookingId  String @unique
+  customerId String
+
+  // 6 score (1-5)
+  cleanliness Int
+  location    Int
+  amenities   Int
+  service     Int
+  value       Int
+  accuracy    Int
+
+  avgRating Float
+  comment   String?
+  photos    Json? // ["url1", "url2", ...]
+
+  // Phản hồi từ hệ thống (ADMIN / SALE hệ thống)
+  reply   String?
+  replyAt DateTime?
+
+  // Admin moderation
+  isHidden     Boolean @default(false)
+  hiddenReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  yacht Yacht @relation(fields: [yachtId], references: [id], onDelete: Cascade)
+
+  @@index([yachtId])
+  @@index([customerId])
+  @@map("yacht_reviews")
+}
+
+model YachtImage {
+  id        String   @id @default(uuid())
+  yachtId   String
+  imageUrl  String
+  publicId  String
+  isCover   Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  yacht Yacht @relation(fields: [yachtId], references: [id], onDelete: Cascade)
+
+  @@index([yachtId])
+  @@map("yacht_images")
+}
+
+model YachtBooking {
+  id            String    @id @default(uuid())
+  yachtId       String
+  saleId        String? // ADMIN/SALE hệ thống xử lý đơn
+  customerId    String? // null nếu staff tạo hộ khách vãng lai
+  customerName  String?
+  customerPhone String?
+  customerEmail String?
+  adults        Int?
+  children      Int?
+  checkinDate   DateTime
+  checkoutDate  DateTime
+  status        Int       @default(0) // 0=PENDING, 1=CONFIRMED, 2=PAID, 3=COMPLETED, 4=CANCELLED
+  totalAmount   Int? // VND — tổng giá trị đơn (tính khi confirm)
+  paidAmount    Int? // VND — số tiền đã thu (thanh toán FULL)
+  paidAt        DateTime?
+  confirmedAt   DateTime?
+  confirmedBy   String? // adminId/saleId đã xác nhận
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  cancelledByRole   Int?
+  cancelledReason   String?
+  guestCount    Int      @default(2)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  yacht Yacht @relation(fields: [yachtId], references: [id])
+
+  @@index([yachtId, status])
+  @@index([customerId])
+  @@index([saleId])
+  @@index([checkinDate, checkoutDate])
+  @@map("yacht_bookings")
+}
+
+model YachtCalendarLock {
+  id        String   @id @default(uuid())
+  yachtId   String
+  date      DateTime
+  status    Int      @default(0) // 0=LOCKED, 1=HOLD, 2=BOOKED
+  createdAt DateTime @default(now())
+
+  yacht Yacht @relation(fields: [yachtId], references: [id], onDelete: Cascade)
+
+  @@index([yachtId, date])
+  @@map("yacht_calendar_locks")
+}
+
 model AppVersion {
   id                  String   @id @default(uuid())
   platform            String   @unique // ios | android

@@ -99,6 +99,8 @@ export class SystemStaffService {
         inviteLink,
         shortCode,
         expiresAt,
+        appStoreUrl: this.configService.get<string>('APP_STORE_URL') || null,
+        playStoreUrl: this.configService.get<string>('PLAY_STORE_URL') || null,
       });
     } catch (err) {
       emailSent = false;

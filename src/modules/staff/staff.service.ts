@@ -28,6 +28,7 @@ import * as bcrypt from 'bcryptjs';
 import { getEffectiveMaxSaleStaff, getPlanDisplayName } from '../../common/staff-entitlement';
 import { isOwnerEntitled } from '../../common/subscription';
 import { kycRequired } from '../../common/errors/kyc.errors';
+import { phoneRequired } from '../../common/errors/user.errors';
 import { featureLocked } from '../../common/errors/subscription.errors';
 
 const INVITE_TTL_DAYS = 7;
@@ -57,7 +58,7 @@ export class StaffService {
     const owner = await this.prisma.user.findUnique({
       where: { id: ownerId },
       select: {
-        id: true, name: true, email: true, role: true,
+        id: true, name: true, email: true, phone: true, role: true,
         kycStatus: true, kycBypass: true,
         subscriptionStatus: true, subscriptionPlanId: true,
         trialEndsAt: true,
@@ -69,6 +70,10 @@ export class StaffService {
     if (!isAdmin) {
       if (!owner.kycBypass && owner.kycStatus !== KYC_STATUS.APPROVED) {
         throw kycRequired(msg.staff.kycRequired);
+      }
+      // SĐT bắt buộc — owner phải có số liên hệ trước khi vận hành đội ngũ.
+      if (!owner.phone || owner.phone.trim() === '') {
+        throw phoneRequired(msg.staff.phoneRequired);
       }
       // Apple IAP compliance: hết trial / chưa active → khoá im lặng, dùng
       // message entitlement chung (không lộ trạng thái subscription).
@@ -148,6 +153,8 @@ export class StaffService {
         inviteLink,
         shortCode,
         expiresAt,
+        appStoreUrl: this.configService.get<string>('APP_STORE_URL') || null,
+        playStoreUrl: this.configService.get<string>('PLAY_STORE_URL') || null,
       });
     } catch (err) {
       emailSent = false;

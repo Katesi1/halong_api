@@ -127,6 +127,7 @@ export const vi = {
     createPendingSuccess: 'Đã gửi cơ sở, vui lòng chờ quản trị viên duyệt',
     trialPropertyLimit: (max: number) =>
       `Tài khoản của bạn hiện chỉ có thể đăng tối đa ${max} cơ sở. Vui lòng liên hệ hỗ trợ nếu cần đăng thêm.`,
+    phoneRequired: 'Vui lòng cập nhật số điện thoại trong hồ sơ trước khi đăng/sửa cơ sở.',
     updateSuccess: 'Cập nhật cơ sở thành công',
     deleteSuccess: 'Xoá cơ sở thành công',
     deleteImageSuccess: 'Xoá ảnh thành công',
@@ -376,6 +377,7 @@ export const vi = {
     ownerOnly: 'Chỉ chủ homestay (OWNER) được mời nhân viên',
     ownerIdRequired: 'ADMIN phải truyền ownerId khi tạo invite thay mặt OWNER',
     kycRequired: 'Cần hoàn tất KYC trước khi mời nhân viên',
+    phoneRequired: 'Vui lòng cập nhật số điện thoại trong hồ sơ trước khi mời nhân viên.',
     subscriptionRequired: 'Cần subscription đang hoạt động để mời nhân viên',
     staffNotAllowedOnPlan: (_planName: string) =>
       `Tài khoản hiện chưa có quyền mời nhân viên.`,
@@ -593,6 +595,69 @@ export const vi = {
   notificationPreferences: {
     getSuccess: 'Lấy cài đặt thông báo thành công',
     updateSuccess: 'Cập nhật cài đặt thông báo thành công',
+  },
+
+  // ─── Yachts (Du thuyền) ────────────────────────────────────────────────────
+  yachts: {
+    notFound: 'Du thuyền không tồn tại',
+    codeDuplicate: 'Mã du thuyền đã tồn tại',
+    forbidden: 'Chỉ ADMIN hoặc SALE hệ thống mới được quản lý du thuyền',
+    imageNotFound: 'Ảnh không tồn tại',
+    noFiles: 'Không có file ảnh. Field name phải là "images"',
+    maxImages: (max: number) => `Tối đa ${max} ảnh mỗi du thuyền`,
+    uploadSuccess: (count: number) => `Upload ${count} ảnh thành công`,
+    listSuccess: 'Lấy danh sách du thuyền thành công',
+    publicListSuccess: 'Lấy danh sách du thuyền công khai thành công',
+    getSuccess: 'Lấy thông tin du thuyền thành công',
+    createSuccess: 'Tạo du thuyền thành công',
+    updateSuccess: 'Cập nhật du thuyền thành công',
+    deleteSuccess: 'Xoá du thuyền thành công',
+    deleteImageSuccess: 'Xoá ảnh thành công',
+    setCoverSuccess: 'Đặt ảnh cover thành công',
+    updatePricesSuccess: 'Cập nhật giá du thuyền thành công',
+    publicDetailSuccess: 'Lấy chi tiết du thuyền thành công',
+    calendarSuccess: 'Lấy lịch du thuyền thành công',
+  },
+
+  // ─── Yacht Bookings (Đặt du thuyền) ────────────────────────────────────────
+  yachtBookings: {
+    notFound: 'Đơn đặt du thuyền không tồn tại',
+    yachtNotFound: 'Du thuyền không tồn tại',
+    checkoutBeforeCheckin: 'Ngày kết thúc phải sau ngày bắt đầu',
+    checkinInPast: 'Ngày bắt đầu không thể trong quá khứ',
+    yachtNotAvailable: 'Du thuyền đã được đặt trong khoảng thời gian này',
+    guestExceedsMax: 'Số khách vượt quá sức chứa tối đa của du thuyền',
+    priceNotConfigured: 'Du thuyền chưa cấu hình giá',
+    forbiddenAccess: 'Bạn không có quyền truy cập đơn này',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    createSuccess: 'Đặt du thuyền thành công, chờ hệ thống xác nhận',
+    listSuccess: 'Lấy danh sách đơn du thuyền thành công',
+    myListSuccess: 'Lấy danh sách đơn của bạn thành công',
+    getSuccess: 'Lấy thông tin đơn du thuyền thành công',
+    onlyConfirmPending: 'Chỉ xác nhận được đơn đang ở trạng thái chờ (PENDING)',
+    confirmSuccess: 'Đã xác nhận đơn, chờ khách thanh toán đủ',
+    onlyPayConfirmed: 'Chỉ ghi nhận thanh toán cho đơn đã xác nhận (CONFIRMED)',
+    paidAmountRequired: 'Số tiền thanh toán phải > 0',
+    markPaidSuccess: 'Đã ghi nhận thanh toán đủ và gửi mã code cho khách',
+    alreadyCancelled: 'Đơn đã bị huỷ trước đó',
+    cannotCancelPaid: 'Không thể huỷ đơn đã thanh toán, vui lòng liên hệ hệ thống',
+    cancelSuccess: 'Huỷ đơn du thuyền thành công',
+  },
+
+  // ─── Yacht Reviews (Đánh giá du thuyền) ────────────────────────────────────
+  yachtReviews: {
+    notYourBooking: 'Đơn này không thuộc về bạn hoặc không phải của du thuyền này',
+    notReviewable: 'Chỉ đánh giá được đơn đã thanh toán và đã hoàn tất hành trình',
+    reviewNotYetAllowed: 'Chỉ có thể đánh giá sau khi kết thúc hành trình',
+    alreadyReviewed: 'Bạn đã đánh giá đơn này rồi',
+    notFound: 'Đánh giá không tồn tại',
+    forbidden: 'Bạn không có quyền thực hiện thao tác này',
+    notHidden: 'Đánh giá không ở trạng thái ẩn',
+    createSuccess: 'Đánh giá du thuyền thành công',
+    listSuccess: 'Lấy danh sách đánh giá thành công',
+    replySuccess: 'Phản hồi đánh giá thành công',
+    hideSuccess: 'Đã ẩn đánh giá',
+    restoreSuccess: 'Đã khôi phục đánh giá',
   },
 
 };

@@ -13,6 +13,8 @@ import {
   CONVERSATION_TYPE,
   CONVERSATION_MEMBER_ROLE,
   CHAT_LIMITS,
+  SYSTEM_SALE_CONVERSATION_TYPES,
+  isSystemSale,
 } from '../../common/constants';
 import type { Messages } from '../../i18n';
 import { CreateConversationDto } from './dto/create-conversation.dto';
@@ -49,7 +51,7 @@ export class ChatService {
    * Members tự động: owner của property + customer của booking.
    */
   async createOrGet(
-    caller: { id: string; role: number; ownerId?: string | null },
+    caller: { id: string; role: number; ownerId?: string | null; scope?: string | null },
     dto: CreateConversationDto,
     msg: Messages,
   ) {
@@ -122,6 +124,26 @@ export class ChatService {
       }
     }
 
+    // Hội thoại du thuyền (khách ↔ hệ thống về 1 đơn du thuyền).
+    if (dto.type === CONVERSATION_TYPE.YACHT) {
+      if (!dto.bookingId) throw new BadRequestException(msg.chat.bookingRequired);
+      const booking = await this.prisma.yachtBooking.findUnique({
+        where: { id: dto.bookingId },
+        select: { id: true, customerId: true },
+      });
+      if (!booking) throw new NotFoundException(msg.yachtBookings.notFound);
+
+      // ACL: khách chủ đơn, ADMIN, hoặc SALE hệ thống.
+      const isCustomer = booking.customerId === caller.id;
+      if (!isCustomer && caller.role !== ROLE.ADMIN && !isSystemSale(caller)) {
+        throw new ForbiddenException(msg.chat.notMember);
+      }
+      if (!booking.customerId) throw new BadRequestException(msg.chat.notMember);
+
+      const conv = await this.getOrCreateYachtConversation(booking.id, booking.customerId);
+      return { message: msg.chat.conversationGetSuccess, data: conv };
+    }
+
     // Other conversation types
     const created = await this.prisma.conversation.create({
       data: {
@@ -133,6 +155,71 @@ export class ChatService {
       },
     });
     return { message: msg.chat.conversationCreateSuccess, data: created };
+  }
+
+  /**
+   * Idempotent tạo hội thoại du thuyền cho 1 đơn (type='yacht', bookingId=yachtBookingId).
+   * Member duy nhất là khách; ADMIN + SALE hệ thống truy cập qua bypass (không làm member).
+   * Gọi từ YachtBookingsService khi tạo đơn.
+   */
+  async getOrCreateYachtConversation(
+    yachtBookingId: string,
+    customerId: string,
+  ): Promise<{ id: string; type: string; bookingId: string | null }> {
+    const existing = await this.prisma.conversation.findFirst({
+      where: { type: CONVERSATION_TYPE.YACHT, bookingId: yachtBookingId },
+      select: { id: true, type: true, bookingId: true },
+    });
+    if (existing) return existing;
+
+    try {
+      const created = await this.prisma.conversation.create({
+        data: {
+          type: CONVERSATION_TYPE.YACHT,
+          bookingId: yachtBookingId,
+          members: { create: { userId: customerId, role: CONVERSATION_MEMBER_ROLE.CUSTOMER } },
+        },
+        select: { id: true, type: true, bookingId: true },
+      });
+      return created;
+    } catch {
+      const recheck = await this.prisma.conversation.findFirst({
+        where: { type: CONVERSATION_TYPE.YACHT, bookingId: yachtBookingId },
+        select: { id: true, type: true, bookingId: true },
+      });
+      if (recheck) return recheck;
+      throw new Error('Failed to create yacht conversation');
+    }
+  }
+
+  /**
+   * Chèn tin nhắn hệ thống (isSystem=true) + denormalize conversation.lastMessage*.
+   * Dùng cho các mốc vòng đời đơn du thuyền (đặt / xác nhận / thanh toán / huỷ).
+   */
+  async postSystemMessage(conversationId: string, content: string): Promise<void> {
+    const trimmed = content.trim().slice(0, CHAT_LIMITS.MESSAGE_MAX_LENGTH);
+    if (!trimmed) return;
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { members: true },
+    });
+    if (!conv) return;
+
+    const now = new Date();
+    const recipientIds = conv.members.filter((m) => !m.leftAt).map((m) => m.userId);
+    await this.prisma.$transaction([
+      this.prisma.message.create({
+        data: { conversationId, senderId: 'system', content: trimmed, isSystem: true },
+      }),
+      this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: now, lastMessagePreview: trimmed.slice(0, 120), lastSenderId: null },
+      }),
+      this.prisma.conversationMember.updateMany({
+        where: { conversationId, userId: { in: recipientIds.length ? recipientIds : ['__none__'] } },
+        data: { unreadCount: { increment: 1 } },
+      }),
+    ]);
   }
 
   /** List conversations user tham gia, sort by lastMessageAt desc */
@@ -196,14 +283,68 @@ export class ChatService {
     };
   }
 
+  /**
+   * ADMIN + SALE hệ thống xem hội thoại du thuyền — toàn bộ, hoặc lọc theo 1 khách
+   * (customerId) để xem "toàn bộ tin nhắn của user đó với hệ thống".
+   */
+  async listYachtConversations(
+    caller: { id: string; role: number; scope?: string | null },
+    filters: { customerId?: string; page?: number; limit?: number },
+    msg: Messages,
+  ) {
+    if (caller.role !== ROLE.ADMIN && !isSystemSale(caller)) {
+      throw new ForbiddenException(msg.chat.notMember);
+    }
+    const page = Math.max(1, filters.page ?? 1);
+    const limit = Math.min(50, Math.max(1, filters.limit ?? 20));
+
+    const where: Prisma.ConversationWhereInput = {
+      type: CONVERSATION_TYPE.YACHT,
+      ...(filters.customerId
+        ? { members: { some: { userId: filters.customerId, role: CONVERSATION_MEMBER_ROLE.CUSTOMER } } }
+        : {}),
+    };
+
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.conversation.count({ where }),
+      this.prisma.conversation.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+        include: { members: { select: { userId: true, role: true, unreadCount: true } } },
+      }),
+    ]);
+
+    const userIds = Array.from(new Set(items.flatMap((c) => c.members.map((m) => m.userId))));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, avatar: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const hydrated = items.map((c) => ({
+      ...c,
+      members: c.members.map((m) => ({ ...m, user: userMap.get(m.userId) ?? null })),
+    }));
+
+    return {
+      message: msg.chat.conversationListSuccess,
+      data: { items: hydrated, total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
   /** Detail 1 conversation kèm members */
-  async getConversation(id: string, caller: { id: string; role: number }, msg: Messages) {
+  async getConversation(
+    id: string,
+    caller: { id: string; role: number; scope?: string | null },
+    msg: Messages,
+  ) {
     const conv = await this.prisma.conversation.findUnique({
       where: { id },
       include: { members: true },
     });
     if (!conv) throw new NotFoundException(msg.chat.conversationNotFound);
-    this.assertMember(conv.members, caller, msg);
+    this.assertMember(conv.members, caller, conv.type, msg);
 
     const userIds = conv.members.map((m) => m.userId);
     const users = await this.prisma.user.findMany({
@@ -223,7 +364,7 @@ export class ChatService {
   /** Cursor-based pagination: lấy `limit` tin trước `cursor` (id của tin cũ hơn) */
   async listMessages(
     conversationId: string,
-    caller: { id: string; role: number },
+    caller: { id: string; role: number; scope?: string | null },
     cursor: string | undefined,
     limit: number | undefined,
     msg: Messages,
@@ -274,6 +415,7 @@ export class ChatService {
     senderId: string,
     dto: SendMessageDto,
     msg: Messages,
+    senderCtx?: { role: number; scope?: string | null },
   ): Promise<{
     message: string;
     data: {
@@ -296,7 +438,14 @@ export class ChatService {
     if (!conv) throw new NotFoundException(msg.chat.conversationNotFound);
 
     const senderMember = conv.members.find((m) => m.userId === senderId && !m.leftAt);
-    if (!senderMember) throw new ForbiddenException(msg.chat.notMember);
+    if (!senderMember) {
+      // ADMIN + SALE hệ thống được trả lời hội thoại du thuyền/support dù không là member.
+      const canModerate =
+        !!senderCtx &&
+        (senderCtx.role === ROLE.ADMIN ||
+          (isSystemSale(senderCtx) && SYSTEM_SALE_CONVERSATION_TYPES.includes(conv.type)));
+      if (!canModerate) throw new ForbiddenException(msg.chat.notMember);
+    }
 
     const content = dto.content.trim();
     if (!content) throw new BadRequestException(msg.chat.messageEmpty);
@@ -510,25 +659,35 @@ export class ChatService {
    */
   async assertCallerIsMember(
     conversationId: string,
-    caller: { id: string; role: number },
+    caller: { id: string; role: number; scope?: string | null },
     msg: Messages,
   ) {
     if (caller.role === ROLE.ADMIN) return;
     const member = await this.prisma.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId, userId: caller.id } },
     });
-    if (!member || member.leftAt) {
-      throw new ForbiddenException(msg.chat.notMember);
+    if (member && !member.leftAt) return;
+    // SALE hệ thống được đọc hội thoại du thuyền/support dù không là member.
+    if (isSystemSale(caller)) {
+      const conv = await this.prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { type: true },
+      });
+      if (conv && SYSTEM_SALE_CONVERSATION_TYPES.includes(conv.type)) return;
     }
+    throw new ForbiddenException(msg.chat.notMember);
   }
 
   private assertMember(
     members: Array<{ userId: string; leftAt: Date | null }>,
-    caller: { id: string; role: number },
+    caller: { id: string; role: number; scope?: string | null },
+    convType: string,
     msg: Messages,
   ) {
     if (caller.role === ROLE.ADMIN) return;
     const m = members.find((mm) => mm.userId === caller.id && !mm.leftAt);
-    if (!m) throw new ForbiddenException(msg.chat.notMember);
+    if (m) return;
+    if (isSystemSale(caller) && SYSTEM_SALE_CONVERSATION_TYPES.includes(convType)) return;
+    throw new ForbiddenException(msg.chat.notMember);
   }
 }

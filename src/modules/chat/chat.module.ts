@@ -24,5 +24,6 @@ import { ChatRetentionService } from './chat-retention.service';
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway, ChatRetentionService],
+  exports: [ChatService],
 })
 export class ChatModule {}

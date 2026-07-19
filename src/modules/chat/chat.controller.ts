@@ -63,11 +63,37 @@ export class ChatController {
     return this.chatService.getUnreadCount(user.id, msg);
   }
 
+  @Get('yacht')
+  @ApiOperation({
+    summary: 'ADMIN/SALE hệ thống: danh sách hội thoại du thuyền (khách ↔ hệ thống)',
+    description: 'Truyền ?customerId= để xem toàn bộ hội thoại của 1 khách với hệ thống.',
+  })
+  @ApiQuery({ name: 'customerId', required: false })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  listYacht(
+    @CurrentUser() user: { id: string; role: number; scope?: string | null },
+    @Query('customerId') customerId: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
+    @Lang() msg: Messages,
+  ) {
+    return this.chatService.listYachtConversations(
+      user,
+      {
+        customerId: customerId || undefined,
+        page: page ? parseInt(page) : undefined,
+        limit: limit ? parseInt(limit) : undefined,
+      },
+      msg,
+    );
+  }
+
   @Post()
-  @ApiOperation({ summary: 'Tạo (hoặc lấy) conversation', description: 'Idempotent với type=booking + bookingId' })
+  @ApiOperation({ summary: 'Tạo (hoặc lấy) conversation', description: 'Idempotent với type=booking|yacht + bookingId' })
   create(
     @Body() dto: CreateConversationDto,
-    @CurrentUser() user: { id: string; role: number; ownerId?: string | null },
+    @CurrentUser() user: { id: string; role: number; ownerId?: string | null; scope?: string | null },
     @Lang() msg: Messages,
   ) {
     return this.chatService.createOrGet(user, dto, msg);
@@ -77,7 +103,7 @@ export class ChatController {
   @ApiOperation({ summary: 'Chi tiết conversation kèm members' })
   findOne(
     @Param('id') id: string,
-    @CurrentUser() user: { id: string; role: number },
+    @CurrentUser() user: { id: string; role: number; scope?: string | null },
     @Lang() msg: Messages,
   ) {
     return this.chatService.getConversation(id, user, msg);
@@ -91,7 +117,7 @@ export class ChatController {
     @Param('id') conversationId: string,
     @Query('cursor') cursor: string,
     @Query('limit') limit: string,
-    @CurrentUser() user: { id: string; role: number },
+    @CurrentUser() user: { id: string; role: number; scope?: string | null },
     @Lang() msg: Messages,
   ) {
     return this.chatService.listMessages(
@@ -111,10 +137,13 @@ export class ChatController {
   async sendMessage(
     @Param('id') conversationId: string,
     @Body() dto: SendMessageDto,
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string; role: number; scope?: string | null },
     @Lang() msg: Messages,
   ) {
-    const result = await this.chatService.sendMessage(conversationId, user.id, dto, msg);
+    const result = await this.chatService.sendMessage(conversationId, user.id, dto, msg, {
+      role: user.role,
+      scope: user.scope,
+    });
     // Broadcast qua WS + FCM fallback
     await this.chatGateway.broadcastMessage(conversationId, result.data.message, result.data.recipientIds);
     return result;

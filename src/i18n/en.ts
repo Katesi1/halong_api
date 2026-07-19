@@ -127,6 +127,7 @@ export const en = {
     createPendingSuccess: 'Property submitted, awaiting admin approval',
     trialPropertyLimit: (max: number) =>
       `Your account can currently post at most ${max} property. Please contact support if you need to add more.`,
+    phoneRequired: 'Please add a phone number to your profile before posting or editing a property.',
     updateSuccess: 'Property updated successfully',
     deleteSuccess: 'Property deleted successfully',
     deleteImageSuccess: 'Image deleted successfully',
@@ -376,6 +377,7 @@ export const en = {
     ownerOnly: 'Only homestay owners can invite staff',
     ownerIdRequired: 'ADMIN must provide ownerId when creating an invite on behalf of an OWNER',
     kycRequired: 'Complete KYC before inviting staff',
+    phoneRequired: 'Please add a phone number to your profile before inviting staff.',
     subscriptionRequired: 'An active subscription is required to invite staff',
     staffNotAllowedOnPlan: (_planName: string) =>
       `Your account is not authorized to invite staff.`,
@@ -593,6 +595,69 @@ export const en = {
   notificationPreferences: {
     getSuccess: 'Notification preferences retrieved successfully',
     updateSuccess: 'Notification preferences updated successfully',
+  },
+
+  // ─── Yachts ────────────────────────────────────────────────────────────────
+  yachts: {
+    notFound: 'Yacht not found',
+    codeDuplicate: 'Yacht code already exists',
+    forbidden: 'Only ADMIN or system SALE can manage yachts',
+    imageNotFound: 'Image not found',
+    noFiles: 'No image files. Field name must be "images"',
+    maxImages: (max: number) => `Maximum ${max} images per yacht`,
+    uploadSuccess: (count: number) => `Uploaded ${count} images successfully`,
+    listSuccess: 'Yachts retrieved successfully',
+    publicListSuccess: 'Public yachts retrieved successfully',
+    getSuccess: 'Yacht retrieved successfully',
+    createSuccess: 'Yacht created successfully',
+    updateSuccess: 'Yacht updated successfully',
+    deleteSuccess: 'Yacht deleted successfully',
+    deleteImageSuccess: 'Image deleted successfully',
+    setCoverSuccess: 'Cover image set successfully',
+    updatePricesSuccess: 'Yacht prices updated successfully',
+    publicDetailSuccess: 'Yacht detail retrieved successfully',
+    calendarSuccess: 'Yacht calendar retrieved successfully',
+  },
+
+  // ─── Yacht Bookings ────────────────────────────────────────────────────────
+  yachtBookings: {
+    notFound: 'Yacht booking not found',
+    yachtNotFound: 'Yacht not found',
+    checkoutBeforeCheckin: 'End date must be after start date',
+    checkinInPast: 'Start date cannot be in the past',
+    yachtNotAvailable: 'Yacht is already booked for this period',
+    guestExceedsMax: 'Guest count exceeds yacht maximum capacity',
+    priceNotConfigured: 'Yacht price is not configured',
+    forbiddenAccess: 'You do not have access to this booking',
+    forbidden: 'You are not allowed to perform this action',
+    createSuccess: 'Yacht booked successfully, awaiting confirmation',
+    listSuccess: 'Yacht bookings retrieved successfully',
+    myListSuccess: 'Your bookings retrieved successfully',
+    getSuccess: 'Yacht booking retrieved successfully',
+    onlyConfirmPending: 'Only PENDING bookings can be confirmed',
+    confirmSuccess: 'Booking confirmed, awaiting full payment',
+    onlyPayConfirmed: 'Only CONFIRMED bookings can be marked paid',
+    paidAmountRequired: 'Paid amount must be > 0',
+    markPaidSuccess: 'Full payment recorded and code sent to customer',
+    alreadyCancelled: 'Booking was already cancelled',
+    cannotCancelPaid: 'Cannot cancel a paid booking, please contact the system',
+    cancelSuccess: 'Yacht booking cancelled successfully',
+  },
+
+  // ─── Yacht Reviews ─────────────────────────────────────────────────────────
+  yachtReviews: {
+    notYourBooking: 'This booking is not yours or does not belong to this yacht',
+    notReviewable: 'Only paid and completed trips can be reviewed',
+    reviewNotYetAllowed: 'You can only review after the trip has ended',
+    alreadyReviewed: 'You have already reviewed this booking',
+    notFound: 'Review not found',
+    forbidden: 'You are not allowed to perform this action',
+    notHidden: 'Review is not hidden',
+    createSuccess: 'Yacht review submitted successfully',
+    listSuccess: 'Reviews retrieved successfully',
+    replySuccess: 'Reply added successfully',
+    hideSuccess: 'Review hidden',
+    restoreSuccess: 'Review restored',
   },
 
 };

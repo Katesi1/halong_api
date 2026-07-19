@@ -7,8 +7,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Messages } from '../../i18n';
-import { BOOKING_STATUS, ROLE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId } from '../../common/constants';
+import { BOOKING_STATUS, ROLE, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId } from '../../common/constants';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { ReplyReviewDto } from './dto/reply-review.dto';
 import { HideReviewDto } from './dto/hide-review.dto';
@@ -19,7 +20,11 @@ const REVIEW_UNLOCK_AFTER_CHECKOUT_MS = (12 - 7) * 60 * 60 * 1000; // 5h
 
 @Injectable()
 export class ReviewsService {
-  constructor(private prisma: PrismaService, private auditLog: AuditLogService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auditLog: AuditLogService,
+    private notifications: NotificationsService,
+  ) {}
 
   async createReview(
     propertyId: string,
@@ -30,7 +35,7 @@ export class ReviewsService {
     // Check property exists
     const property = await this.prisma.property.findFirst({
       where: { id: propertyId, deletedAt: null },
-      select: { id: true, ownerId: true },
+      select: { id: true, ownerId: true, name: true, code: true },
     });
     if (!property) throw new NotFoundException(msg.reviews.propertyNotFound);
 
@@ -90,6 +95,18 @@ export class ReviewsService {
     });
 
     await this.recomputePropertyRating(propertyId);
+
+    // Báo cho owner (chuông + push FCM) — best-effort, không chặn response.
+    // DB row ghi đồng bộ trong notifyPropertyOwner; push là side-effect ngoài.
+    void this.notifications.notifyPropertyOwner(
+      propertyId,
+      'Đánh giá mới',
+      `${property.name} (${property.code}) — khách vừa đánh giá ${avgRating}★`,
+      NOTIFICATION_TYPE.SYSTEM,
+      review.id,
+      'review',
+      { pushType: 'review_created', deepLink: `/properties/${propertyId}/reviews` },
+    ).catch(() => undefined);
 
     return { message: msg.reviews.createSuccess, data: review };
   }

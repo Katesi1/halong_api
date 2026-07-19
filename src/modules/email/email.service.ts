@@ -9,6 +9,9 @@ export interface StaffInviteEmailData {
   inviteLink: string;
   shortCode: string;
   expiresAt: Date;
+  /** Link tải app (App Store / Google Play). Để trống → nút tương ứng không hiển thị. */
+  appStoreUrl?: string | null;
+  playStoreUrl?: string | null;
 }
 
 export interface PasswordResetEmailData {
@@ -72,6 +75,18 @@ export interface ReviewInvitationEmailData {
   bookingCode: string;
 }
 
+export interface YachtBookingConfirmedEmailData {
+  to: string;
+  customerName: string;
+  yachtName: string;
+  bookingCode: string;
+  checkinDate: Date;
+  checkoutDate: Date;
+  paidAmount: number;
+  totalAmount?: number | null;
+  departurePoint?: string | null;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -105,54 +120,11 @@ export class EmailService {
       return;
     }
 
-    const expiresStr = data.expiresAt.toLocaleDateString('vi-VN', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-    });
-    const homestayLine = data.homestayName ? ` (chủ homestay ${data.homestayName})` : '';
     const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
-
-    const text = `Xin chào,
-
-${data.ownerName}${homestayLine} đã mời bạn làm nhân viên quản lý booking trên Halong24h.
-
-Để chấp nhận lời mời:
-
-  - Trên điện thoại: bấm vào link sau
-    ${data.inviteLink}
-
-  - Hoặc mở app Halong24h → Đăng nhập → "Tôi có mã mời" → nhập mã:
-    ${data.shortCode}
-
-Lời mời hết hạn vào ngày ${expiresStr}.
-
-Nếu bạn không biết người gửi, có thể bỏ qua email này.
-
-— Halong24h Team`;
-
-    const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
-  <h2 style="margin:0 0 16px">Bạn được mời làm nhân viên — Halong24h</h2>
-  <p><strong>${data.ownerName}</strong>${homestayLine} đã mời bạn làm nhân viên quản lý booking trên Halong24h.</p>
-  <p style="margin:24px 0">
-    <a href="${data.inviteLink}"
-       style="background:#0d6efd;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">
-      Chấp nhận lời mời
-    </a>
-  </p>
-  <p>Hoặc mở app Halong24h → "Tôi có mã mời" → nhập mã:</p>
-  <p style="font-size:20px;font-weight:bold;letter-spacing:2px;background:#f5f5f5;padding:12px;text-align:center;border-radius:6px">${data.shortCode}</p>
-  <p style="color:#666;font-size:13px">Lời mời hết hạn vào ngày <strong>${expiresStr}</strong>. Nếu bạn không biết người gửi, có thể bỏ qua email này.</p>
-  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
-  <p style="color:#999;font-size:12px">— Halong24h Team</p>
-</div>`;
+    const { subject, text, html } = renderStaffInviteEmail(data);
 
     try {
-      await this.transporter.sendMail({
-        from,
-        to: data.to,
-        subject: `Bạn được mời làm nhân viên tại ${data.ownerName} — Halong24h`,
-        text,
-        html,
-      });
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
     } catch (err) {
       this.logger.error(`Failed to send staff invite to ${data.to}: ${(err as Error).message}`);
       throw err;
@@ -355,6 +327,21 @@ Bạn có thể đặt lại phòng khác trên Halong24h bất cứ lúc nào.
       await this.transporter.sendMail({ from, to: data.to, subject, text, html });
     } catch (err) {
       this.logger.error(`Failed to send review-invitation to ${data.to}: ${(err as Error).message}`);
+    }
+  }
+
+  /** Xác nhận thanh toán đủ đơn du thuyền — gửi mã code + thông tin cho khách. */
+  async sendYachtBookingConfirmed(data: YachtBookingConfirmedEmailData): Promise<void> {
+    if (!this.transporter) {
+      this.logger.warn(`Skipping yacht-booking-confirmed email to ${data.to} — SMTP not configured`);
+      return;
+    }
+    const from = this.configService.get<string>('SMTP_FROM') || 'Halong24h <noreply@halong24h.com>';
+    const { subject, text, html } = renderYachtBookingConfirmedEmail(data);
+    try {
+      await this.transporter.sendMail({ from, to: data.to, subject, text, html });
+    } catch (err) {
+      this.logger.error(`Failed to send yacht-booking-confirmed to ${data.to}: ${(err as Error).message}`);
     }
   }
 
@@ -731,6 +718,117 @@ Cảm ơn bạn,
   return { subject: 'Chia sẻ đánh giá kỳ nghỉ của bạn — Halong24h', text, html };
 }
 
+/** Render email xác nhận đặt du thuyền (yacht_booking_confirmed) — kèm mã code + thông tin. */
+export function renderYachtBookingConfirmedEmail(data: YachtBookingConfirmedEmailData): EmailSample {
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const vnd = (n: number) => `${n.toLocaleString('vi-VN')} đ`;
+  const checkin = fmt(data.checkinDate);
+  const checkout = fmt(data.checkoutDate);
+  const departText = data.departurePoint ? `\n  Điểm khởi hành: ${data.departurePoint}` : '';
+  const totalText = data.totalAmount != null ? `\n  Tổng tiền: ${vnd(data.totalAmount)}` : '';
+
+  const text = `Xin chào ${data.customerName},
+
+Đơn đặt du thuyền của bạn đã được thanh toán đủ và xác nhận.
+
+  Mã đặt du thuyền: ${data.bookingCode}
+  Du thuyền: ${data.yachtName}
+  Ngày bắt đầu: ${checkin}
+  Ngày kết thúc: ${checkout}${departText}${totalText}
+  Đã thanh toán: ${vnd(data.paidAmount)}
+
+Vui lòng xuất trình mã đặt du thuyền khi lên tàu. Hẹn gặp bạn!
+
+— Halong24h Team`;
+
+  const departHtml = data.departurePoint
+    ? `<tr><td style="padding:6px 12px 6px 0;color:#666">Điểm khởi hành</td><td style="padding:6px 0"><strong>${escapeHtmlStr(data.departurePoint)}</strong></td></tr>`
+    : '';
+  const totalHtml =
+    data.totalAmount != null
+      ? `<tr><td style="padding:6px 12px 6px 0;color:#666">Tổng tiền</td><td style="padding:6px 0"><strong>${vnd(data.totalAmount)}</strong></td></tr>`
+      : '';
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px;color:#1a7f37">Đặt du thuyền đã được xác nhận 🛥️</h2>
+  <p>Xin chào <strong>${escapeHtmlStr(data.customerName)}</strong>,</p>
+  <p>Đơn đặt du thuyền của bạn đã được thanh toán đủ và xác nhận.</p>
+  <table style="border-collapse:collapse;margin:16px 0;font-size:14px">
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Mã đặt du thuyền</td><td style="padding:6px 0"><strong>${escapeHtmlStr(data.bookingCode)}</strong></td></tr>
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Du thuyền</td><td style="padding:6px 0"><strong>${escapeHtmlStr(data.yachtName)}</strong></td></tr>
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Ngày bắt đầu</td><td style="padding:6px 0"><strong>${checkin}</strong></td></tr>
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Ngày kết thúc</td><td style="padding:6px 0"><strong>${checkout}</strong></td></tr>
+    ${departHtml}
+    ${totalHtml}
+    <tr><td style="padding:6px 12px 6px 0;color:#666">Đã thanh toán</td><td style="padding:6px 0"><strong>${vnd(data.paidAmount)}</strong></td></tr>
+  </table>
+  <p style="margin-top:24px">Vui lòng xuất trình mã đặt du thuyền khi lên tàu. Hẹn gặp bạn!</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return { subject: 'Đặt du thuyền đã được xác nhận — Halong24h', text, html };
+}
+
+/** Render email mời nhân viên (staff_invite). Dùng chung cho gửi thật + sample admin. */
+export function renderStaffInviteEmail(data: StaffInviteEmailData): EmailSample {
+  const expiresStr = data.expiresAt.toLocaleDateString('vi-VN', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+  const homestayLine = data.homestayName ? ` (chủ homestay ${data.homestayName})` : '';
+
+  // Phần tải app — chỉ render store nào có link cấu hình.
+  const downloadRowsText = [
+    data.appStoreUrl ? `  - App Store (iPhone/iPad):\n    ${data.appStoreUrl}` : '',
+    data.playStoreUrl ? `  - Google Play (Android):\n    ${data.playStoreUrl}` : '',
+  ].filter(Boolean).join('\n');
+  const downloadText = downloadRowsText
+    ? `\n\nChưa cài app Halong24h? Tải về:\n\n${downloadRowsText}`
+    : '';
+
+  const storeBtn = (href: string, label: string) =>
+    `<a href="${href}" style="background:#222;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block;margin:4px 8px 4px 0;font-size:14px">${label}</a>`;
+  const downloadBtns = [
+    data.appStoreUrl ? storeBtn(data.appStoreUrl, '📱 App Store') : '',
+    data.playStoreUrl ? storeBtn(data.playStoreUrl, '▶ Google Play') : '',
+  ].filter(Boolean).join('');
+  const downloadHtml = downloadBtns
+    ? `<p style="margin:20px 0 4px">Chưa cài app Halong24h? Tải về:</p>\n  <p style="margin:0 0 8px">${downloadBtns}</p>`
+    : '';
+
+  const text = `Xin chào,
+
+${data.ownerName}${homestayLine} đã mời bạn làm nhân viên quản lý booking trên Halong24h.
+
+Để chấp nhận lời mời, mở app Halong24h → Đăng nhập → "Tôi có mã mời" → nhập mã:
+
+    ${data.shortCode}${downloadText}
+
+Lời mời hết hạn vào ngày ${expiresStr}.
+
+Nếu bạn không biết người gửi, có thể bỏ qua email này.
+
+— Halong24h Team`;
+
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#222">
+  <h2 style="margin:0 0 16px">Bạn được mời làm nhân viên — Halong24h</h2>
+  <p><strong>${data.ownerName}</strong>${homestayLine} đã mời bạn làm nhân viên quản lý booking trên Halong24h.</p>
+  <p style="margin-top:20px">Để chấp nhận lời mời, mở app Halong24h → Đăng nhập → "Tôi có mã mời" → nhập mã:</p>
+  <p style="font-size:20px;font-weight:bold;letter-spacing:2px;background:#f5f5f5;padding:12px;text-align:center;border-radius:6px">${data.shortCode}</p>
+  ${downloadHtml}
+  <p style="color:#666;font-size:13px">Lời mời hết hạn vào ngày <strong>${expiresStr}</strong>. Nếu bạn không biết người gửi, có thể bỏ qua email này.</p>
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+  <p style="color:#999;font-size:12px">— Halong24h Team</p>
+</div>`;
+
+  return {
+    subject: `Bạn được mời làm nhân viên tại ${data.ownerName} — Halong24h`,
+    text,
+    html,
+  };
+}
+
 /**
  * Templates exposed to admin UI cho nút "Gửi test".
  * CHỈ liệt kê template thực sự được BE gửi tự động trong luồng nghiệp vụ —
@@ -747,6 +845,7 @@ export const EMAIL_TEMPLATE_KEYS = [
   'kyc_rejected', // admin từ chối KYC
   'staff_invite', // OWNER/ADMIN mời SALE
   'review_invitation', // cron 12h trưa ngày checkout → mời khách đánh giá
+  'yacht_booking_confirmed', // mark-paid đơn du thuyền → gửi mã code cho khách
 ] as const;
 
 export type EmailTemplateKey = (typeof EMAIL_TEMPLATE_KEYS)[number];
@@ -786,16 +885,32 @@ const EMAIL_TEMPLATE_SAMPLES: Record<string, EmailSample> = {
     reason: 'Ảnh CCCD mờ, vui lòng chụp lại rõ nét.',
     rejectedItems: ['cccdFront', 'selfie'],
   }),
-  staff_invite: {
-    subject: 'Bạn được mời làm nhân viên',
-    text: 'Đây là mẫu lời mời nhân viên (test render).',
-    html: '<p>Đây là mẫu lời mời nhân viên (test render).</p>',
-  },
+  staff_invite: renderStaffInviteEmail({
+    to: '',
+    ownerName: 'Trần Thị B',
+    homestayName: 'Villa Bãi Cháy 3 phòng ngủ',
+    inviteLink: 'https://halong24h.com/staff/accept?token=SAMPLE_TOKEN',
+    shortCode: 'AB12CD',
+    expiresAt: new Date('2026-07-17T00:00:00.000Z'),
+    appStoreUrl: 'https://apps.apple.com/vn/app/halong24h/id6769460183?l=vi',
+    playStoreUrl: '',
+  }),
   review_invitation: renderReviewInvitationEmail({
     to: '',
     customerName: 'Nguyễn Văn A',
     propertyName: 'Villa Bãi Cháy 3 phòng ngủ',
     reviewUrl: 'https://halong24h.com/my/bookings/HL-DEMO01',
     bookingCode: 'HL-ABC12345',
+  }),
+  yacht_booking_confirmed: renderYachtBookingConfirmedEmail({
+    to: '',
+    customerName: 'Nguyễn Văn A',
+    yachtName: 'Du thuyền Ambassador Cruise',
+    bookingCode: 'YC-ABC12345',
+    checkinDate: new Date('2026-08-10T00:00:00.000Z'),
+    checkoutDate: new Date('2026-08-11T00:00:00.000Z'),
+    paidAmount: 6000000,
+    totalAmount: 6000000,
+    departurePoint: 'Cảng Tuần Châu, Hạ Long',
   }),
 };

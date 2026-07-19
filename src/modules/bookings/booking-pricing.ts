@@ -80,6 +80,23 @@ function isWeekend(d: Date): boolean {
 }
 
 /**
+ * Giá 1 đêm cho 1 ngày cụ thể — chọn holiday > weekend > weekday (cùng quy tắc computeBookingPricing).
+ * Dùng để hiển thị giá theo ngày trên lịch. Trả amount=null nếu chưa cấu hình weekdayPrice.
+ */
+export function resolveNightlyRate(
+  date: Date,
+  pricing: { weekdayPrice: number | null; weekendPrice: number | null; holidayPrice: number | null },
+): { type: NightType; amount: number | null } {
+  if (pricing.weekdayPrice == null) return { type: 'weekday', amount: null };
+  const weekday = pricing.weekdayPrice;
+  const weekend = pricing.weekendPrice ?? weekday;
+  const holiday = pricing.holidayPrice ?? weekday;
+  if (isHoliday(date)) return { type: 'holiday', amount: holiday };
+  if (isWeekend(date)) return { type: 'weekend', amount: weekend };
+  return { type: 'weekday', amount: weekday };
+}
+
+/**
  * Tính giá 1 booking. Trả totalAmount=null + breakdown=null khi property chưa có giá
  * (weekdayPrice null) hoặc khoảng ngày không hợp lệ (nights <= 0).
  */
