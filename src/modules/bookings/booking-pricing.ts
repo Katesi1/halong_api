@@ -1,12 +1,16 @@
 // Tính totalAmount + breakdown cho booking từ bảng giá phòng.
-// Công thức chốt (2026-07-09):
-//   nightly(d) = holidayPrice nếu d là ngày lễ
-//              = weekendPrice (fallback weekdayPrice) nếu dow(d) ∈ {0=CN, 5=T6, 6=T7}
-//              = weekdayPrice ngược lại
+// Công thức chốt (2026-07-19):
+//   nightly(d, i) = holidayPrice nếu d là ngày lễ
+//               = weekendPrice nếu dow(d) ∈ {5=T6, 6=T7}
+//                            HOẶC dow(d)=0=CN VÀ i>0 (đêm CN nằm ngay sau đêm T7 trong cùng kỳ ở)
+//               = weekdayPrice ngược lại (gồm cả CN khi CN là ĐÊM ĐẦU — khách check-in Chủ nhật)
+//   (fallback: weekendPrice/holidayPrice null → dùng weekdayPrice)
+//   Quy tắc CN (2026-07-19): CN chỉ là "cuối tuần" khi khách ở liền đêm T7 trước đó.
+//     CN→T3 = 2 đêm thường · T7→T2 = T7 + CN đều cuối tuần · T6→T2 = cả 3 cuối tuần.
 //   extraAdults   = max(0, adults   − standardGuests)
 //   extraChildren = max(0, children − standardChildren)
 //   surchargePerNight = extraAdults × adultSurcharge + extraChildren × childSurcharge
-//   totalAmount = Σ nightly(d) + surchargePerNight × nights
+//   totalAmount = Σ nightly(d, i) + surchargePerNight × nights
 //
 // Quy ước: field giá null → coi như 0 khi cộng phụ thu. NHƯNG nếu weekdayPrice null
 // ⟹ property chưa cấu hình giá ⟹ trả totalAmount=null (không bịa 0).
@@ -74,9 +78,48 @@ function isHoliday(d: Date): boolean {
   return FIXED_HOLIDAY_MMDD.has(key.slice(5)) || LUNAR_HOLIDAY_DATES.has(key);
 }
 
+/**
+ * Cuối tuần theo NGÀY (context-free) — CN/T6/T7. Dùng cho resolveNightlyRate (hiển thị giá 1 ngày,
+ * yacht 1 đêm). KHÔNG áp quy tắc "CN chỉ cuối tuần khi liền sau T7" vì hàm này không biết vị trí đêm.
+ */
 function isWeekend(d: Date): boolean {
   const dow = d.getUTCDay(); // 0=CN, 5=T6, 6=T7
   return dow === 0 || dow === 5 || dow === 6;
+}
+
+/**
+ * Cuối tuần theo ĐÊM cho booking homestay (2026-07-19):
+ *   - T6 (5), T7 (6): luôn là cuối tuần.
+ *   - CN (0): chỉ là cuối tuần khi indexInStay > 0 — tức đêm CN nằm ngay sau đêm T7 trong cùng kỳ ở.
+ *     Khách check-in Chủ nhật (CN là đêm đầu) → CN tính giá ngày thường.
+ * indexInStay = thứ tự đêm trong booking (0 = đêm đầu tiên). Booking là dãy đêm liên tục nên đêm
+ * trước một đêm CN luôn là T7; do đó indexInStay>0 ⇔ khách có ở đêm T7 liền trước.
+ */
+function isWeekendNight(d: Date, indexInStay: number): boolean {
+  const dow = d.getUTCDay();
+  if (dow === 5 || dow === 6) return true; // T6, T7 luôn cuối tuần
+  if (dow === 0) return indexInStay > 0; // CN: cuối tuần chỉ khi liền sau T7 trong cùng kỳ ở
+  return false;
+}
+
+/**
+ * Cộng markup % vào GIÁ PHÒNG/đêm cho web khách (chỉ giá phòng, KHÔNG áp phụ thu).
+ * Làm tròn về bội số 1.000đ cho gọn (1.000.000 ×1.1 = 1.100.000). markupPercent=0 → giữ nguyên.
+ * Xem `DEFAULT_PRICE_MARKUP_PERCENT` / ENV `PRICE_MARKUP_PERCENT`.
+ */
+export function applyRoomMarkup(baseAmount: number, markupPercent: number): number {
+  if (!markupPercent) return baseAmount;
+  return Math.round((baseAmount * (100 + markupPercent)) / 100 / 1000) * 1000;
+}
+
+/**
+ * Nghịch đảo markup: quy giá KHÁCH (đã +markup) về giá GỐC để so với cột `weekdayPrice` trong DB.
+ * Dùng cho bộ lọc minPrice/maxPrice trên endpoint web khách (khách nhập theo giá hiển thị).
+ * Trả float (không làm tròn) để so sánh chính xác; markupPercent=0 → giữ nguyên.
+ */
+export function customerPriceToBase(customerAmount: number, markupPercent: number): number {
+  if (!markupPercent) return customerAmount;
+  return (customerAmount * 100) / (100 + markupPercent);
 }
 
 /**
@@ -97,6 +140,26 @@ export function resolveNightlyRate(
 }
 
 /**
+ * Giá hiển thị trên LỊCH cho 1 ngày (context-free): holiday > cuối tuần (CHỈ T6/T7) > thường.
+ * CN coi là ngày THƯỜNG (giá cơ sở) — vì CN chỉ thành cuối tuần khi nằm trong kỳ ở liền sau đêm T7
+ * (quy tắc booking `isWeekendNight`), điều mà lịch không thể biết. Dùng cho public-grid / grid quản lý.
+ * Trả amount=null nếu chưa cấu hình weekdayPrice.
+ */
+export function resolveCalendarRate(
+  date: Date,
+  pricing: { weekdayPrice: number | null; weekendPrice: number | null; holidayPrice: number | null },
+): { type: NightType; amount: number | null } {
+  if (pricing.weekdayPrice == null) return { type: 'weekday', amount: null };
+  const weekday = pricing.weekdayPrice;
+  const weekend = pricing.weekendPrice ?? weekday;
+  const holiday = pricing.holidayPrice ?? weekday;
+  if (isHoliday(date)) return { type: 'holiday', amount: holiday };
+  const dow = date.getUTCDay();
+  if (dow === 5 || dow === 6) return { type: 'weekend', amount: weekend };
+  return { type: 'weekday', amount: weekday };
+}
+
+/**
  * Tính giá 1 booking. Trả totalAmount=null + breakdown=null khi property chưa có giá
  * (weekdayPrice null) hoặc khoảng ngày không hợp lệ (nights <= 0).
  */
@@ -106,8 +169,11 @@ export function computeBookingPricing(input: {
   adults: number;
   children: number;
   pricing: PropertyPricing;
+  /** Markup % cộng vào GIÁ PHÒNG (không áp phụ thu) — booking web khách. Mặc định 0 (giá gốc). */
+  roomMarkupPercent?: number;
 }): { totalAmount: number | null; breakdown: PriceBreakdown | null } {
   const { checkin, checkout, adults, children, pricing } = input;
+  const markup = input.roomMarkupPercent ?? 0;
 
   const nights = Math.max(0, Math.round((checkout.getTime() - checkin.getTime()) / DAY_MS));
   if (nights <= 0) return { totalAmount: null, breakdown: null };
@@ -115,9 +181,13 @@ export function computeBookingPricing(input: {
   // Chưa cấu hình giá ngày thường → không bịa số.
   if (pricing.weekdayPrice == null) return { totalAmount: null, breakdown: null };
 
-  const weekday = pricing.weekdayPrice;
-  const weekend = pricing.weekendPrice ?? weekday; // fallback weekday nếu null
-  const holiday = pricing.holidayPrice ?? weekday;
+  // Giá gốc + fallback, rồi cộng markup cho từng bậc giá phòng (phụ thu KHÔNG markup).
+  const weekdayBase = pricing.weekdayPrice;
+  const weekendBase = pricing.weekendPrice ?? weekdayBase; // fallback weekday nếu null
+  const holidayBase = pricing.holidayPrice ?? weekdayBase;
+  const weekday = applyRoomMarkup(weekdayBase, markup);
+  const weekend = applyRoomMarkup(weekendBase, markup);
+  const holiday = applyRoomMarkup(holidayBase, markup);
 
   const lineItems: PriceLineItem[] = [];
   let roomTotal = 0;
@@ -129,7 +199,7 @@ export function computeBookingPricing(input: {
     if (isHoliday(d)) {
       type = 'holiday';
       amount = holiday;
-    } else if (isWeekend(d)) {
+    } else if (isWeekendNight(d, i)) {
       type = 'weekend';
       amount = weekend;
     } else {

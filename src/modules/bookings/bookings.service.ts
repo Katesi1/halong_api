@@ -13,7 +13,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { CustomerHoldBookingDto } from './dto/customer-hold-booking.dto';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned, resolvePriceMarkupPercent } from '../../common/constants';
 import { buildVietQrPayload, sanitizeTransferContent } from '../payment/helpers/vietqr.helper';
 import { computeBookingPricing, resolveGuestCounts, type PropertyPricing } from './booking-pricing';
 
@@ -312,6 +312,16 @@ export class BookingsService {
     };
   }
 
+  /** % markup giá web khách (ENV PRICE_MARKUP_PERCENT). Chỉ áp cho ĐƠN CỦA KHÁCH (có customerId). */
+  private markupPercent(): number {
+    return resolvePriceMarkupPercent(this.config.get<string>('PRICE_MARKUP_PERCENT'));
+  }
+
+  /** Markup áp cho 1 booking: đơn khách (customerId != null) → +markup; đơn staff/sale → 0 (giá gốc). */
+  private bookingMarkup(booking: { customerId?: string | null }): number {
+    return booking?.customerId ? this.markupPercent() : 0;
+  }
+
   /** Tính pricing cho 1 booking + property. Trả null nếu thiếu giá hoặc thiếu field giá trong select. */
   private computePricing(booking: any, property: any) {
     if (property?.weekdayPrice === undefined) return null; // select không có field giá → bỏ qua breakdown
@@ -322,6 +332,7 @@ export class BookingsService {
       adults,
       children,
       pricing: this.pricingFromProperty(property),
+      roomMarkupPercent: this.bookingMarkup(booking),
     });
     return breakdown;
   }
@@ -333,12 +344,16 @@ export class BookingsService {
     standardGuests: true, standardChildren: true,
   } as const;
 
-  /** Tính totalAmount để persist. Trả null nếu property chưa cấu hình giá. */
+  /**
+   * Tính totalAmount để persist. Trả null nếu property chưa cấu hình giá.
+   * `roomMarkupPercent`: đơn khách truyền `this.markupPercent()`; đơn staff/sale truyền 0 (giá gốc).
+   */
   private computeTotalToPersist(
     property: any,
     checkin: Date,
     checkout: Date,
     guests: { adults?: number | null; children?: number | null; guestCount?: number | null },
+    roomMarkupPercent: number = 0,
   ): number | null {
     const { adults, children } = resolveGuestCounts(guests);
     return computeBookingPricing({
@@ -347,6 +362,7 @@ export class BookingsService {
       adults,
       children,
       pricing: this.pricingFromProperty(property),
+      roomMarkupPercent,
     }).totalAmount;
   }
 
@@ -535,6 +551,7 @@ export class BookingsService {
       booking.checkinDate,
       booking.checkoutDate,
       booking,
+      this.bookingMarkup(booking), // đơn khách → +markup; đơn staff → giá gốc
     );
 
     const confirmed = await this.prisma.booking.update({
@@ -930,6 +947,7 @@ export class BookingsService {
       booking.checkinDate,
       booking.checkoutDate,
       { adults: booking.adults, children: booking.children, guestCount: dto.guestCount ?? booking.guestCount },
+      this.bookingMarkup(booking), // đơn khách → +markup; đơn staff → giá gốc
     );
 
     const updated = await this.prisma.booking.update({
@@ -969,11 +987,17 @@ export class BookingsService {
       throw new BadRequestException(msg.bookings.guestExceedsMax);
     }
 
-    const totalAmount = this.computeTotalToPersist(property, checkin, checkout, {
-      adults: dto.adults ?? null,
-      children: dto.adults != null ? children : null,
-      guestCount: totalGuests,
-    });
+    const totalAmount = this.computeTotalToPersist(
+      property,
+      checkin,
+      checkout,
+      {
+        adults: dto.adults ?? null,
+        children: dto.adults != null ? children : null,
+        guestCount: totalGuests,
+      },
+      this.markupPercent(), // đơn web khách → luôn +markup vào giá phòng
+    );
 
     const holdExpireAt = new Date(Date.now() + CUSTOMER_HOLD_DURATION_SECONDS * 1000);
 

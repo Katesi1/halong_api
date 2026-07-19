@@ -16,27 +16,28 @@ interface OwnerEntitlement {
 }
 
 /**
- * Trial ngầm (chưa mua gói) chỉ được đăng tối đa 1 cơ sở (1 villa / 1 homestay /
- * 1 khách sạn). Mua gói bất kỳ hoặc được ADMIN cấp kycBypass → gỡ cap này.
+ * Owner CHƯA mua gói (trial ngầm — dù đã được ADMIN cấp kycBypass hoặc đã duyệt
+ * KYC) chỉ được đăng tối đa TRIAL_MAX_PROPERTIES cơ sở (mọi type tính chung).
+ * Trial sẽ hết hạn nên đây là trần cho giai đoạn dùng thử. Mua gói bất kỳ
+ * (subscriptionPlanId != null) → gỡ cap, gói tự quản lý giới hạn phòng.
  */
-export const TRIAL_MAX_PROPERTIES = 1;
+export const TRIAL_MAX_PROPERTIES = 3;
 
 interface TrialQuotaOwner {
-  kycBypass: boolean;
-  subscriptionStatus: string;
   subscriptionPlanId: string | null;
 }
 
 /**
- * Owner có đang bị giới hạn số cơ sở theo trial ngầm không.
- * - kycBypass (ADMIN grant) → không cap.
- * - Đã có subscriptionPlanId (đã mua gói) → không cap.
- * - Chỉ cap khi status = TRIAL và chưa gắn plan nào.
+ * Owner có đang bị giới hạn số cơ sở theo trial không.
+ * - Đã mua gói (subscriptionPlanId != null) → không cap (gói tự quản lý).
+ * - Chưa mua gói (planId = null) → LUÔN cap, kể cả kycBypass hoặc KYC đã duyệt.
+ *
+ * Lưu ý: hàm này chỉ được gọi sau khi `assertOwnerEntitled` đã pass (owner còn
+ * quyền dùng tính năng: kycBypass / active / trial còn hạn), nên planId = null
+ * tại đây luôn nghĩa là "đang dùng thử, chưa mua gói".
  */
 export function isTrialPropertyCapped(owner: TrialQuotaOwner): boolean {
-  if (owner.kycBypass) return false;
-  if (owner.subscriptionPlanId) return false;
-  return owner.subscriptionStatus === SUBSCRIPTION_STATUS.TRIAL;
+  return owner.subscriptionPlanId === null;
 }
 
 /**

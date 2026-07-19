@@ -126,7 +126,7 @@ export const en = {
     createSuccess: 'Property created successfully',
     createPendingSuccess: 'Property submitted, awaiting admin approval',
     trialPropertyLimit: (max: number) =>
-      `Your account can currently post at most ${max} property. Please contact support if you need to add more.`,
+      `Your account can currently post at most ${max} properties. Please contact support if you need to add more.`,
     phoneRequired: 'Please add a phone number to your profile before posting or editing a property.',
     updateSuccess: 'Property updated successfully',
     deleteSuccess: 'Property deleted successfully',
@@ -658,6 +658,13 @@ export const en = {
     replySuccess: 'Reply added successfully',
     hideSuccess: 'Review hidden',
     restoreSuccess: 'Review restored',
+  },
+
+  blog: {
+    listSuccess: 'Blog posts retrieved successfully',
+    getSuccess: 'Blog post retrieved successfully',
+    notFound: 'Blog post not found',
+    fetchError: 'Unable to load blog content right now, please try again later',
   },
 
 };

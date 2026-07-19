@@ -418,3 +418,19 @@ export function kycSubmissionToAdminFilter(
   }
   return null;
 }
+
+/**
+ * Markup % cộng vào GIÁ PHÒNG/ĐÊM khi hiển thị & tính tiền cho WEB KHÁCH (giá còn chừa biên cho
+ * nhân viên bán). Sale/OWNER (endpoint auth) thấy giá gốc; web khách thấy giá +markup và trả theo giá này.
+ * Chỉ áp cho giá phòng (weekday/weekend/holiday), KHÔNG áp cho phụ thu người lớn/trẻ em.
+ * Ghi đè bằng ENV `PRICE_MARKUP_PERCENT`. Xem helper `applyRoomMarkup` trong booking-pricing.ts.
+ */
+export const DEFAULT_PRICE_MARKUP_PERCENT = 10;
+
+/** Đọc % markup từ ENV (fallback DEFAULT_PRICE_MARKUP_PERCENT). Giá trị âm/không hợp lệ → 0. */
+export function resolvePriceMarkupPercent(raw: string | number | undefined | null): number {
+  if (raw == null || raw === '') return DEFAULT_PRICE_MARKUP_PERCENT;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}

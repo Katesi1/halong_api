@@ -116,7 +116,7 @@ export class AuthService {
     const clientType = meta.clientType ?? 'web';
     const sid = randomUUID();
     const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid, true);
 
     return {
       message: msg.auth.registerSuccess,
@@ -161,7 +161,7 @@ export class AuthService {
     const clientType = meta.clientType ?? 'web';
     const sid = randomUUID();
     const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid, true);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -287,7 +287,7 @@ export class AuthService {
     const clientType = meta.clientType ?? 'web';
     const sid = randomUUID();
     const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid, true);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -397,7 +397,7 @@ export class AuthService {
     const clientType = meta.clientType ?? 'mobile'; // Apple mặc định mobile (iOS)
     const sid = randomUUID();
     const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid, true);
     await this.autoCancelPendingDeletion(user.id);
 
     return {
@@ -734,7 +734,7 @@ export class AuthService {
   ) {
     const sid = randomUUID();
     const tokens = await this.generateTokens(user.id, user.email, user.role, clientType, sid);
-    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid);
+    await this.updateRefreshToken(user.id, clientType, tokens.refreshToken, sid, true);
     return tokens;
   }
 
@@ -766,6 +766,7 @@ export class AuthService {
     clientType: ClientType,
     refreshToken: string,
     sid: string,
+    isFreshLogin = false,
   ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
     // Ghi vào đúng cột theo clientType. Không đụng cột kia → giữ session còn lại.
@@ -779,5 +780,24 @@ export class AuthService {
           ? { refreshTokenMobile: hashedRefreshToken, refreshToken: null, sessionIdMobile: sid }
           : { refreshTokenWeb: hashedRefreshToken, refreshToken: null, sessionIdWeb: sid },
     });
+
+    // Single mobile session: login mobile MỚI (không phải refresh) → xoá FCM token
+    // của thiết bị mobile trước đó để chúng NGỪNG nhận push (đồng bộ với việc phiên bị đá).
+    // Thiết bị mới tự gọi POST /devices sau login để đăng ký lại FCM.
+    if (isFreshLogin && clientType === 'mobile') {
+      await this.clearMobileDevices(userId);
+    }
+  }
+
+  /**
+   * Xoá toàn bộ FCM device token của user (mọi UserDevice đều là mobile — platform ios/android).
+   * Best-effort: lỗi bảng device không được chặn luồng đăng nhập.
+   */
+  private async clearMobileDevices(userId: string): Promise<void> {
+    try {
+      await this.prisma.userDevice.deleteMany({ where: { userId } });
+    } catch (err) {
+      this.logger.warn(`clearMobileDevices failed for user=${userId}: ${(err as Error).message}`);
+    }
   }
 }

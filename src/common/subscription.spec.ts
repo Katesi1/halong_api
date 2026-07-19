@@ -4,52 +4,34 @@ import { SUBSCRIPTION_STATUS } from './constants';
 describe('isTrialPropertyCapped', () => {
   it('caps a trial owner without a plan', () => {
     // Arrange
-    const owner = {
-      kycBypass: false,
-      subscriptionStatus: SUBSCRIPTION_STATUS.TRIAL,
-      subscriptionPlanId: null,
-    };
+    const owner = { subscriptionPlanId: null };
 
     // Act + Assert
     expect(isTrialPropertyCapped(owner)).toBe(true);
   });
 
   it('does not cap once the owner has bought a plan', () => {
-    const owner = {
-      kycBypass: false,
-      subscriptionStatus: SUBSCRIPTION_STATUS.TRIAL,
-      subscriptionPlanId: 'rooms_5',
-    };
+    const owner = { subscriptionPlanId: 'rooms_5' };
 
     expect(isTrialPropertyCapped(owner)).toBe(false);
   });
 
-  it('does not cap an ADMIN-granted kycBypass owner', () => {
-    const owner = {
-      kycBypass: true,
-      subscriptionStatus: SUBSCRIPTION_STATUS.TRIAL,
-      subscriptionPlanId: null,
-    };
+  it('STILL caps a kycBypass owner who has not bought a plan', () => {
+    // kycBypass gỡ yêu cầu KYC nhưng KHÔNG gỡ trần số phòng của trial.
+    const owner = { subscriptionPlanId: null };
 
-    expect(isTrialPropertyCapped(owner)).toBe(false);
+    expect(isTrialPropertyCapped(owner)).toBe(true);
   });
 
-  it('does not cap an active subscriber', () => {
-    const owner = {
-      kycBypass: false,
-      subscriptionStatus: SUBSCRIPTION_STATUS.ACTIVE,
-      subscriptionPlanId: 'rooms_5',
-    };
+  it('STILL caps a KYC-approved owner who has not bought a plan', () => {
+    // Đã duyệt KYC nhưng chưa mua gói → vẫn trong giai đoạn trial → cap.
+    const owner = { subscriptionPlanId: null };
 
-    expect(isTrialPropertyCapped(owner)).toBe(false);
+    expect(isTrialPropertyCapped(owner)).toBe(true);
   });
 
-  it('does not cap a status=none owner (no active trial)', () => {
-    const owner = {
-      kycBypass: false,
-      subscriptionStatus: SUBSCRIPTION_STATUS.NONE,
-      subscriptionPlanId: null,
-    };
+  it('does not cap an active subscriber (has a plan)', () => {
+    const owner = { subscriptionPlanId: 'rooms_5' };
 
     expect(isTrialPropertyCapped(owner)).toBe(false);
   });

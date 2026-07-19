@@ -5,6 +5,7 @@ import {
   GUEST_FAVORITE_MIN_RATING,
   GUEST_FAVORITE_MIN_REVIEWS,
 } from './property-enums';
+import { applyRoomMarkup } from '../bookings/booking-pricing';
 
 type ImageRow = {
   id: string;
@@ -64,6 +65,11 @@ export interface PropertyCardDto {
   weekendPrice: number | null;
   holidayPrice: number | null;
   minPrice: number | null;
+  // Giá WEB KHÁCH = giá gốc + markup % (chỉ giá phòng). Web khách hiển thị & tính tiền theo các field này.
+  customerWeekdayPrice: number | null;
+  customerWeekendPrice: number | null;
+  customerHolidayPrice: number | null;
+  customerMinPrice: number | null;
   rating: number;
   reviewCount: number;
   isGuestFavorite: boolean;
@@ -82,6 +88,11 @@ function computeMinPrice(row: PropertyRow): number | null {
   return candidates.length === 0 ? null : Math.min(...candidates);
 }
 
+/** Giá gốc → giá khách (markup). null giữ null. */
+function toCustomerPrice(base: number | null, markupPercent: number): number | null {
+  return base == null ? null : applyRoomMarkup(base, markupPercent);
+}
+
 function pickCoverUrl(images: ImageRow[]): string | null {
   if (!images || images.length === 0) return null;
   const cover = images.find((img) => img.isCover);
@@ -91,7 +102,9 @@ function pickCoverUrl(images: ImageRow[]): string | null {
 export function toPropertyCard(
   row: PropertyRow,
   favoriteIds?: Set<string>,
+  markupPercent: number = 0,
 ): PropertyCardDto {
+  const minPrice = computeMinPrice(row);
   return {
     id: row.id,
     slug: row.slug,
@@ -114,7 +127,11 @@ export function toPropertyCard(
     weekdayPrice: row.weekdayPrice,
     weekendPrice: row.weekendPrice,
     holidayPrice: row.holidayPrice,
-    minPrice: computeMinPrice(row),
+    minPrice,
+    customerWeekdayPrice: toCustomerPrice(row.weekdayPrice, markupPercent),
+    customerWeekendPrice: toCustomerPrice(row.weekendPrice, markupPercent),
+    customerHolidayPrice: toCustomerPrice(row.holidayPrice, markupPercent),
+    customerMinPrice: toCustomerPrice(minPrice, markupPercent),
     rating: row.ratingAvg ?? 0,
     reviewCount: row.reviewCount ?? 0,
     isGuestFavorite:

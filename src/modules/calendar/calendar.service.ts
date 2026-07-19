@@ -7,8 +7,9 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, CALENDAR_LOCK_STATUS, NOTIFICATION_TYPE, getEffectiveOwnerId, isSaleUnassigned, resolvePriceMarkupPercent } from '../../common/constants';
 import { NotificationsService, PushMeta } from '../notifications/notifications.service';
+import { resolveCalendarRate, applyRoomMarkup } from '../bookings/booking-pricing';
 
 interface GridProperty {
   id: string;
@@ -104,7 +105,8 @@ export class CalendarService {
       orderBy: { name: 'asc' },
     });
 
-    const grid = await this.buildGrid(properties, start, end, false);
+    const markup = resolvePriceMarkupPercent(this.configService.get<string>('PRICE_MARKUP_PERCENT'));
+    const grid = await this.buildGrid(properties, start, end, false, markup);
 
     return { message: msg.calendar.gridSuccess, data: { properties: grid } };
   }
@@ -451,6 +453,8 @@ export class CalendarService {
     start: Date,
     end: Date,
     includeNote: boolean,
+    // >0 → thêm `customerPrice` (giá gốc + markup) cho web khách. Grid quản lý (auth) truyền 0.
+    markupPercent: number = 0,
   ) {
     const propertyIds = properties.map(p => p.id);
 
@@ -511,15 +515,18 @@ export class CalendarService {
       const propBookings = bookingsByProp.get(property.id) || [];
       const propLocks = locksByProp.get(property.id) || new Map<string, number>();
 
-      const days: { date: string; price: number; status: string; note?: string }[] = [];
+      const days: { date: string; price: number; customerPrice?: number; status: string; note?: string }[] = [];
       const current = new Date(start);
 
       while (current <= end) {
         const dateStr = this.toDateStr(current);
-        const dayOfWeek = current.getUTCDay();
 
-        let price = property.weekdayPrice || 0;
-        if (dayOfWeek === 5 || dayOfWeek === 6) price = property.weekendPrice || price;
+        // Giá hiển thị: holiday > cuối tuần (T6/T7) > thường. CN = giá thường (xem resolveCalendarRate).
+        const price = resolveCalendarRate(current, {
+          weekdayPrice: property.weekdayPrice ?? null,
+          weekendPrice: property.weekendPrice ?? null,
+          holidayPrice: property.holidayPrice ?? null,
+        }).amount ?? 0;
 
         let status = 'available';
         let note: string | undefined;
@@ -546,7 +553,15 @@ export class CalendarService {
           }
         }
 
-        days.push({ date: dateStr, price, status, ...(note ? { note } : {}) });
+        // Web khách (markupPercent>0): thêm customerPrice = giá gốc + markup (chỉ giá phòng).
+        const customerPrice = markupPercent > 0 ? applyRoomMarkup(price, markupPercent) : undefined;
+        days.push({
+          date: dateStr,
+          price,
+          ...(customerPrice !== undefined ? { customerPrice } : {}),
+          status,
+          ...(note ? { note } : {}),
+        });
         current.setUTCDate(current.getUTCDate() + 1);
       }
 

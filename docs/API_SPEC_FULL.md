@@ -3,7 +3,7 @@
 > Tài liệu chính thức cho team FE Web (Next.js admin/host) và App Mobile (Android/iOS).
 > Bao gồm tất cả endpoint, schema response, business rule, WebSocket guide và integration checklist.
 >
-> **Cập nhật**: 2026-07-13 (v1.41 — Bắt buộc OWNER có SĐT trước khi đăng/sửa cơ sở + mời SALE → 403 `PHONE_REQUIRED`. Xem §2A.5, changelog §21) · **BE base**: NestJS 11 · **DB**: PostgreSQL + Prisma · **Auth**: JWT · **Real-time**: Socket.IO
+> **Cập nhật**: 2026-07-16 (v1.42 — Trial cap: trần 1 → 3 cơ sở, áp cho cả `kycBypass`/KYC đã duyệt; chỉ mua gói mới gỡ cap. Xem §2A.5, changelog §21) · **BE base**: NestJS 11 · **DB**: PostgreSQL + Prisma · **Auth**: JWT · **Real-time**: Socket.IO
 
 ---
 
@@ -884,7 +884,7 @@ Hết trial mà chưa có thanh toán được duyệt → các endpoint sau **t
 
 | Endpoint | Hành vi |
 |---|---|
-| `POST /properties` | Hết trial → 403 `subscription.featureLocked` · Còn trial nhưng đã có 1 cơ sở → 403 `code: "PROPERTY_LIMIT_REACHED"` (xem trial cap bên dưới) |
+| `POST /properties` | Hết trial → 403 `subscription.featureLocked` · Chưa mua gói mà đã có 3 cơ sở → 403 `code: "PROPERTY_LIMIT_REACHED"` (xem trial cap bên dưới) |
 | `PUT /properties/:id` | 403 `subscription.featureLocked` |
 | `POST /staff/invites` | 403 `subscription.featureLocked` (thay cho `staff.subscriptionRequired` cũ — không lộ trạng thái) |
 
@@ -894,8 +894,8 @@ SALE inherit entitlement của OWNER được gán (`user.ownerId`). Nếu OWNER
 
 **Note**: Các status khác (`past_due`, `cancelled`, `frozen`) cũng làm `isOwnerEntitled` trả false → cùng message `featureLocked`. Riêng `frozen` vẫn giữ logic block ở payment endpoints (existing).
 
-**Trial cap số cơ sở (v1.39)**: OWNER đang ở **trial ngầm chưa mua gói** (`subscriptionStatus="trial"` **và** `subscriptionPlanId=null`) chỉ được đăng **tối đa 1 cơ sở** (1 villa / 1 homestay / 1 khách sạn — mọi `type` tính chung). Khi đã có ≥ 1 cơ sở chưa xoá, `POST /properties` trả **403 `code: "PROPERTY_LIMIT_REACHED"`**, message trung tính (không lộ trial/gói/thanh toán để an toàn Apple review): *"Tài khoản của bạn hiện chỉ có thể đăng tối đa 1 cơ sở. Vui lòng liên hệ hỗ trợ nếu cần đăng thêm."*
-- Gỡ cap ngay khi owner **mua bất kỳ gói nào** (`subscriptionPlanId` khác null) hoặc được ADMIN cấp `kycBypass`.
+**Trial cap số cơ sở (v1.42 · 2026-07-16 — trần 1 → 3, áp cho cả kycBypass/KYC đã duyệt)**: OWNER **chưa mua gói** (`subscriptionPlanId=null`) chỉ được đăng **tối đa 3 cơ sở** (mọi `type` villa/homestay/khách sạn tính chung). Điều kiện này áp dụng cho **mọi owner còn trong giai đoạn dùng thử — kể cả đã được ADMIN cấp `kycBypass` hoặc đã duyệt KYC** (trial sẽ hết hạn nên vẫn là giai đoạn dùng thử). Khi đã có ≥ 3 cơ sở chưa xoá, `POST /properties` trả **403 `code: "PROPERTY_LIMIT_REACHED"`**, message trung tính (không lộ trial/gói/thanh toán để an toàn Apple review): *"Tài khoản của bạn hiện chỉ có thể đăng tối đa 3 cơ sở. Vui lòng liên hệ hỗ trợ nếu cần đăng thêm."*
+- Gỡ cap **chỉ khi** owner **mua bất kỳ gói nào** (`subscriptionPlanId` khác null) → gói tự quản lý giới hạn phòng. `kycBypass` **KHÔNG** còn gỡ cap này (đổi ở v1.42).
 - ADMIN tạo hộ (`POST /properties` với `ownerId`) **không** bị cap.
 - SALE tạo cho owner được gán → cap tính theo owner đó.
 
@@ -1267,6 +1267,8 @@ Shape rút gọn cho card khách hàng. Tính sẵn `minPrice`, `rating`, `revie
   "amenities": ["wifi", "pool", "seaview"],
   "weekdayPrice": 2000000, "weekendPrice": 3000000, "holidayPrice": 4500000,
   "minPrice": 2000000,
+  "customerWeekdayPrice": 2200000, "customerWeekendPrice": 3300000, "customerHolidayPrice": 4950000,
+  "customerMinPrice": 2200000,
   "rating": 4.92,
   "reviewCount": 37,
   "isGuestFavorite": true,
@@ -1279,6 +1281,7 @@ Shape rút gọn cho card khách hàng. Tính sẵn `minPrice`, `rating`, `revie
 
 - `slug` — duy nhất toàn hệ thống; auto-gen từ name + code khi tạo property (Vietnamese-aware). FE dùng cho URL `/property/{slug}`.
 - `minPrice` — `min(weekdayPrice, weekendPrice, holidayPrice)` bỏ qua giá null/0.
+- **`customerWeekdayPrice` / `customerWeekendPrice` / `customerHolidayPrice` / `customerMinPrice`** (2026-07-19, v1.42) — giá **web khách** = giá gốc + markup% (ENV `PRICE_MARKUP_PERCENT`, mặc định 10 → +10% giá phòng, làm tròn 1.000đ). **Web khách hiển thị theo các field `customer*`**; giá gốc (`weekdayPrice`…) giữ cho tương thích + sale/OWNER. Có ở card (`/properties/public`, `/search`, `/similar`, `/by-owner`) và detail (`/properties/public/:slug`). Endpoint auth (`GET /properties`, `/properties/:id`) **không** có field `customer*`. Filter `minPrice/maxPrice` (v1.42.2): FE gửi **theo giá khách** (giá hiển thị), BE tự quy về giá gốc để lọc — khớp với `customer*Price` khách thấy.
 - `rating` / `reviewCount` — đã denormalized vào `properties` (cập nhật mỗi khi review create/hide/restore).
 - `isGuestFavorite` — derived **global**: `rating >= 4.8 && reviewCount >= 5` (badge "được khách yêu thích").
 - `isHot` — **admin curated global**: bật/tắt bằng `PATCH /properties/:id/hot` (ADMIN only). Hot property tự pop lên đầu khi `sort=featured` và có thể lọc bằng `?hot=true` (xem §4.10).
@@ -1300,7 +1303,7 @@ Paginated + filter + sort, **toàn bộ ở server-side**. Lý do: FE chỉ th�
 | `adults` | int ≥1 | `standardGuests >= adults` (sức chứa người lớn tiêu chuẩn) |
 | `children` | int ≥0 | `standardChildren >= children` (sức chứa trẻ em tiêu chuẩn) |
 | `bedrooms` | int ≥0 | `bedrooms >= bedrooms` (min) |
-| `minPrice`, `maxPrice` | float | So với `weekdayPrice` |
+| `minPrice`, `maxPrice` | float | **Giá KHÁCH** (đã +markup, khớp `customer*Price` FE hiển thị). BE tự quy về giá gốc `weekdayPrice` để lọc — v1.42.2. Markup=0 → = giá gốc. |
 | `type` | 0\|1\|2 | VILLA/HOMESTAY/HOTEL |
 | `view` | enum | `sea \| city \| mountain \| garden \| pool` |
 | `amenities` | CSV / array | **AND-match** các amenity (xem enum §4.8) |
@@ -1393,7 +1396,8 @@ Endpoint **chi tiết phòng cho FE web khách hàng** (`webhalong24h.com/proper
 
 - Tra theo `slug` (vd `b1503-03`). Slug ổn định, unique, không đổi khi rename — FE bookmark/cache 60s an toàn.
 - Chỉ trả property `isActive=true, deletedAt=null, moderationStatus='approved'`. Slug không tồn tại / inactive / chưa duyệt / bị reject / bị suspend → **404**.
-- Kèm **đầy đủ giá** (`weekdayPrice`, `weekendPrice`, `holidayPrice`) — khác với `/share/:id` (không có giá).
+- Kèm **đầy đủ giá** (`weekdayPrice`, `weekendPrice`, `holidayPrice`) — khác với `/share/:id` (không có giá). Từ v1.42 kèm thêm **`customerWeekdayPrice` / `customerWeekendPrice` / `customerHolidayPrice`** (giá gốc + markup% — web khách dùng để hiển thị & tính tiền).
+- **Phụ thu vượt khách chuẩn (v1.42.1)**: kèm `adultSurcharge`, `childSurcharge` (VND/khách vượt/đêm, có thể `null` = miễn phí) + `standardGuests`, `standardChildren` (số khách chuẩn). FE tính tạm: `extraAdults = max(0, adults − standardGuests)`, `extraChildren = max(0, children − standardChildren)`, `surchargePerNight = extraAdults × adultSurcharge + extraChildren × childSurcharge`, cộng vào tổng theo số đêm. **Phụ thu KHÔNG cộng markup 10%** (chỉ giá phòng mới +10%). Tổng cuối vẫn do BE chốt ở booking `totalAmount`.
 - **Không** trả `phone`/`email` chủ nhà (chat-mediated). Host info chỉ gồm name + avatar + KYC badge + memberSince + totalProperties.
 
 **Response shape:**
@@ -1428,6 +1432,11 @@ Endpoint **chi tiết phòng cho FE web khách hàng** (`webhalong24h.com/proper
     "weekdayPrice": 1100000,
     "weekendPrice": 1600000,
     "holidayPrice": 1800000,
+    "customerWeekdayPrice": 1210000,
+    "customerWeekendPrice": 1760000,
+    "customerHolidayPrice": 1980000,
+    "adultSurcharge": 200000,
+    "childSurcharge": 100000,
     "cancellationPolicy": 1,
     "checkInTime": "14:00",
     "checkOutTime": "12:00",
@@ -1840,11 +1849,13 @@ Status: `0=HOLD, 1=CONFIRMED, 2=CANCELLED, 3=COMPLETED, 4=NO_SHOW`
 }
 ```
 
-**Công thức `totalAmount`** (chốt 2026-07-09):
-- `nightly(d)` = `holidayPrice` nếu d là ngày lễ; `weekendPrice` (fallback `weekdayPrice` nếu null) nếu `dow(d) ∈ {0=CN, 5=T6, 6=T7}`; ngược lại `weekdayPrice`.
+**Công thức `totalAmount`** (chốt 2026-07-19):
+- `nightly(d, i)` = `holidayPrice` nếu d là ngày lễ; **cuối tuần** (`weekendPrice`, fallback `weekdayPrice` nếu null) nếu `dow(d) ∈ {5=T6, 6=T7}` **HOẶC** `dow(d)=0=CN` với `i>0`; ngược lại `weekdayPrice`. (`i` = thứ tự đêm, 0 = đêm đầu.)
+- **Quy tắc Chủ nhật (2026-07-19)**: đêm CN chỉ tính giá **cuối tuần** khi khách ở liền **đêm T7 trước đó** (tức CN không phải đêm đầu). Check-in Chủ nhật → đêm CN đầu tiên tính **giá ngày thường**. Ví dụ: `CN→T3` = 2 đêm thường · `T7→T2` = T7 + CN đều cuối tuần · `T6→T2` = cả 3 đêm cuối tuần.
 - `extraAdults = max(0, adults − standardGuests)`; `extraChildren = max(0, children − standardChildren)`.
 - `surchargePerNight = extraAdults × adultSurcharge + extraChildren × childSurcharge` (field null → 0).
-- `totalAmount = Σ nightly(d) + surchargePerNight × nights`.
+- `totalAmount = Σ nightly(d, i) + surchargePerNight × nights`.
+- **Markup web khách (2026-07-19, v1.42)**: đơn **của khách** (`customerId != null`, tạo qua `POST /bookings/customer-hold`) cộng markup% vào **giá phòng/đêm** (`nightly`), **KHÔNG** áp phụ thu → `nightly` mỗi đêm = `applyRoomMarkup(base, PRICE_MARKUP_PERCENT)` (mặc định 10%, làm tròn 1.000đ). `totalAmount` lưu DB = số khách **thực trả** (đã +10%); `priceBreakdown.lineItems` cũng theo giá đã markup nên khớp `totalAmount`. Đơn **staff/sale** (`POST /bookings/hold`, `customerId = null`) giữ **giá gốc** (markup=0). VD giá gốc 1tr/đêm → khách trả 1tr1/đêm.
 - Staff hold chỉ có `guestCount` → coi toàn bộ là người lớn (children=0) cho phụ thu.
 - **Ngày lễ (v1.30)**: BE tự áp `holidayPrice` cho **lễ dương lịch cố định** (lặp hằng năm): **01/01** (Tết Dương lịch), **30/04**, **01/05**, **02/09**. Lễ **âm lịch** (Tết Nguyên đán, Giỗ Tổ 10/3 ÂL) đổi ngày dương mỗi năm → hiện **chưa** liệt kê; sẽ bổ sung theo từng năm khi cần (constant `LUNAR_HOLIDAY_DATES` trong `booking-pricing.ts`).
 
@@ -1972,10 +1983,10 @@ Base path: `/calendar`.
       "id": "uuid", "name": "...", "type": 0,
       "ownerPhone": "0912345678",
       "days": [
-        { "date": "2026-06-15", "status": "available", "note": null, "bookingId": null },
-        { "date": "2026-06-16", "status": "hold", "note": "Nguyễn Văn A", "bookingId": "..." },
-        { "date": "2026-06-17", "status": "booked", "note": "...", "bookingId": "..." },
-        { "date": "2026-06-18", "status": "locked", "note": null, "bookingId": null }
+        { "date": "2026-06-15", "price": 1000000, "customerPrice": 1100000, "status": "available", "note": null, "bookingId": null },
+        { "date": "2026-06-16", "price": 1200000, "customerPrice": 1320000, "status": "hold", "note": "Nguyễn Văn A", "bookingId": "..." },
+        { "date": "2026-06-17", "price": 1400000, "customerPrice": 1540000, "status": "booked", "note": "...", "bookingId": "..." },
+        { "date": "2026-06-18", "price": 1000000, "customerPrice": 1100000, "status": "locked", "note": null, "bookingId": null }
       ]
     }
   ]
@@ -1983,6 +1994,10 @@ Base path: `/calendar`.
 ```
 
 Status string: `available | hold | booked | locked`.
+
+**`price` mỗi ngày (2026-07-19)**: giá **gợi ý theo ngày** (per-day base) = `holidayPrice` nếu ngày lễ (01/01, 30/04, 01/05, 02/09) > `weekendPrice` nếu **T6/T7** > `weekdayPrice`. **Chủ nhật = `weekdayPrice`** (giá cơ sở) vì CN chỉ thành cuối tuần khi nằm trong kỳ ở liền sau đêm T7 — điều lịch không biết. `price=0` khi property chưa cấu hình giá. ⚠️ **KHÔNG** cộng dồn `price` các ngày để ra tổng đặt phòng: giá này bỏ qua CN-liền-T7 và phụ thu số khách → dùng `totalAmount`/`priceBreakdown` từ API booking (§5.3). Helper: [resolveCalendarRate](src/modules/bookings/booking-pricing.ts). `note` chỉ có ở `/calendar/grid` (auth), public-grid không có.
+
+**`customerPrice` (2026-07-19, v1.42)**: CHỈ có ở **`/calendar/public-grid`** (web khách) = `price` + markup% (ENV `PRICE_MARKUP_PERCENT`, mặc định 10 → +10% giá phòng, làm tròn 1.000đ). **Web khách hiển thị & tính tiền theo `customerPrice`**; `price` (giá gốc) để sale/OWNER dùng. `/calendar/grid` (auth) **KHÔNG** có `customerPrice` — sale chỉ thấy giá gốc để bán trực tiếp.
 
 `ownerPhone`: số điện thoại owner của property (lấy từ `User.phone` qua `Property.ownerId`). Có thể `null` nếu owner chưa cập nhật phone — FE phải handle gracefully (vd nút Zalo no-op). Trả về ở cả `/calendar/grid` và `/calendar/public-grid`.
 
@@ -2935,6 +2950,23 @@ Base path: `/staff`.
 
 ADMIN dùng `?ownerId=` để filter theo OWNER cụ thể, không truyền → xem tất cả.
 
+**Response `GET /staff`** — mỗi item (v1.44 · 2026-07-16 — thêm `owner`):
+```json
+{
+  "id": "uuid",
+  "name": "Nguyễn Văn B",
+  "email": "sale@example.com",
+  "phone": "0901234567",
+  "avatar": null,
+  "role": 2,
+  "isActive": true,
+  "ownerId": "uuid",
+  "createdAt": "2026-07-01T00:00:00.000Z",
+  "owner": { "id": "uuid", "name": "Nguyễn Văn A", "phone": "0900000001" }
+}
+```
+- `owner` (v1.44) — chủ homestay của SALE: `{ id, name, phone }`. **`null`** với SALE hệ thống (`scope='system'`, `ownerId=null`). FE dùng để hiển thị cột "Chủ homestay" trên màn Nhân viên mà không cần gọi thêm `/users/:id`. `owner.phone` có thể `null` nếu owner chưa cập nhật SĐT.
+
 ### 11.1.1 Quota mời nhân viên theo gói (plan entitlement)
 
 `POST /staff/invites` enforce quota server-side, **mirror FE `StaffEntitlement`** trong `app/lib/core/utils/staff_entitlement.dart`. Khi đổi quota, phải sửa cả 2 nơi.
@@ -3549,6 +3581,33 @@ CONVERSATION_MEMBER_ROLE = 'owner' | 'sale' | 'customer' | 'admin'
 
 ## 21. Changelog & Bug fixes
 
+### v1.43 — 2026-07-16 (Login mobile mới → dọn FCM device cũ để ngừng nhận push)
+
+Trước đây khi một thiết bị bị **đá phiên ngầm** (do thiết bị khác login đè slot mobile — xem §1.6.1), access token của máy cũ bị vô hiệu ngay nhưng **FCM token của nó vẫn còn** trong `UserDevice` → **máy đã out vẫn tiếp tục nhận thông báo đẩy**. Chỉ ban / revoke-sessions / xoá account mới dọn token.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| Dọn device khi login mobile mới | Mỗi lần **đăng nhập mới vào slot `mobile`** (`/auth/login|register|google|apple`, staff accept với `X-Client-Type: mobile`) → BE xoá **toàn bộ `UserDevice`** của user trước khi cấp token (`clearMobileDevices` trong `auth.service.ts`). Máy bị đá ngừng nhận push; máy mới tự gọi `POST /devices` sau login để đăng ký lại FCM. |
+| KHÔNG dọn khi refresh | `POST /auth/refresh` **không** đụng `UserDevice` (giữ nguyên push cho phiên đang chạy). Chỉ login mới (đổi `sid`) mới dọn. |
+| Slot web | Không đụng device (web không đăng ký FCM). |
+
+**Breaking?** Không đổi API/schema. Hệ quả hành vi: sau khi login máy mobile mới, các thiết bị mobile cũ (đã bị đá) sẽ **ngừng nhận push** cho tới khi đăng nhập lại — đúng kỳ vọng "đã out thì không nhận thông báo, muốn nhận phải login lại". FE app **phải** gọi lại `POST /devices` ngay sau mỗi lần login (đã có trong checklist §20.2) để re-register FCM.
+
+> **Lưu ý cho FE app**: nếu 2 app (Android + iOS) đều muốn đá nhau đúng (chỉ 1 phiên mobile), **cả hai phải gửi `X-Client-Type: mobile`** (xem §1.6.1.3). Nếu 1 app quên gửi header → bị coi là `web` → chiếm slot web → 2 máy cùng sống song song (1 mobile + 1 web) và device cũ không bị dọn.
+
+### v1.42 — 2026-07-16 (Trial cap: trần 1 → 3 cơ sở + áp cho cả kycBypass/KYC đã duyệt)
+
+Trước đây `kycBypass=true` **gỡ hoàn toàn** trần số cơ sở của trial → owner được cấp bypass (hoặc chỉ cần duyệt KYC nhưng chưa mua gói) đăng **không giới hạn** phòng. Nay mọi owner **chưa mua gói** đều bị trần **3 cơ sở**.
+
+| Thay đổi | Chi tiết |
+|---|---|
+| Trần 1 → 3 | `TRIAL_MAX_PROPERTIES: 1 → 3` (`src/common/subscription.ts`). Owner chưa mua gói đăng cơ sở thứ 4 → **403 `code: "PROPERTY_LIMIT_REACHED"`**. |
+| Điều kiện cap mở rộng | `isTrialPropertyCapped` giờ chỉ dựa `subscriptionPlanId === null` (chưa mua gói) → **cap**. **Bỏ** nhánh `kycBypass` gỡ cap và điều kiện `status===trial`. `kycBypass` / KYC đã duyệt **không** còn gỡ cap. Chỉ **mua gói** (`subscriptionPlanId != null`) mới gỡ. |
+| Message | Copy trung tính iOS cập nhật số: *"Tài khoản của bạn hiện chỉ có thể đăng tối đa 3 cơ sở…"* (i18n tự nội suy `${max}` = 3, vi/en). |
+| Không đổi | ADMIN tạo hộ (`ownerId`) vẫn không bị cap; SALE tính theo owner được gán; entitlement gate (`assertOwnerEntitled`) chạy trước, không đổi. |
+
+**Breaking?** Về HTTP: owner chưa mua gói mà đã có ≥ 3 cơ sở sẽ nhận 403 khi tạo thêm (trước đây owner có `kycBypass` không bị chặn). FE giữ nguyên cách xử lý `code: "PROPERTY_LIMIT_REACHED"`. Không đổi schema/DB. Cơ sở hiện hữu vượt trần (đăng trước v1.42) **không** bị xoá — chỉ chặn tạo mới.
+
 ### v1.41 — 2026-07-13 (Bắt buộc OWNER có SĐT trước khi đăng/sửa cơ sở + mời SALE)
 
 Đăng ký Google/Apple không lấy được số điện thoại, nhưng listing công khai cần SĐT liên hệ. Nay BE chặn thao tác vận hành khi owner chưa có `phone`.
@@ -3706,7 +3765,7 @@ Trước đây `totalAmount` luôn `null` (BE không tính) → FE phải ước
 | `paidAmount` default `0` | Không còn `null` → FE tính "Còn lại" không lệch. |
 | `remainingAmount` (mới) | `= max(0, totalAmount − paidAmount)`, BE trả sẵn. `null` khi `totalAmount=null`. |
 | `priceBreakdown` (mới) | `{ nights, lineItems[], extraAdults, extraChildren, surchargePerNight, surchargeTotal, roomTotal, total }` — FE hiển thị minh bạch, bỏ ước lượng. Xem §5.3. |
-| Công thức | Cuối tuần = `dow ∈ {0=CN,5=T6,6=T7}` (khớp FE). Phụ thu tính theo từng đêm × nights, tách người lớn (vs `standardGuests`) và trẻ (vs `standardChildren`). Staff hold chỉ có `guestCount` → coi là người lớn. |
+| Công thức | Cuối tuần = `dow ∈ {5=T6,6=T7}` **luôn**; `0=CN` **chỉ khi** đêm CN liền sau đêm T7 (i>0) — check-in CN → đêm CN đầu tính giá thường (chốt 2026-07-19). Phụ thu tính theo từng đêm × nights, tách người lớn (vs `standardGuests`) và trẻ (vs `standardChildren`). Staff hold chỉ có `guestCount` → coi là người lớn. |
 | `mark-paid` không đổi tổng | `PATCH /bookings/:id/paid { amount? }` chỉ ghi `paidAmount + paidAt`; **không** ghi đè `totalAmount`. Bỏ trống amount → fallback `depositAmount` (giữ hành vi cũ). |
 | Ngày lễ (v1.30 · 2026-07-09) | BE tự áp `holidayPrice` cho lễ dương cố định: 01/01, 30/04, 01/05, 02/09. Lễ âm lịch (Tết, Giỗ Tổ) chưa liệt kê — bổ sung theo năm khi cần. |
 
@@ -5428,3 +5487,39 @@ Khách đánh giá **sau khi qua ngày kết thúc hành trình** (đơn `PAID`/
 - **2026-07-13 (v1.40.1)** — Lịch du thuyền trả thêm `price` + `priceType` mỗi ngày (giá đêm theo ngày thường/cuối tuần/lễ). Thêm **đánh giá du thuyền** (§27.5): bảng `yacht_reviews` (migration `20260713010000_add_yacht_reviews`), 6 tiêu chí giống PropertyReview, mở sau khi qua ngày kết thúc hành trình; booking trả thêm `hasReview`/`canReview`/`reviewUnlockAt`; cron auto-complete PAID→COMPLETED; i18n namespace `yachtReviews`.
 - **2026-07-13 (v1.40.2)** — **Tour trong ngày** (không qua đêm): `checkoutDate` optional, bỏ trống → = `checkinDate`; giá tính 1 buổi (không nhân đêm); cho phép nhiều đơn cùng ngày. `GET /yacht-bookings/:id` trả `payment` (VietQR) cho khách khi đơn CONFIRMED + chưa thanh toán. Không đổi schema. FE khách gửi 1 ngày cho tour ngày/dinner.
 - **2026-07-13 (v1.40.3)** — **Giá du thuyền BÁN THEO ĐẦU NGƯỜI, giá người lớn ≠ trẻ em**. Bỏ mô hình per-booking + phụ thu. Thêm 3 cột `weekdayChildPrice`/`weekendChildPrice`/`holidayChildPrice` (migration `20260713020000_add_yacht_child_prices`); `weekdayPrice`/`weekendPrice`/`holidayPrice` giờ = **giá người lớn/khách**. `totalAmount = adults × giá NL(ngày) + children × giá TE(ngày)`. `PUT /yachts/:id/prices` nhận 3 giá NL (bắt buộc) + 3 giá TE (tuỳ chọn, null=miễn phí). Calendar trả thêm `childPrice`/ngày. Bỏ `adultSurcharge`/`childSurcharge`/`standardGuests`/`standardChildren` khỏi form (cột giữ cho tương thích, không dùng).
+- **2026-07-19 (v1.41)** — **Quy tắc Chủ nhật cho giá booking homestay** (§5.3): đêm CN chỉ tính giá **cuối tuần** khi ở liền **đêm T7 trước đó** (CN không phải đêm đầu). Check-in Chủ nhật → đêm CN đầu = **giá thường**. Vd `CN→T3`=2 đêm thường · `T7→T2`=T7+CN cuối tuần · `T6→T2`=cả 3 cuối tuần. Trước đây mọi CN đều tính cuối tuần. Chỉ ảnh hưởng `computeBookingPricing` (homestay). **Grid property** (`/calendar/(public-)grid`) `price` mỗi ngày nay áp cả **ngày lễ** (trước bỏ qua), CN = giá thường cơ sở — xem [resolveCalendarRate](src/modules/bookings/booking-pricing.ts). **Yacht giữ nguyên** (tour trong ngày → CN vẫn = cuối tuần).
+- **2026-07-19 (v1.42)** — **Markup giá web khách +10%** (ENV `PRICE_MARKUP_PERCENT`, mặc định 10). Giá web khách = giá gốc + markup **chỉ trên giá phòng/đêm** (weekday/weekend/holiday), **không** áp phụ thu; làm tròn 1.000đ. Helper `applyRoomMarkup` + `resolvePriceMarkupPercent`. Bề mặt: (1) property card + detail thêm field `customerWeekdayPrice`/`customerWeekendPrice`/`customerHolidayPrice`/`customerMinPrice`; (2) `calendar/public-grid` mỗi ngày thêm `customerPrice`; (3) booking **của khách** (`customerId != null`, `POST /bookings/customer-hold`) lưu `totalAmount` đã +10% (số khách thực trả), `priceBreakdown` theo giá đã markup. Endpoint **auth** (sale/OWNER: `/properties`, `/properties/:id`, `/calendar/grid`) và **booking staff** (`POST /bookings/hold`) giữ **giá gốc** (markup=0) — sale thấy giá gốc để bán trực tiếp. Không đổi schema/migration.
+- **2026-07-19 (v1.42.1)** — `GET /properties/public/:slug` bổ sung `adultSurcharge` + `childSurcharge` (giá gốc, không markup) vào response (§4.11). Kết hợp `standardGuests`/`standardChildren` (đã có sẵn) → FE LeadForm tự tính tạm phụ thu vượt khách chuẩn, khớp `totalAmount` BE. Chỉ thêm field vào select, không đổi schema.
+- **2026-07-19 (v1.42.2)** — **Bộ lọc giá web khách nhận theo GIÁ KHÁCH**. `GET /properties/search` + `GET /properties/public`: `minPrice`/`maxPrice` giờ là giá đã +markup (khớp `customer*Price` FE hiển thị); BE tự quy về giá gốc (`customerPriceToBase = amount × 100/(100+markup)`) để so với `weekdayPrice`. FE web khách gửi thẳng mốc giá khách nhập — không phải chia /1.1. Helper `customerPriceToBase` trong [booking-pricing.ts](src/modules/bookings/booking-pricing.ts). Markup=0 → hành vi như cũ. Không đổi schema.
+
+
+---
+
+## 28. Blog (proxy Citely) — v1.41 · 2026-07-19
+
+Blog viết ở nền tảng ngoài **Citely**. Backend Halong24h **proxy + cache Redis** các bài về, giữ `READ-KEY` kín phía server (không lộ xuống app/web). App/web chỉ gọi backend này.
+
+### 28.1 Endpoints
+
+| Method | Endpoint | Auth | Mô tả |
+|--------|----------|------|-------|
+| GET | `/blog/posts?page=&limit=&tag=` | Public | Danh sách bài (proxy `GET /posts` của Citely, có Bearer). Cache 10 phút. |
+| GET | `/blog/posts/:slug` | Public | Chi tiết 1 bài (proxy `GET /posts/:slug`). Cache 10 phút. `404` nếu không có. |
+
+- Query list: `page` (≥1), `limit` (1-100), `tag?` — pass-through xuống Citely.
+- Payload bài trả **nguyên dạng Citely** trong `data` (BE không reshape). FE render theo schema của Citely.
+- Lỗi nguồn (Citely down / thiếu config): `503 blog.fetchError`. Nếu còn cache cũ thì vẫn phục vụ (cache-first).
+
+### 28.2 Cấu hình (server-only)
+
+```
+CITELY_API_BASE="https://citely-seo.com/connect/v1/sites/<siteId>"
+CITELY_READ_KEY="<bearer key — CHỈ ở .env server>"
+CITELY_CACHE_TTL=600   # giây, mặc định 600 = 10 phút
+```
+
+> READ-KEY tuyệt đối không commit / không trả xuống client. Ở dashboard Citely nên điền "Domain cho phép" = domain backend để chặn origin lạ.
+
+### 28.3 Changelog
+
+- **2026-07-19 (v1.41)** — Thêm module `blog` (proxy Citely + cache Redis). 2 endpoint public `GET /blog/posts`, `GET /blog/posts/:slug`. i18n namespace `blog`. Không đổi schema DB. Env mới: `CITELY_API_BASE`, `CITELY_READ_KEY`, `CITELY_CACHE_TTL`.

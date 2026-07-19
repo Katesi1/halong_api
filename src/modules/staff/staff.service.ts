@@ -420,6 +420,9 @@ export class StaffService {
       select: {
         id: true, name: true, email: true, phone: true, avatar: true,
         role: true, isActive: true, ownerId: true, createdAt: true,
+        // Kèm thông tin owner để FE hiển thị "Chủ homestay" trên màn Nhân viên
+        // (GET /staff cũ chỉ trả ownerId → FE không hiện được tên/SĐT).
+        owner: { select: { id: true, name: true, phone: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

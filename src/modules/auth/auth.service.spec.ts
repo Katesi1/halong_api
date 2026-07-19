@@ -43,6 +43,9 @@ describe('AuthService', () => {
               findFirst: jest.fn(),
               update: jest.fn(),
             },
+            userDevice: {
+              deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
           },
         },
         {
@@ -95,6 +98,32 @@ describe('AuthService', () => {
       expect(result.data.refreshToken).toBeDefined();
       // BREAKING v1.7: auth response KHÔNG còn trả `user` object. FE phải gọi /auth/profile riêng.
       expect((result.data as any).user).toBeUndefined();
+    });
+
+    it('should clear FCM devices on fresh mobile login (single mobile session)', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.update as jest.Mock).mockResolvedValue(mockUser);
+
+      await service.login(
+        { identifier: 'test@example.com', password: 'Test@123' },
+        msg,
+        { clientType: 'mobile' },
+      );
+
+      expect(prisma.userDevice.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+    });
+
+    it('should NOT clear FCM devices on web login', async () => {
+      (prisma.user.findFirst as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.user.update as jest.Mock).mockResolvedValue(mockUser);
+
+      await service.login(
+        { identifier: 'test@example.com', password: 'Test@123' },
+        msg,
+        { clientType: 'web' },
+      );
+
+      expect(prisma.userDevice.deleteMany).not.toHaveBeenCalled();
     });
 
     it('should return tokens when login by phone (0xxxxxxxxx)', async () => {
@@ -237,7 +266,7 @@ describe('AuthService', () => {
       expect(result.data).toBeNull();
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        data: { refreshTokenWeb: null },
+        data: { refreshTokenWeb: null, sessionIdWeb: null },
       });
     });
   });

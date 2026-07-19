@@ -5,12 +5,14 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CloudinaryService } from '../../config/cloudinary.service';
+import { applyRoomMarkup, customerPriceToBase } from '../bookings/booking-pricing';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { Messages } from '../../i18n';
-import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned } from '../../common/constants';
+import { ROLE, BOOKING_STATUS, NOTIFICATION_TYPE, KYC_STATUS, AUDIT_ACTION, AUDIT_TARGET_TYPE, getEffectiveOwnerId, isSaleUnassigned, resolvePriceMarkupPercent } from '../../common/constants';
 import { NotificationsService, PushMeta } from '../notifications/notifications.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { kycRequired } from '../../common/errors/kyc.errors';
@@ -70,7 +72,13 @@ export class PropertiesService {
     private notifications: NotificationsService,
     private auditLog: AuditLogService,
     private favorites: FavoritesService,
+    private config: ConfigService,
   ) {}
+
+  /** % markup giá web khách (ENV PRICE_MARKUP_PERCENT, fallback DEFAULT_PRICE_MARKUP_PERCENT). */
+  private markupPercent(): number {
+    return resolvePriceMarkupPercent(this.config.get<string>('PRICE_MARKUP_PERCENT'));
+  }
 
   async findAll(
     user: { id: string; role: number; ownerId?: string | null },
@@ -158,9 +166,11 @@ export class PropertiesService {
     if (children !== undefined) where.standardChildren = { gte: children };
 
     if (minPrice !== undefined || maxPrice !== undefined) {
+      // minPrice/maxPrice là GIÁ KHÁCH (đã +markup) → quy về giá gốc để so với weekdayPrice.
+      const mk = this.markupPercent();
       where.weekdayPrice = {};
-      if (minPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).gte = minPrice;
-      if (maxPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).lte = maxPrice;
+      if (minPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).gte = customerPriceToBase(minPrice, mk);
+      if (maxPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).lte = customerPriceToBase(maxPrice, mk);
     }
 
     let rows = await this.prisma.property.findMany({
@@ -180,7 +190,7 @@ export class PropertiesService {
 
     return {
       message: msg.properties.publicListSuccess,
-      data: rows.map((r) => toPropertyCard(r, favoriteIds)),
+      data: rows.map((r) => toPropertyCard(r, favoriteIds, this.markupPercent())),
     };
   }
 
@@ -210,9 +220,11 @@ export class PropertiesService {
     if (dto.hot) where.isHot = true;
 
     if (dto.minPrice !== undefined || dto.maxPrice !== undefined) {
+      // minPrice/maxPrice là GIÁ KHÁCH (đã +markup) → quy về giá gốc để so với weekdayPrice.
+      const mk = this.markupPercent();
       where.weekdayPrice = {};
-      if (dto.minPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).gte = dto.minPrice;
-      if (dto.maxPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).lte = dto.maxPrice;
+      if (dto.minPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).gte = customerPriceToBase(dto.minPrice, mk);
+      if (dto.maxPrice !== undefined) (where.weekdayPrice as Prisma.FloatNullableFilter).lte = customerPriceToBase(dto.maxPrice, mk);
     }
 
     if (dto.q) {
@@ -272,7 +284,7 @@ export class PropertiesService {
     return {
       message: msg.properties.publicListSuccess,
       data: {
-        items: rows.map((r) => toPropertyCard(r, favoriteIds)),
+        items: rows.map((r) => toPropertyCard(r, favoriteIds, this.markupPercent())),
         total,
         page,
         limit,
@@ -444,14 +456,14 @@ export class PropertiesService {
   }
 
   /**
-   * Chặn owner trial ngầm (chưa mua gói) đăng quá TRIAL_MAX_PROPERTIES cơ sở.
-   * Owner đã mua gói hoặc được ADMIN cấp kycBypass → không áp cap.
+   * Chặn owner CHƯA mua gói (trial ngầm — kể cả kycBypass / KYC đã duyệt) đăng
+   * quá TRIAL_MAX_PROPERTIES cơ sở. Chỉ owner đã mua gói mới gỡ cap.
    * Đếm cơ sở chưa soft-delete để so với trần. Copy trung tính cho iOS.
    */
   private async assertTrialPropertyQuota(ownerId: string, msg: Messages): Promise<void> {
     const owner = await this.prisma.user.findUnique({
       where: { id: ownerId },
-      select: { kycBypass: true, subscriptionStatus: true, subscriptionPlanId: true },
+      select: { subscriptionPlanId: true },
     });
     if (!owner || !isTrialPropertyCapped(owner)) return;
 
@@ -750,6 +762,8 @@ export class PropertiesService {
         weekdayPrice: true,
         weekendPrice: true,
         holidayPrice: true,
+        adultSurcharge: true,
+        childSurcharge: true,
         cancellationPolicy: true,
         checkInTime: true,
         checkOutTime: true,
@@ -781,10 +795,17 @@ export class PropertiesService {
     // Build payload (omit owner internal fields).
     const { owner, ...propertyFields } = property;
 
+    // Giá web khách = giá gốc + markup (chỉ giá phòng). Giữ cả giá gốc cho tương thích.
+    const mk = this.markupPercent();
+    const toCustomer = (v: number | null) => (v == null ? null : applyRoomMarkup(v, mk));
+
     return {
       message: msg.properties.publicDetailSuccess,
       data: {
         ...propertyFields,
+        customerWeekdayPrice: toCustomer(property.weekdayPrice),
+        customerWeekendPrice: toCustomer(property.weekendPrice),
+        customerHolidayPrice: toCustomer(property.holidayPrice),
         rating: property.ratingAvg,
         reviewCount: property.reviewCount,
         ratingBreakdown,
@@ -835,7 +856,7 @@ export class PropertiesService {
 
     return {
       message: msg.properties.listSuccess,
-      data: items.map((row) => toPropertyCard(row as any)),
+      data: items.map((row) => toPropertyCard(row as any, undefined, this.markupPercent())),
     };
   }
 
@@ -871,7 +892,7 @@ export class PropertiesService {
           phone: owner.phone,
           avatarUrl: owner.avatar,
         },
-        items: items.map((row) => toPropertyCard(row as any)),
+        items: items.map((row) => toPropertyCard(row as any, undefined, this.markupPercent())),
         total: items.length,
       },
     };

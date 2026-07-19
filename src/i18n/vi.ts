@@ -660,4 +660,11 @@ export const vi = {
     restoreSuccess: 'Đã khôi phục đánh giá',
   },
 
+  blog: {
+    listSuccess: 'Lấy danh sách bài blog thành công',
+    getSuccess: 'Lấy bài blog thành công',
+    notFound: 'Không tìm thấy bài blog',
+    fetchError: 'Chưa tải được nội dung blog, vui lòng thử lại sau',
+  },
+
 };
